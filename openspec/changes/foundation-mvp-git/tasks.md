@@ -136,26 +136,26 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 6: HU-002 `commit-discovery`
 
-- [ ] 6.1 `[U]` RED: ticket-grep parsing from canned `git log --grep` output; commit with two tickets matches either.
-- [ ] 6.2 GREEN: `SearchByTicket` message-parse logic in `internal/git`.
-- [ ] 6.3 `[I]` RED: seeded commits — ticket found in messages lists related commits (both scenarios above, real git).
-- [ ] 6.4 GREEN: wire real `git log --grep` into `git.Service.SearchCommits`.
-- [ ] 6.5 `[I]` RED: candidate local+remote branches whose name contains the ticket are listed.
-- [ ] 6.6 GREEN: implement branch-name search.
-- [ ] 6.7 `[U]` RED: single-source-branch enforcement blocks continuing when >1 candidate branch exists.
-- [ ] 6.8 GREEN: implement enforcement (pure, given candidate list).
-- [ ] 6.9 `[U]` RED (RF-002): env-to-env promotion (both source and target are configured sandbox environments, e.g. `INT`→`UAT`) suggests the previous/validated environment branch as the default source, not a feature branch; selecting a different candidate overrides the suggestion and single-source enforcement (6.7/6.8) still applies.
-- [ ] 6.10 GREEN: implement suggested-default-source selection for env-to-env promotions composing `config.Config` (pure, given candidate branches + config).
-- [ ] 6.11 `[I]` RED: seeded commits with inverted author-date vs topo order — `rev-list --reverse --topo-order origin/<target>..origin/<source>` final order is topological.
-- [ ] 6.12 GREEN: implement topo-order commit listing.
-- [ ] 6.13 `[U]` RED: merge-commit detection from canned `git log --parents` (parent count>1) flags + blocks.
-- [ ] 6.14 GREEN: implement merge-commit flagging.
-- [ ] 6.15 `[U]` RED: equivalence classification — canned `git cherry` `-`, `merge-base --is-ancestor`, `patch-id --stable` match → already-applied/equivalent, not selected by default.
-- [ ] 6.16 GREEN: implement equivalence classifier (pure).
-- [ ] 6.17 `[I]` RED: deleted source branch narrows search to grep-only with warning.
-- [ ] 6.18 GREEN: implement deleted-branch detection + warning.
-- [ ] 6.19 `[U]` RED: squash-merge-history warning trigger + no-results alternatives (manual search/change ticket/select branch).
-- [ ] 6.20 GREEN: implement diagnostics/warnings assembly.
+- [x] 6.1 `[U]` RED: ticket-grep parsing from canned `git log --grep` output; commit with two tickets matches either.
+- [x] 6.2 GREEN: `SearchByTicket` message-parse logic in `internal/git`.
+- [x] 6.3 `[I]` RED: seeded commits — ticket found in messages lists related commits (both scenarios above, real git).
+- [x] 6.4 GREEN: wire real `git log --grep` into `git.Service.SearchCommits`.
+- [x] 6.5 `[I]` RED: candidate local+remote branches whose name contains the ticket are listed.
+- [x] 6.6 GREEN: implement branch-name search.
+- [x] 6.7 `[U]` RED: single-source-branch enforcement blocks continuing when >1 candidate branch exists.
+- [x] 6.8 GREEN: implement enforcement (pure, given candidate list).
+- [x] 6.9 `[U]` RED (RF-002): env-to-env promotion (both source and target are configured sandbox environments, e.g. `INT`→`UAT`) suggests the previous/validated environment branch as the default source, not a feature branch; selecting a different candidate overrides the suggestion and single-source enforcement (6.7/6.8) still applies.
+- [x] 6.10 GREEN: implement suggested-default-source selection for env-to-env promotions composing `config.Config` (pure, given candidate branches + config).
+- [x] 6.11 `[I]` RED: seeded commits with inverted author-date vs topo order — `rev-list --reverse --topo-order origin/<target>..origin/<source>` final order is topological.
+- [x] 6.12 GREEN: implement topo-order commit listing.
+- [x] 6.13 `[U]` RED: merge-commit detection from canned `git log --parents` (parent count>1) flags + blocks.
+- [x] 6.14 GREEN: implement merge-commit flagging.
+- [x] 6.15 `[U]` RED: equivalence classification — canned `git cherry` `-`, `merge-base --is-ancestor`, `patch-id --stable` match → already-applied/equivalent, not selected by default.
+- [x] 6.16 GREEN: implement equivalence classifier (pure).
+- [x] 6.17 `[I]` RED: deleted source branch narrows search to grep-only with warning.
+- [x] 6.18 GREEN: implement deleted-branch detection + warning.
+- [x] 6.19 `[U]` RED: squash-merge-history warning trigger + no-results alternatives (manual search/change ticket/select branch).
+- [x] 6.20 GREEN: implement diagnostics/warnings assembly.
 
 ## Phase 7: HU-003 `commit-selection`
 
