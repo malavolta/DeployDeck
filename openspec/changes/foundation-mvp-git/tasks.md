@@ -225,12 +225,12 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.8 GREEN: implement `git.Service` range-vs-explicit-list form selection + a single sequencer-driven cherry-pick invocation (never a Go loop of single-sha picks).
 - [x] 10.9 `[U]` RED (M2): `git.Service` cherry-pick and `--continue` invocations carry `-c commit.gpgsign=false` in `Args` (assert via `FakeRunner` captured `Args`) so promotion commits never invoke gpg with no tty.
 - [x] 10.10 GREEN: add `-c commit.gpgsign=false` to both the initial cherry-pick and `--continue` command construction in `git.Service`.
-- [ ] 10.11 `[I]` RED (AC2): a conflicting commit stops the flow; conflicting files shown classified by type.
-- [ ] 10.12 GREEN: implement conflict-stop handling wiring `RepoState` + `ConflictFile`.
-- [ ] 10.13 `[I]` RED: modify/delete conflict resolution offers an explicit choice to keep the file (`git add`) or delete it (`git rm`).
-- [ ] 10.14 GREEN: implement `git.Service` keep/delete action for `ModifyDelete` conflicts.
-- [ ] 10.15 `[I]` RED: binary conflict resolution offers `git checkout --theirs`/`--ours` selection.
-- [ ] 10.16 GREEN: implement `git.Service` theirs/ours action for `Binary` conflicts.
+- [x] 10.11 `[I]` RED (AC2): a conflicting commit stops the flow; conflicting files shown classified by type.
+- [x] 10.12 GREEN: implement conflict-stop handling wiring `RepoState` + `ConflictFile`.
+- [x] 10.13 `[I]` RED: modify/delete conflict resolution offers an explicit choice to keep the file (`git add`) or delete it (`git rm`).
+- [x] 10.14 GREEN: implement `git.Service` keep/delete action for `ModifyDelete` conflicts.
+- [x] 10.15 `[I]` RED: binary conflict resolution offers `git checkout --theirs`/`--ours` selection.
+- [x] 10.16 GREEN: implement `git.Service` theirs/ours action for `Binary` conflicts.
 - [ ] 10.17 `[U]` RED (AC3, continue-gate): unmerged/unstaged paths remain → disabled with pending detail; staged `<<<<<<<` → blocked naming the file; clean+no markers → enabled.
 - [ ] 10.18 GREEN: implement pure `continueGate(RepoState, stagedBlobs)` predicate.
 - [ ] 10.19 `[T]` RED (AC4, live re-poll): external resolution (simulated outside the TUI step) is reflected automatically on next re-poll tick.

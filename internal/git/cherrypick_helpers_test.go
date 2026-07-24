@@ -92,6 +92,71 @@ func seedCleanFeature(t *testing.T, runner exec.Runner, dir string) (feature1, f
 	return feature1, feature2
 }
 
+// seedModifyDeleteConflict builds a UAT target that DELETES f.cls and a
+// feature commit that MODIFIES it, so cherry-picking feature onto UAT
+// produces a modify/delete (porcelain DU) conflict. Leaves the repo on UAT
+// and returns the feature commit SHA.
+func seedModifyDeleteConflict(t *testing.T, runner exec.Runner, dir string) (featureSHA string) {
+	t.Helper()
+
+	writeFileHelper(t, dir, "f.cls", "public class F {}\n")
+	runGit(t, runner, dir, "add", "f.cls")
+	runGit(t, runner, dir, "commit", "-m", "seed f.cls")
+	runGit(t, runner, dir, "push", "origin", "main")
+
+	runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+	runGit(t, runner, dir, "rm", "f.cls")
+	runGit(t, runner, dir, "commit", "-m", "UAT deletes f.cls")
+	runGit(t, runner, dir, "push", "origin", "UAT")
+
+	runGit(t, runner, dir, "checkout", "-b", "feature", "main")
+	featureSHA = writeAndCommit(t, runner, dir, "f.cls", "public class F { int x; }\n", "PROJ-1: modify f.cls")
+	runGit(t, runner, dir, "push", "origin", "feature")
+
+	runGit(t, runner, dir, "checkout", "UAT")
+	return featureSHA
+}
+
+// seedBinaryConflict builds a UAT target and a feature commit that each
+// change the SAME binary file (img.png) differently, so cherry-picking
+// feature onto UAT produces a binary content conflict (porcelain UU on a
+// binary blob). Leaves the repo on UAT and returns the feature commit SHA
+// and the raw bytes of the feature ("theirs") version.
+func seedBinaryConflict(t *testing.T, runner exec.Runner, dir string) (featureSHA string, theirs []byte) {
+	t.Helper()
+
+	base := []byte("\x00\x01\x02BIN\x00base\n")
+	writeBytesHelper(t, dir, "img.png", base)
+	runGit(t, runner, dir, "add", "img.png")
+	runGit(t, runner, dir, "commit", "-m", "seed img.png")
+	runGit(t, runner, dir, "push", "origin", "main")
+
+	runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+	writeBytesHelper(t, dir, "img.png", []byte("\x00\x01\x02BIN\x00uat\xaa\xbb\n"))
+	runGit(t, runner, dir, "add", "img.png")
+	runGit(t, runner, dir, "commit", "-m", "UAT changes img.png")
+	runGit(t, runner, dir, "push", "origin", "UAT")
+
+	runGit(t, runner, dir, "checkout", "-b", "feature", "main")
+	theirs = []byte("\x00\x01\x02BIN\x00feature\xff\xfe\n")
+	writeBytesHelper(t, dir, "img.png", theirs)
+	runGit(t, runner, dir, "add", "img.png")
+	runGit(t, runner, dir, "commit", "-m", "PROJ-1: feature changes img.png")
+	featureSHA = trimNewline(string(runGit(t, runner, dir, "rev-parse", "HEAD").Stdout))
+	runGit(t, runner, dir, "push", "origin", "feature")
+
+	runGit(t, runner, dir, "checkout", "UAT")
+	return featureSHA, theirs
+}
+
+// writeBytesHelper writes raw bytes to dir/name, failing the test on error.
+func writeBytesHelper(t *testing.T, dir, name string, content []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+		t.Fatalf("failed to write %s: %v", name, err)
+	}
+}
+
 // capturingRunner records every CommandRequest and returns a single canned
 // CommandResult for all of them. It lets unit tests assert the exact Args a
 // Service method issues (e.g. the `-c commit.gpgsign=false` flag) without a
