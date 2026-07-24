@@ -1,9 +1,10 @@
 # Apply Progress: Foundation + MVP Git (HU-001..HU-006)
 
 **Mode**: Strict TDD
-**Batch scope so far**: Phases 1-8 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
-HU-001 `prereq-check`, HU-002 `commit-discovery`, HU-003 `commit-selection`, HU-004 `target-selection`).
-Phases 9-12 (HU-005..HU-006, `internal/app` wiring, final verification) are NOT started.
+**Batch scope so far**: Phases 1-9 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
+HU-001 `prereq-check`, HU-002 `commit-discovery`, HU-003 `commit-selection`, HU-004 `target-selection`,
+HU-005 `promotion-branch`). Phases 10-12 (HU-006 `cherry-pick`, `internal/app` wiring, final
+verification) are NOT started.
 
 ## Completed Tasks (Phases 1-4)
 
@@ -136,9 +137,27 @@ confirmed against the full Phase 1-5 safety net before and after.
 - [x] 8.15 `[U]` RED: confirming a valid destination+sandbox saves branch/alias/testLevel into `DeploymentPlan`.
 - [x] 8.16 GREEN: `DeploymentPlan` extended with `TargetBranch`/`SandboxAlias`/`TestLevel` fields + `ConfirmTargetSelection(plan, branch, alias, testLevel)` (pure, preserves every other field already on the plan).
 
+## Completed Tasks (Phase 9: HU-005 `promotion-branch`)
+
+- [x] 9.1 Extend shared helper with `newTempRepoWithRemote(t)` — local repo + local bare "remote", clone, then advance the bare remote independently.
+- [x] 9.2 `[I]` RED: branch creation runs `git fetch origin` before creating the branch (assert ordering) — via `callRecordingRunner`, a spy wrapping the real `OSRunner`.
+- [x] 9.3 GREEN: `internal/git/service_promotion.go` — `Service.CreatePromotionBranch` (fetch-then-checkout sequencing) + `Service.fetchOrigin` (unexported).
+- [x] 9.4 `[I]` RED: after remote advances post-clone (via `newTempRepoWithRemote`'s `seedDir`, never touching `localDir`), branch is created exactly from post-fetch `origin/UAT` HEAD, not the stale local ref.
+- [x] 9.5 GREEN: reaches GREEN immediately — `CreatePromotionBranch` already resolves the base ref as the literal `"origin/"+target` string and lets git resolve it AT CHECKOUT TIME (never a SHA captured pre-fetch), so the freshly-fetched ref is used by construction (see Deviations).
+- [x] 9.6 `[U]` RED: `RenderBranchName` table-driven — default `deploy/{{ticket}}-to-{{target}}`, a custom reordered format, and a literal user-edited override with no tokens.
+- [x] 9.7 GREEN: `internal/git/promotion_branch.go` — `RenderBranchName(format, ticket, target)` via `strings.NewReplacer` over the same `{{ticket}}`/`{{target}}` tokens as `config.AllowedBranchFormatTokens`.
+- [x] 9.8 `[I]` RED: existing local branch and existing origin-only branch (discovered via the mandatory fetch) with the same name each block creation.
+- [x] 9.9 GREEN: `ErrPromotionBranchExists` + a `Service.BranchExists` check (reusing the Phase 8 primitive) in `CreatePromotionBranch`, run AFTER the fetch so an origin-only collision pushed since the last fetch is still caught.
+- [x] 9.10 `[I]` RED: user on a protected branch (`main`, per `config.Config.Branches`) — starting the flow does not modify that branch directly, proven by comparing its ref before/after a real `CreatePromotionBranch` call.
+- [x] 9.11 GREEN: `ProtectedBranches(cfg)`/`IsProtectedBranch(cfg, branch)` (pure, config-driven — every branch name in `cfg.Branches`), documented as the caller-facing detection predicate; non-modification itself is structural (the new branch always bases on `origin/<target>`, never the current HEAD).
+- [x] 9.12 `[I]` RED: a REAL `git fetch origin` failure (`origin` remote URL pointed at a nonexistent path) stops the flow; current branch and the (non-created) promotion branch are asserted unchanged.
+- [x] 9.13 GREEN: reaches GREEN immediately — the fetch-error early return already in `CreatePromotionBranch` since 9.3 satisfies this (see Deviations).
+- [x] 9.14 `[U]` RED: `RegisterPromotionBranch` table-driven — two branch names, asserting prior plan fields (`Ticket`/`TargetBranch`/`SandboxAlias`/`TestLevel`) are preserved.
+- [x] 9.15 GREEN: `DeploymentPlan.PromotionBranch` field + `RegisterPromotionBranch(plan, branchName)` (pure, same gate-then-persist shape as `ConfirmTargetSelection`).
+- [x] HU-005 Test E2E (required deliverable): `internal/git/promotion_branch_e2e_test.go` — `TestHU005_PromotionBranch_E2E` on the documented two-repo bare-remote harness, plus its three named variants (existing branch locally+remotely, protected-branch, fetch-failure) as subtests.
+
 ## Remaining Tasks (NOT in this batch)
 
-- [ ] Phase 9: HU-005 `promotion-branch` (9.1-9.15)
 - [ ] Phase 10: HU-006 `cherry-pick` (10.1-10.38)
 - [ ] Phase 11: `internal/app` wiring (11.1-11.6)
 - [ ] Phase 12: Final verification (12.1-12.3)
@@ -377,18 +396,66 @@ decides.
 1. **Pre-existing, untouched gofmt nit discovered, not introduced by this batch**: `gofmt -l .` flags `internal/git/dependency_warning_test.go` (a Phase 7 file, commit `759b82b`, not modified in this batch — confirmed via `git status`/`git log` showing zero pending changes to it) for a trailing-comment alignment difference. Not fixed here to keep this batch's diff scoped to Phase 8 only; flagged for a follow-up `gofmt -w` pass before Phase 12's `gofmt -l .` clean-check task.
 2. No other blocking issues. All Phase 8 acceptance criteria (`specs/target-selection/spec.md` under `openspec/changes/foundation-mvp-git/specs/target-selection/spec.md`, and `docs/HISTORIAS.md` HU-004, including its consolidated `### Test E2E` scenario and both named variants) are implemented and green.
 
+## TDD Cycle Evidence (Phase 9 — this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 9.1 | `internal/git/helpers_test.go` (`newTempRepoWithRemote`, `callRecordingRunner`) | Test infra (no RED/GREEN pair — scaffolding, mirrors Phase 4's 4.1 `newTempRepo`) | N/A (additive to existing helper file) | N/A | N/A | N/A | N/A |
+| 9.2/9.3 | `internal/git/service_promotion_test.go` (`TestService_CreatePromotionBranch_FetchRunsBeforeCheckout`) | Integration (`callRecordingRunner` spying on real `OSRunner`, `newTempRepoWithRemote`) | ✅ 109/109 (whole module, pre-Phase-9) | ✅ Written (`svc.CreatePromotionBranch undefined`) | ✅ Passed (real `git fetch origin` call index < real `git checkout -b` call index) | ➖ Single scenario (ordering is a binary property; the two-repo advanced-remote test in 9.4 is this task's real triangulation axis) | ➖ None needed |
+| 9.4/9.5 | `internal/git/service_promotion_test.go` (`TestService_CreatePromotionBranch_FollowsAdvancedRemoteNotStaleLocalRef`) | Integration (`newTempRepoWithRemote`, real git, real remote advance via `seedDir`) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN 9.3 production code; the real-git run against an ADVANCED remote is the empirical proof | ✅ Passed on first run | ➖ Single scenario, but **verified as a REAL assertion**: production code was deliberately mutated to resolve `origin/<target>` to a SHA captured BEFORE the fetch (simulating the stale-ref bug this HU exists to prevent) — the test FAILED with the exact expected/got mismatch, then the mutation was reverted and the test passed again. This is stronger evidence than triangulation alone. | ➖ None needed |
+| 9.6/9.7 | `internal/git/promotion_branch_test.go` (`TestRenderBranchName_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.RenderBranchName`) | ✅ Passed | ✅ 3 table cases (default format, reordered custom format, literal override with zero tokens) | ➖ None needed |
+| 9.8/9.9 | `internal/git/service_promotion_test.go` (`TestService_CreatePromotionBranch_ExistingBranchCollision_TableDriven`) | Integration (`newTempRepoWithRemote`, real git) | ✅ (green pre-task) | ✅ Written (`undefined: git.ErrPromotionBranchExists`) | ✅ Passed | ✅ 3 table cases (local collision, origin-only collision discovered post-fetch, no collision creates normally) | ➖ None needed |
+| 9.10/9.11 | `internal/git/promotion_branch_test.go` (`TestIsProtectedBranch_TableDriven`) + `internal/git/service_promotion_test.go` (`TestService_CreatePromotionBranch_ProtectedBranchNotModifiedDirectly`) | Unit (pure) + Integration (real git) | ✅ (green pre-task) | ✅ Written (`undefined: git.IsProtectedBranch`, both files) | ✅ Passed | ✅ 3 pure table cases (two configured environment branches, one unconfigured feature branch) + 1 real-git non-modification scenario (protected branch ref unchanged, HEAD moves to the new promotion branch) | ➖ None needed |
+| 9.12/9.13 | `internal/git/service_promotion_test.go` (`TestService_CreatePromotionBranch_FetchFailure_StopsWithoutBranchChange`) | Integration (real git — `origin` URL repointed at a nonexistent path so the fetch genuinely fails) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN 9.3 short-circuit; the real fetch-failure run is the empirical proof | ✅ Passed on first run | ➖ Single scenario, but **verified as a REAL assertion** the same way as 9.4/9.5: production code was mutated to ignore the fetch error and continue anyway — the test FAILED (no error returned), then the mutation was reverted and the test passed again. | ➖ None needed |
+| 9.14/9.15 | `internal/git/promotion_branch_test.go` (`TestRegisterPromotionBranch_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.RegisterPromotionBranch`) | ✅ Passed | ✅ 2 cases (default-format name, custom-format name), plus an explicit prior-field-preservation assertion (Ticket/TargetBranch/SandboxAlias/TestLevel untouched) | ➖ None needed |
+| HU-005 Test E2E (required deliverable) | `internal/git/promotion_branch_e2e_test.go` (`TestHU005_PromotionBranch_E2E`) | Integration (`newTempRepoWithRemote`, real git, two-repo bare-remote) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN production code; the first real-git run against an advanced remote is the empirical proof | ✅ Passed on first run | ✅ 3 named subtests (existing branch locally+remotely, protected-branch, fetch-failure) plus the primary scenario's 4 distinct assertions (fetch-before-checkout ordering, advanced-tip base ref, plan registration, rendered branch name) | ➖ None needed |
+
+### Test Summary (Phase 9)
+
+- **Total new top-level test functions this batch**: 9 (`TestService_CreatePromotionBranch_FetchRunsBeforeCheckout`, `TestService_CreatePromotionBranch_FollowsAdvancedRemoteNotStaleLocalRef`, `TestService_CreatePromotionBranch_ExistingBranchCollision_TableDriven`, `TestService_CreatePromotionBranch_ProtectedBranchNotModifiedDirectly`, `TestService_CreatePromotionBranch_FetchFailure_StopsWithoutBranchChange`, `TestRenderBranchName_TableDriven`, `TestIsProtectedBranch_TableDriven`, `TestRegisterPromotionBranch_TableDriven`, `TestHU005_PromotionBranch_E2E`); 118 total top-level test functions passing in the whole module (`go test ./... -v`), up from 109 at the end of the Phase 8 batch, including all table-driven sub-cases.
+- **`go test -race ./...`**: all packages `ok`, no data races.
+- **`go test -short ./...`**: all packages `ok`; every new test in this batch is a real-git integration test and correctly skips via `newTempRepoWithRemote`'s `testing.Short()` guard (it delegates to the same guard `newTempRepo` uses).
+- **Layers used**: Unit (branch-name rendering, protected-branch predicate, plan registration), Integration (fetch-then-checkout ordering via a call-recording spy on real git, the advanced-remote-not-stale-ref correctness property, local/remote collision detection, protected-branch non-modification, real fetch failure, the consolidated E2E scenario) — all via the NEW `newTempRepoWithRemote`/`callRecordingRunner` helpers plus the existing `runGit`/`writeAndCommit`/`trimNewline` helpers.
+- **Approval tests** (refactoring): None — Phase 9 is exclusively new code (`service_promotion.go`, `promotion_branch.go`); `DeploymentPlan` was additively extended (one new field, `PromotionBranch`), not refactored, and its existing Phase 7/8 tests (`TestGenerateDeploymentPlan_TableDriven`, `TestConfirmTargetSelection_TableDriven`) stayed green untouched throughout.
+- **Pure functions/types created**: `RenderBranchName`, `ProtectedBranches`, `IsProtectedBranch`, `RegisterPromotionBranch`; composed (Runner-backed): `Service.CreatePromotionBranch`, `Service.fetchOrigin` (unexported); error value `ErrPromotionBranchExists`.
+- **Mutation-verified assertions**: 2 of this batch's tests (9.4/9.5's stale-ref test, 9.12/9.13's fetch-failure test) were explicitly confirmed to FAIL against a deliberately reintroduced bug, then reverted to pass again — the strongest available evidence that a test exercising already-satisfied production code is a REAL assertion, not a vacuous one (per the Assertion Quality Rules' "Incomplete TDD Cycle" guidance).
+
+## Work Unit Evidence (Phase 9)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/git/... -run 'TestHU005_PromotionBranch_E2E\|TestService_CreatePromotionBranch\|TestRenderBranchName_TableDriven\|TestIsProtectedBranch_TableDriven\|TestRegisterPromotionBranch_TableDriven' -v` → all PASS. |
+| Runtime harness command/scenario and exact result | `go test ./internal/git/... -run TestHU005_PromotionBranch_E2E -v` → PASS: the two-repo bare-remote harness (`newTempRepoWithRemote`) with `origin/UAT` seeded at an initial HEAD, then advanced to a NEW HEAD directly on the bare remote via `seedDir` (never touching the local clone under test) after the local clone already exists; asserts `git fetch origin` runs before `git checkout -b` (via `callRecordingRunner`), the created branch starts EXACTLY from the post-fetch advanced `origin/UAT` HEAD (not the stale clone-time ref), and the `DeploymentPlan` records the final rendered branch name — plus the existing-branch-collision (local and remote-only), protected-branch, and real-fetch-failure variants as subtests. `-short` correctly skips it (shells out to real git). |
+| Rollback boundary | Revert commits `32b7e30` (`Service.CreatePromotionBranch`/`RenderBranchName`/`IsProtectedBranch`/`RegisterPromotionBranch` + `newTempRepoWithRemote`/`callRecordingRunner` helpers), `05a53a8` (consolidated HU-005 E2E test), plus this batch's `tasks.md`/`apply-progress.md` mark commit. Phases 1-8 (`internal/exec`, `internal/config`, `internal/git` HU-001/HU-002/HU-003/HU-004 surface, `internal/prereq`, `internal/salesforce`, `deploydeck doctor`) remain fully buildable/testable alone; nothing in Phase 10+ exists yet to depend on Phase 9. |
+
+## Deviations from Design (Phase 9)
+
+1. **9.5 and 9.13 reached GREEN immediately, no separate production code beyond 9.3's minimal implementation**: `CreatePromotionBranch`'s minimal 9.3 GREEN already (a) resolves the base ref as the literal `"origin/"+target` STRING rather than a pre-resolved SHA, letting git itself resolve that ref at `checkout -b` execution time — always AFTER the mandatory fetch — and (b) returns early on a fetch error before any checkout runs. Both are the CORRECT shape by construction, not something that needed additional code once 9.3 was written correctly. This mirrors the established precedent from Phase 6 (6.13/6.14) and Phase 8 (8.13/8.14): a dedicated RED/GREEN pair exists to LOCK IN and empirically PROVE the property with a real test, not to drive new logic. Unlike those precedents, this batch went one step further for both: the production code was DELIBERATELY, TEMPORARILY mutated to reintroduce the exact bug each test guards against (a pre-fetch-captured stale SHA for 9.4/9.5; an ignored fetch error for 9.12/9.13), confirmed the test FAILS with a clear diagnostic, then reverted — directly addressing the Assertion Quality Rules' concern that a GREEN test against already-passing code might not be exercising the real code path at all.
+2. **Collision detection (9.9) runs AFTER the fetch, not before**: `docs/HISTORIAS.md`'s task list ("Validar si la rama temporal ya existe local o remota") doesn't state an explicit order relative to the fetch, but the Test E2E section's own seed data implies it: a colliding branch can exist "en origin" and must be discovered — `origin/<branchName>` as a resolvable ref only exists locally AFTER a fetch retrieves it. Running the collision check after `fetchOrigin` (reusing the exact `Service.BranchExists` primitive HU-004 already proved) means a collision pushed to origin since the caller's last fetch is still caught, not just a collision that existed at clone time.
+3. **The protected-branch guard (9.11) is a caller-facing pure predicate (`IsProtectedBranch`), not an internal refusal inside `CreatePromotionBranch`**: the spec's own scenario only requires the protected branch to NOT be modified directly — it does not require refusing to START the flow while on one (a user starting HU-005 while on `main` is normal: they are ABOUT to leave it for a new promotion branch). `CreatePromotionBranch` structurally satisfies non-modification already (base ref is always the explicit `origin/<target>`, never the caller's current HEAD — `git checkout -b` never writes to the branch it starts FROM). `IsProtectedBranch`/`ProtectedBranches` give `internal/app` (Phase 11) the config-driven detection to INFORM the user before they proceed, matching the shape `SandboxAuthWarning`/`UnauthenticatedSandboxWarning` established in Phase 8 (a warning-surfacing primitive, not a hard block, for a condition that is not itself unsafe).
+4. **`ProtectedBranches`/`IsProtectedBranch` treat every `cfg.Branches` value as protected, not a separate dedicated config key**: neither `config.Config` nor `docs/ARQUITECTURA.md`'s example config define a distinct "protected branches" list — `cfg.Branches` (the environment→branch map HU-004's `ListDestinations`/`IsProductionBranch` already read) is the only existing config surface naming the branches this tool treats as promotion DESTINATIONS, which are exactly the branches that must never be modified directly (always promoted into via a temp branch). This mirrors HU-004's own `IsProductionBranch` precedent (Phase 8 Deviation #4) of deriving a policy predicate from `cfg.Branches` rather than inventing a new config field. Flagged here in case a future HU wants a dedicated `protectedBranches` config list independent of the environment map (e.g. to protect a branch that is not itself a promotion destination).
+5. **`newTempRepoWithRemote` fixes "UAT" as its seeded advancing branch, rather than taking a branch name parameter**: every Phase 9 scenario (per `docs/HISTORIAS.md`'s own Test E2E wording, "origin/UAT con un HEAD inicial... el remoto avanza UAT") needs the exact same shape — a real `git clone` (not `newTempRepo`'s init+push) of a bare remote pre-seeded with `main` AND `UAT`, so the local clone's `origin/UAT` is a REAL, resolvable, but soon-to-be-stale ref at clone time. Parameterizing the branch name would add complexity with no batch scenario needing a different one; every test that needs OTHER branches (protected-branch's `main`, collision tests' custom names) creates them directly via `runGit`/`seedDir`, exactly like `newTempRepo`'s existing callers already do for branches beyond its own fixed `main`.
+
+## Issues Found (Phase 9)
+
+1. No blocking issues. Both mutation-verification exercises (stale-ref bug for 9.4/9.5, ignored-fetch-error bug for 9.12/9.13) failed exactly as expected on the first attempt and passed again immediately after reverting — no test-setup bugs discovered, unlike some prior batches (Phase 5's `.gitignore` dirty-tree oversight, Phase 8's `-run` pattern debugging).
+2. All Phase 9 acceptance criteria (`specs/promotion-branch/spec.md` under `openspec/changes/foundation-mvp-git/specs/promotion-branch/spec.md`, and `docs/HISTORIAS.md` HU-005, including its consolidated `### Test E2E` scenario and all three named variants) are implemented and green.
+
 ## Status
 
-108/108 tasks in scope (Phases 1-8) complete (170 total tasks in `tasks.md`; 62 remain across Phases 9-12).
-Phase 8 (HU-004 `target-selection`) complete under strict TDD: config-driven destination listing with
-resolved sandbox alias/test level (`ListDestinations`), `Release/*` glob-pattern sandbox resolution with an
-actionable block message for any unmapped destination (`ResolveSandbox`), real destination-branch existence
-validation covering both configured and custom branch names (`Service.BranchExists`), real remote-HEAD
-display (`Service.RemoteHead`), the non-blocking unauthenticated-sandbox warning composing
-`salesforce.Client` (`UnauthenticatedSandboxWarning`/`SandboxAuthWarning`), the literal `main`
-production-environment warning (`IsProductionBranch`), and selection persistence extending `DeploymentPlan`
-with `TargetBranch`/`SandboxAlias`/`TestLevel` (`ConfirmTargetSelection`) — all proved end-to-end via the
-consolidated HU-004 Test E2E scenario from `docs/HISTORIAS.md`, run through the documented
-fs + temp-git + sf-fake harness, plus its nonexistent-branch and unauthenticated-sandbox variants.
-`go build ./...`, `go vet ./...`, `go test -race ./...` all green; `go test -short ./...` correctly skips
-the real-git integration tests. Ready for next batch (Phase 9: HU-005 `promotion-branch`).
+123/123 tasks in scope (Phases 1-9) complete (170 total tasks in `tasks.md`; 47 remain across Phases 10-12).
+Phase 9 (HU-005 `promotion-branch`) complete under strict TDD: `Service.CreatePromotionBranch` always runs
+`git fetch origin` before creating the branch and resolves the base ref as the literal `"origin/<target>"`
+string (never a pre-fetch SHA), so a remote that advanced after the local clone/last fetch is followed
+exactly — the critical correctness property this HU exists for, empirically confirmed via deliberate
+mutation testing on both this property and the fetch-failure short-circuit; branch-name templating via a
+literal `strings.NewReplacer` substitution sharing Phase 3's exact token allow-list (`RenderBranchName`);
+existing local/remote branch names block creation with `ErrPromotionBranchExists` instead of overwriting;
+a config-driven protected-branch predicate (`IsProtectedBranch`) lets the caller detect and inform the user,
+while non-modification of the current branch is structurally guaranteed by construction; and a successful
+creation's final branch name is persisted into `DeploymentPlan` (`RegisterPromotionBranch`) — all proved
+end-to-end via the consolidated HU-005 Test E2E scenario from `docs/HISTORIAS.md`, run through the
+documented two-repo bare-remote harness (`newTempRepoWithRemote`), plus its existing-branch,
+protected-branch, and fetch-failure variants. `go build ./...`, `go vet ./...`, `gofmt -l .`, and
+`go test -race ./...` all green; `go test -short ./...` correctly skips the real-git integration tests.
+Ready for next batch (Phase 10: HU-006 `cherry-pick`).

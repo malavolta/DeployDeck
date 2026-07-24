@@ -197,21 +197,21 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 9: HU-005 `promotion-branch`
 
-- [ ] 9.1 Extend shared helper with `newTempRepoWithRemote(t)` — local repo + local bare "remote", clone, then advance the bare remote independently.
-- [ ] 9.2 `[I]` RED: branch creation runs `git fetch origin` before creating the branch (assert ordering).
-- [ ] 9.3 GREEN: implement fetch-then-checkout sequencing in `git.Service.CreatePromotionBranch`.
-- [ ] 9.4 `[I]` RED: after remote advances post-clone, branch is created exactly from post-fetch `origin/<target>` HEAD, not the stale local ref.
-- [ ] 9.5 GREEN: implement base-ref resolution from freshly fetched `origin/<target>`.
-- [ ] 9.6 `[U]` RED: branch-name templating — default `deploy/{{ticket}}-to-{{target}}` renders via `strings.NewReplacer` literal-token substitution (NOT Go `text/template`, which would fail parsing `{{ticket}}` as a function node) + custom format + user-edit override.
-- [ ] 9.7 GREEN: implement `branchFormat` rendering via `strings.NewReplacer` over the shared `{{ticket}}`/`{{target}}` token allow-list (same allow-list as Phase 3 `Validate()`) + edit-before-create hook.
-- [ ] 9.8 `[I]` RED: existing local/remote branch with the same name prompts for an action.
-- [ ] 9.9 GREEN: implement collision detection + action prompt.
-- [ ] 9.10 `[I]` RED: user on a protected branch — starting the flow does not modify that branch directly.
-- [ ] 9.11 GREEN: implement protected-branch guard (config-driven list).
-- [ ] 9.12 `[I]` RED: `git fetch origin` failure stops the flow, current branch unchanged.
-- [ ] 9.13 GREEN: implement fetch-failure short-circuit.
-- [ ] 9.14 `[U]` RED: successful creation records the final branch name into `DeploymentPlan`.
-- [ ] 9.15 GREEN: implement `DeploymentPlan` branch-name registration.
+- [x] 9.1 Extend shared helper with `newTempRepoWithRemote(t)` — local repo + local bare "remote", clone, then advance the bare remote independently.
+- [x] 9.2 `[I]` RED: branch creation runs `git fetch origin` before creating the branch (assert ordering).
+- [x] 9.3 GREEN: implement fetch-then-checkout sequencing in `git.Service.CreatePromotionBranch`.
+- [x] 9.4 `[I]` RED: after remote advances post-clone, branch is created exactly from post-fetch `origin/<target>` HEAD, not the stale local ref.
+- [x] 9.5 GREEN: implement base-ref resolution from freshly fetched `origin/<target>`.
+- [x] 9.6 `[U]` RED: branch-name templating — default `deploy/{{ticket}}-to-{{target}}` renders via `strings.NewReplacer` literal-token substitution (NOT Go `text/template`, which would fail parsing `{{ticket}}` as a function node) + custom format + user-edit override.
+- [x] 9.7 GREEN: implement `branchFormat` rendering via `strings.NewReplacer` over the shared `{{ticket}}`/`{{target}}` token allow-list (same allow-list as Phase 3 `Validate()`) + edit-before-create hook.
+- [x] 9.8 `[I]` RED: existing local/remote branch with the same name prompts for an action.
+- [x] 9.9 GREEN: implement collision detection + action prompt.
+- [x] 9.10 `[I]` RED: user on a protected branch — starting the flow does not modify that branch directly.
+- [x] 9.11 GREEN: implement protected-branch guard (config-driven list).
+- [x] 9.12 `[I]` RED: `git fetch origin` failure stops the flow, current branch unchanged.
+- [x] 9.13 GREEN: implement fetch-failure short-circuit.
+- [x] 9.14 `[U]` RED: successful creation records the final branch name into `DeploymentPlan`.
+- [x] 9.15 GREEN: implement `DeploymentPlan` branch-name registration.
 
 ## Phase 10: HU-006 `cherry-pick` (largest/highest-risk — one RED→GREEN per AC)
 
