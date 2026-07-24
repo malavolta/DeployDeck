@@ -74,9 +74,9 @@ func TestService_DependencyWarnings_Integration_RealDiff(t *testing.T) {
 // git involved.
 func TestComputeDependencyWarnings_TableDriven(t *testing.T) {
 	ordered := []git.DiscoveredCommit{
-		{Commit: git.Commit{SHA: "m1"}},   // earlier, touches shared.txt, unselected
-		{Commit: git.Commit{SHA: "m2"}},   // later, touches shared.txt, selected
-		{Commit: git.Commit{SHA: "m3"}},   // later, touches other.txt only, selected
+		{Commit: git.Commit{SHA: "m1"}},              // earlier, touches shared.txt, unselected
+		{Commit: git.Commit{SHA: "m2"}},              // later, touches shared.txt, selected
+		{Commit: git.Commit{SHA: "m3"}},              // later, touches other.txt only, selected
 		{Commit: git.Commit{SHA: "m4"}, Merge: true}, // merge commit, never contributes files
 	}
 
