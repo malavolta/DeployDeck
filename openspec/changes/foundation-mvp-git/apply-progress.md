@@ -1,9 +1,9 @@
 # Apply Progress: Foundation + MVP Git (HU-001..HU-006)
 
 **Mode**: Strict TDD
-**Batch scope so far**: Phases 1-5 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
-HU-001 `prereq-check`). Phases 6-12 (HU-002..HU-006, `internal/app` wiring, final verification) are
-NOT started.
+**Batch scope so far**: Phases 1-6 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
+HU-001 `prereq-check`, HU-002 `commit-discovery`). Phases 7-12 (HU-003..HU-006, `internal/app` wiring,
+final verification) are NOT started.
 
 ## Completed Tasks (Phases 1-4)
 
@@ -67,9 +67,39 @@ NOT started.
 - [x] 5.25 `[U]`/`[I]` RED: `doctor` exits non-zero (distinct from success) on any blocker, zero when all pass.
 - [x] 5.26 GREEN: wire `doctor` subcommand to `Checker` with distinct non-zero exit.
 
+## Completed Tasks (Phase 6: HU-002 `commit-discovery`)
+
+- [x] 6.1 `[U]` RED: ticket-grep parsing from canned `git log --grep` output; commit with two tickets matches either.
+- [x] 6.2 GREEN: `Commit`/`parseCommitLog`/`Service.SearchCommits` in `internal/git`.
+- [x] 6.3 `[I]` RED: seeded commits — ticket found in messages lists related commits (real git).
+- [x] 6.4 GREEN: wire real `git log --grep` into `Service.SearchCommits`.
+- [x] 6.5 `[I]` RED: candidate local+remote branches whose name contains the ticket are listed.
+- [x] 6.6 GREEN: `Service.CandidateBranches` via `git branch --list '*<ticket>*'` (refactored `branchNames` to accept a pattern, reused by `ListBranches`).
+- [x] 6.7 `[U]` RED: single-source-branch enforcement blocks continuing when >1 candidate branch exists.
+- [x] 6.8 GREEN: `SelectSingleSource(candidates, selected)` (pure).
+- [x] 6.9 `[U]` RED (RF-002): env-to-env promotion suggests the previous/validated environment as default source; override still enforces single-source.
+- [x] 6.10 GREEN: `SuggestDefaultSource(candidates, cfg, target)` composing `config.Config` (pure) via a fixed `integration→uat→production` pipeline order.
+- [x] 6.11 `[I]` RED: seeded commits with inverted author-date vs topo order — final order is topological.
+- [x] 6.12 GREEN: `Service.CommitsInRange` via `git rev-list --reverse --topo-order --no-commit-header origin/<target>..origin/<source>`.
+- [x] 6.13 `[U]` RED: merge-commit detection (parent count>1) flags + blocks.
+- [x] 6.14 GREEN: `Commit.IsMerge()` (already correct from the shared `%P` parsing in 6.2; this task added dedicated table-driven + real multi-parent-line coverage).
+- [x] 6.15 `[U]` RED: equivalence classification — canned `git cherry` `-`, `merge-base --is-ancestor`, `patch-id --stable` match → already-applied/equivalent.
+- [x] 6.16 GREEN: `ClassifyEquivalence`/`ParseCherryOutput`/`ParsePatchID` (pure) + `Service.IsAncestor`/`Service.Cherry`/`Service.PatchID` (real git wiring, proved via `newTempRepo`).
+- [x] 6.17 `[I]` RED: deleted source branch narrows search to grep-only with warning.
+- [x] 6.18 GREEN: `DeletedSourceBranchWarning(matched, candidates)` (pure, derived from existing search results — no extra git call).
+- [x] 6.19 `[U]` RED: squash-merge-history warning trigger + no-results alternatives.
+- [x] 6.20 GREEN: `SquashMergeWarning`, `NoResultsAlternatives`, `DiscoveredCommit`, and `Service.Discover` — the composed HU-002 discovery entry point — assembled in `internal/git/discovery.go`.
+
+### Preliminary work unit: `internal/exec` Stdin support (needed for `git patch-id --stable`)
+
+Not a Phase 6 task by number, but a required, minimal, backward-compatible extension of the Phase 2
+seam: `git show <sha> | git patch-id --stable` is a shell pipeline, and `internal/exec` never shells
+out. Added `CommandRequest.Stdin []byte` (nil-safe, zero-value-compatible) wired through `OSRunner` via
+`cmd.Stdin`, under its own RED (compile failure)/GREEN (real `cat`-echo integration test) cycle,
+confirmed against the full Phase 1-5 safety net before and after.
+
 ## Remaining Tasks (NOT in this batch)
 
-- [ ] Phase 6: HU-002 `commit-discovery` (6.1-6.20)
 - [ ] Phase 7: HU-003 `commit-selection` (7.1-7.16)
 - [ ] Phase 8: HU-004 `target-selection` (8.1-8.16)
 - [ ] Phase 9: HU-005 `promotion-branch` (9.1-9.15)
@@ -120,6 +150,53 @@ NOT started.
 - **Layers used**: Unit (salesforce parsing, lock table-driven + concurrency, version-compare, versions/hooks/gpgsign/aliases checks), Integration (repository/origin, working tree, gitignore, full-report assembly — all via real `git` through `newTempRepo`), CLI (doctor exit-code wiring)
 - **Approval tests** (refactoring): None — `checker_versions.go`'s CheckVersions was extended (missing-binary degrades to a blocking check instead of a hard error) under a new failing test, not refactored behind an approval test, since the old "hard error" behavior had no prior spec-mandated contract to preserve
 - **Pure functions created**: `compareVersions`/`splitVersion` (dotted numeric version comparison), `hasDeploydeckIgnoreEntry`, `DetectInterferingHooks`, `insideRepo`, `versionCheck`/`deltaPluginCheck`, `OrgList.FindByAlias`, `parseVersionOutput`, `decodeEnvelope`
+
+## TDD Cycle Evidence (Phase 6 — this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| exec Stdin (preliminary) | `internal/exec/os_runner_stdin_test.go` | Integration | ✅ 8/8 (all prior `internal/exec` tests) | ✅ Written (`unknown field Stdin`) | ✅ Passed | ✅ 2 cases (stdin fed / no-stdin no-hang) | ➖ None needed |
+| 6.1/6.2 | `internal/git/service_search_test.go` | Unit (`FakeRunner`) | ✅ 13/13 (`internal/git` pre-Phase-6) | ✅ Written (`svc.SearchCommits undefined`) | ✅ Passed | ✅ 3 cases (single match, dual-ticket-matches-either, zero-match) | ➖ None needed |
+| 6.3/6.4 | `internal/git/service_search_integration_test.go` | Integration (`newTempRepo`) | ✅ 16/16 | ✅ Written (new scenario against already-passing production code) | ✅ Passed | ✅ 3 assertions (2 tickets found, dual-ticket via 2nd ticket, unmatched ticket empty) | ➖ None needed |
+| 6.5/6.6 | `internal/git/service_branches_test.go` | Integration (`newTempRepo`) | ✅ 1/1 (`ListBranches`, safety net before refactoring `branchNames`) | ✅ Written (`svc.CandidateBranches undefined`) | ✅ Passed | ✅ local+remote+excluded-unrelated in one scenario | ➖ None needed |
+| 6.7/6.8 | `internal/git/source_selection_test.go` | Unit (pure) | N/A (new file) | ✅ Written (`undefined: git.SelectSingleSource` + 3 error vars) | ✅ Passed | ✅ 5 table cases | ➖ None needed |
+| 6.9/6.10 | `internal/git/source_suggestion_test.go` | Unit (pure) | N/A (new file) | ✅ Written (`undefined: git.SuggestDefaultSource`) | ✅ Passed | ✅ 4 table cases + 1 dedicated override/enforcement scenario | ➖ None needed |
+| 6.11/6.12 | `internal/git/service_range_test.go` | Integration (`newTempRepo`, explicit `--date`) | ✅ 18/18 | ✅ Written (`svc.CommitsInRange undefined`) | ✅ Passed | ➖ Single scenario (the inversion itself is the triangulation axis, plus a setup-sanity assertion proving the inversion is real) | ➖ None needed |
+| 6.13/6.14 | `internal/git/commit_merge_test.go` | Unit (pure `IsMerge` + `FakeRunner` real multi-parent line) | ✅ 21/21 | ✅ Written (behavior already satisfied by 6.1/6.2's shared `%P` parsing — see Deviations) | ✅ Passed immediately | ✅ 4 table cases (0/1/2/3 parents) + 1 real merge-line parse | ➖ None needed |
+| 6.15/6.16 | `internal/git/equivalence_test.go`, `internal/git/service_equivalence_test.go` | Unit (pure) + Integration (`newTempRepo`) | ✅ 22/22 | ✅ Written (`undefined: git.EquivalenceStatus` etc.; `svc.IsAncestor undefined` etc.) | ✅ Passed | ✅ 6 `ClassifyEquivalence` cases + 2 `ParsePatchID` cases + 1 real ancestor/cherry/patch-id integration scenario | ➖ None needed |
+| 6.17/6.18 | `internal/git/discovery_deleted_branch_test.go` | Integration (`newTempRepo`) + Unit (pure) | ✅ 27/27 | ✅ Written (`undefined: git.DeletedSourceBranchWarning`) | ✅ Passed | ✅ 3 table cases + 1 real deleted-branch scenario | ➖ None needed |
+| 6.19/6.20 | `internal/git/discovery_diagnostics_test.go`, `internal/git/discovery_e2e_test.go` | Unit (pure) + Integration (`newTempRepo`, full E2E) | ✅ 29/29 | ✅ Written (`undefined: git.DiscoveredCommit`/`SquashMergeWarning`/`NoResultsAlternatives`) | ✅ Passed | ✅ 4 + 3 table cases, plus the full consolidated HU-002 E2E scenario and its 2 named variants | ➖ None needed |
+
+### Test Summary (Phase 6)
+
+- **Total new top-level test functions this batch**: 20 (across `internal/exec` + `internal/git`); 91 total top-level test functions passing in the whole module (`go test ./... -v`), up from 57+ at the end of the Phase 5 batch, including all table-driven sub-cases.
+- **`go test -race ./...`**: all packages `ok`, no data races.
+- **`go test -short ./...`**: all packages `ok`; real-git integration tests correctly skip (`internal/git` drops from ~7s to ~0.8s under `-short`).
+- **Layers used**: Unit (log/porcelain-style parsing, single-source enforcement, RF-002 suggestion, merge detection, equivalence classification, diagnostics), Integration (ticket search, candidate branches, topo order with a real author-date inversion, real `merge-base`/`cherry`/`patch-id`, deleted-branch, the full HU-002 E2E scenario) — all via the shared `newTempRepo` harness plus `writeAndCommit`/`commitWithAuthorDate` helpers added in this batch.
+- **Approval tests** (refactoring): None — `branchNames` was extended (added a `pattern` parameter) under `ListBranches`' existing passing test as a safety net, then `CandidateBranches`' new failing test drove the extension; behavior for `ListBranches`' existing callers is unchanged (empty pattern = list everything, exactly as before).
+- **Pure functions/types created**: `Commit.IsMerge`, `parseCommitLog`, `SelectSingleSource`, `SuggestDefaultSource`, `ClassifyEquivalence`, `ParseCherryOutput`, `ParsePatchID`, `DeletedSourceBranchWarning`, `SquashMergeWarning`, `NoResultsAlternatives`, `DiscoveredCommit.AlreadyApplied`/`SelectableByDefault`.
+
+## Work Unit Evidence (Phase 6)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/git/... ./internal/exec/...` → both `ok`. `go test ./internal/git/... -run TestHU002_Discover_E2E -v` → PASS (primary scenario + 2 variants). |
+| Runtime harness command/scenario and exact result | `go test ./internal/git/... -run TestHU002_Discover_E2E$ -v` → PASS: real temp git repo (`newTempRepo`) seeded with an author-date-inverted commit pair, a commit merged into target by identical SHA, a content-duplicated commit (different SHA), a merge commit, a dual-ticket commit, and a second candidate branch; asserts `Service.Discover` returns the delta in topological order, flags the merge commit as not-selectable, classifies the content-equivalent commit via `git cherry`, and that `IsAncestor`+`ClassifyEquivalence` correctly detect the identical-SHA case (proven directly, since it is structurally excluded from the topo-ordered delta by git's own range semantics — documented in the test and in Deviations below). `-short` correctly skips all of it (shells out to real git). |
+| Rollback boundary | Revert commits `adb8061` (exec Stdin), `1bf4972` (search+candidate branches), `745ebd2` (single-source enforcement + RF-002), `e11f816` (topo order), `58ff3e8` (merge-detection coverage), `14c3700` (equivalence detection), `1eb132f` (diagnostics + discovery entry point), `7168731` (tasks.md marks). Phases 1-5 (`internal/exec` sans Stdin, `internal/config`, `internal/git` core, `internal/prereq`, `internal/salesforce`, `doctor` CLI) remain fully buildable/testable alone; nothing in Phase 7+ exists yet to depend on Phase 6. |
+
+## Deviations from Design (Phase 6)
+
+1. **`git log --grep` does not exit 1 on zero matches, contrary to design.md's blanket exit-code-as-data list**: design.md's Decision block lists `log --grep (1 = no match)` alongside `merge-base --is-ancestor`/`cherry-pick`/`diff --quiet`. Verified empirically against git 2.50.1: `git log --all --grep <no-match> --format=...` exits **0** with empty stdout, regardless of match count — only `merge-base --is-ancestor` (of this batch's commands) genuinely uses a non-zero exit as data. `SearchCommits`/`CommitsInRange` therefore treat any non-zero exit as a real error (consistent with `ListBranches`/`Status`'s existing pattern), and an empty result set is read from empty stdout, not from exit code 1.
+2. **`internal/exec.CommandRequest` gained a `Stdin []byte` field (Phase 2 seam extension, not a Phase 6 task)**: `git show <sha> | git patch-id --stable` (HU-002's own documented command) is a shell pipeline; `internal/exec` never shells out. Rather than reimplementing the patch-id algorithm in Go, the first command's `Stdout` is passed as the second `CommandRequest.Stdin`. Nil-safe/zero-value-compatible — every pre-existing request is unaffected. Proved under its own RED/GREEN cycle with the full Phase 1-5 suite green before and after.
+3. **`SuggestDefaultSource`'s environment pipeline order (`integration→uat→production`) is a fixed constant, not derived from config**: neither `config.Config` nor the docs define an explicit ordering for the `branches` map (a Go map has no order). `docs/ARQUITECTURA.md`'s example config and `docs/HISTORIAS.md` HU-016's "INT -> UAT -> Release -> main" description are the only source for this sequence; encoded as `environmentPipelineOrder`, documented in code, and scoped to exactly the three keys the example config uses. `Release/*` and custom branches are explicitly out of this pipeline (HU-004's sandbox glob owns them) and are never suggested as a default source. Flagged for confirmation if a future HU redefines the pipeline (e.g. adds a `Release` stage between `uat` and `production`).
+4. **`Service.Discover`'s `OrderedCommits` cannot ever contain an `AlreadyAppliedBySHA` classification, by construction**: `git rev-list origin/<target>..origin/<source>` mechanically EXCLUDES any commit that is already an ancestor of target — that is the literal definition of the range operator. A commit merged into target by identical SHA is therefore correctly absent from the topo-ordered delta; there is nothing contradictory about this once documented (a commit that's already fully in target isn't "new" and has nothing to disambiguate for selection). Same-SHA already-applied detection is proven directly via `IsAncestor`/`ClassifyEquivalence`, and separately via `SearchCommits`'s `--all`-scoped message search (which is NOT range-limited and does surface such commits) — both documented and asserted in `TestHU002_Discover_E2E`. `EquivalentByCherry` (content equivalence, different SHA) is unaffected by this range exclusion and IS proven inside `OrderedCommits`, since a cherry-picked-elsewhere commit gets a new SHA and is never excluded by ancestry.
+5. **`SquashMergeWarning` is an explicit, disclosed best-effort heuristic, not a real detector**: `docs/HISTORIAS.md` itself states squash-merge content equivalence "no es detectable estaticamente" and defers to HU-006's empty-pick `--skip` as the real safety net (DEC-001). No algorithm is specified anywhere. Implemented as: a ticket's classified commits showing a MIX of already-applied and still-pending (excluding merge commits from the check) is atypical for this tool's normal all-pending-or-all-promoted-together flow, and is used as the courtesy trigger. Documented in-code as best-effort, not authoritative.
+6. **6.13/6.14 (merge-commit detection) reached GREEN immediately, no separate production change**: `Commit.IsMerge()` and `parseCommitLog`'s `%P` parsing (built for 6.1/6.2) already handled multi-parent lines correctly as a side effect of unifying commit parsing on one shared log format, rather than using a separate `git log --parents` call as HISTORIAS.md's technical info suggests. This task added dedicated, explicitly-named table-driven (0/1/2/3 parents) and real-log-line coverage to lock the behavior in per its own acceptance criterion, rather than leaving it only incidentally covered by 6.1/6.2's tests.
+
+## Issues Found (Phase 6)
+
+1. **Shell backtick interpolation broke one commit message**: the `feat(git): order discovered commits topologically` commit's `-m` message contained inline backtick-quoted git commands inside a double-quoted heredoc, which the shell interpreted as command substitution, producing an empty/garbled message body. Fixed via `git commit --amend` (no other commits were stacked on top yet, so no history was rewritten out from under later work) using a single-quoted heredoc delimiter (`<<'COMMITMSG'`) for every commit message from that point on, which prevents all shell expansion.
+2. No other blocking issues. All Phase 6 acceptance criteria (`specs/commit-discovery/spec.md` under `openspec/changes/foundation-mvp-git/specs/commit-discovery/spec.md`, and `docs/HISTORIAS.md` HU-002) are implemented and green, including the RF-002 suggested-default-source requirement and the consolidated Test E2E scenario.
 
 ## Work Unit Evidence (Phase 5)
 
@@ -178,13 +255,20 @@ decides.
 ## Workload / PR Boundary
 
 - Mode: single PR (`size:exception` GRANTED by maintainer per tasks.md Delivery Decision, recorded 2026-07-24)
-- Current work unit: Unit 2 of 4 suggested units — "HU-001..HU-005 (Phases 5-9)" — Phase 5 (`prereq-check`) is now complete; Phases 6-9 remain for this unit
-- Boundary: starts from Phase 1-4's `internal/exec`/`internal/config`/`internal/git` core (all green, no HU-level behavior); ends with `internal/salesforce`, `internal/prereq` (all HU-001 checks + single-instance lock) and `deploydeck doctor` fully wired and independently tested/green
-- Estimated review budget impact: 4 commits this batch (~2,700 changed lines: salesforce shim, prereq checks + lock + git plumbing, doctor CLI wiring, tasks.md marks); tracked against the session's explicit `review_budget_lines=40000` budget per the accepted `size:exception`
+- Current work unit: Unit 2 of 4 suggested units — "HU-001..HU-005 (Phases 5-9)" — Phases 5-6 (`prereq-check`, `commit-discovery`) are now complete; Phases 7-9 remain for this unit
+- Boundary: starts from Phase 1-4's `internal/exec`/`internal/config`/`internal/git` core (all green, no HU-level behavior); ends with `internal/salesforce`, `internal/prereq`, `deploydeck doctor` (Phase 5) and `internal/git`'s discovery surface — `SearchCommits`, `CandidateBranches`, `SelectSingleSource`, `SuggestDefaultSource`, `CommitsInRange`, `ClassifyEquivalence`/`IsAncestor`/`Cherry`/`PatchID`, `Discover` (Phase 6) — fully wired and independently tested/green
+- Estimated review budget impact: 8 commits this batch (~2,140 changed lines: `internal/exec` Stdin extension, ticket/branch search, single-source enforcement + RF-002, topo order, merge-detection coverage, content-equivalence, diagnostics + discovery entry point, tasks.md marks); tracked against the session's explicit `review_budget_lines=40000` budget per the accepted `size:exception`
 
 ## Status
 
-56/56 tasks in scope (Phases 1-5) complete (170 total tasks in `tasks.md`; 114 remain across Phases 6-12).
-HU-001 remediation batch complete: H1/H2/H3 fixed and GAP A/B closed under strict TDD; `go build`,
-`go vet`, `go test -race ./...` all green, `-short` skips integration. Ready for next batch
-(Phase 6: HU-002 `commit-discovery`).
+76/76 tasks in scope (Phases 1-6) complete (170 total tasks in `tasks.md`; 94 remain across Phases 7-12).
+Phase 6 (HU-002 `commit-discovery`) complete under strict TDD: ticket message/branch-name search,
+single-source-branch enforcement, RF-002 suggested default source, topological ordering (proven against
+a real seeded author-date inversion), merge-commit flagging, content-equivalence detection (`git cherry`
++ `merge-base --is-ancestor`, with `patch-id --stable` available as a separately tested fallback
+primitive), and search diagnostics (deleted-branch warning, best-effort squash-merge courtesy warning,
+no-results alternatives) — all composed into `Service.Discover`, the single discovery entry point, and
+proved end-to-end via the consolidated HU-002 Test E2E scenario from `docs/HISTORIAS.md` plus its
+deleted-branch and no-results variants. `go build ./...`, `go vet ./...`, `go test -race ./...` all
+green; `go test -short ./...` correctly skips the real-git integration tests. Ready for next batch
+(Phase 7: HU-003 `commit-selection`).
