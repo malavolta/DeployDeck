@@ -158,7 +158,8 @@ confirmed against the full Phase 1-5 safety net before and after.
 
 ## Remaining Tasks (NOT in this batch)
 
-- [ ] Phase 10: HU-006 `cherry-pick` (10.1-10.38)
+- [x] Phase 10: HU-006 `cherry-pick` engine (10.1-10.18, 10.21-10.36) — DONE this batch
+- [ ] Phase 10: 10.19/10.20 (`tea.Tick` re-poll) + 10.37/10.38 (dependency-boundary test) — DEFERRED to Phase 11 (require `internal/app`, which this batch was told NOT to start; see Phase 10 Deviations)
 - [ ] Phase 11: `internal/app` wiring (11.1-11.6)
 - [ ] Phase 12: Final verification (12.1-12.3)
 
@@ -441,7 +442,115 @@ decides.
 1. No blocking issues. Both mutation-verification exercises (stale-ref bug for 9.4/9.5, ignored-fetch-error bug for 9.12/9.13) failed exactly as expected on the first attempt and passed again immediately after reverting — no test-setup bugs discovered, unlike some prior batches (Phase 5's `.gitignore` dirty-tree oversight, Phase 8's `-run` pattern debugging).
 2. All Phase 9 acceptance criteria (`specs/promotion-branch/spec.md` under `openspec/changes/foundation-mvp-git/specs/promotion-branch/spec.md`, and `docs/HISTORIAS.md` HU-005, including its consolidated `### Test E2E` scenario and all three named variants) are implemented and green.
 
+## Completed Tasks (Phase 10: HU-006 `cherry-pick`)
+
+- [x] 10.1 `[U]` RED: porcelain XY + numstat classification (`DU`/`UD`→ModifyDelete, `DD`→BothDeleted, binary `-`→Binary, else Text).
+- [x] 10.2 GREEN: `internal/git/conflict.go` — `ConflictKind`, `ConflictFile{Path,Kind}`, `classifyConflictKind`, `ClassifyConflicts` (pure).
+- [x] 10.3 `[U]` RED: `git status --porcelain -z` NUL-delimited parsing — paths with spaces/unicode split safely; rename source path consumed.
+- [x] 10.4 GREEN: `parsePorcelainZ` (bytes.Split on NUL, XY+space+path, rename-skip) + `numstatIsBinary`.
+- [x] 10.5 `[I]` RED: `RepoState{InProgress,CurrentSHA,Unmerged,SequencerRemaining}` assembled during a REAL multi-commit pick (populated `.git/sequencer/todo`).
+- [x] 10.6 GREEN: `internal/git/service_repostate.go` — `Service.RepoState()` reconciled from `CHERRY_PICK_HEAD` + `.git/sequencer/todo` + `status --porcelain -z`; extended `RepoState` struct.
+- [x] 10.7 `[I]` RED (AC1): contiguous selection applies in topo order via ONE sequencer-driven invocation; content == source; single cherry-pick process proven via `callRecordingRunner`.
+- [x] 10.8 GREEN: `CherryPickRevisions` (range `<first>^..<last>` vs explicit ordered list) + `IsContiguousSelection` + `Service.CherryPick` (single invocation, never a Go loop).
+- [x] 10.9 `[U]` RED (M2): cherry-pick + `--continue` carry `-c commit.gpgsign=false` (asserted via capturing runner + arg-order check).
+- [x] 10.10 GREEN: `cherryPickArgs`/`continueArgs`/`skipArgs` prepend `gpgSignOff` before the subcommand.
+- [x] 10.11 `[I]` RED (AC2): a conflicting commit stops the flow; conflicting files shown classified by type.
+- [x] 10.12 GREEN: `CherryPick`/`pickOutcome` reconcile `RepoState` with classified `Unmerged` on conflict (exit 1 as DATA).
+- [x] 10.13 `[I]` RED: modify/delete conflict offers keep (`git add`) or delete (`git rm`).
+- [x] 10.14 GREEN: `Service.KeepConflictFile`/`DeleteConflictFile` (`internal/git/service_conflict_resolution.go`).
+- [x] 10.15 `[I]` RED: binary conflict offers `git checkout --theirs`/`--ours`.
+- [x] 10.16 GREEN: `Service.ResolveBinaryConflict(side)` (checkout `--theirs/--ours` then stage) + `ResolutionSide`/`SideTheirs`/`SideOurs`.
+- [x] 10.17 `[U]` RED (AC3): unmerged/unstaged → disabled with pending detail; staged `<<<<<<<` → blocked naming the file; clean+no markers → enabled.
+- [x] 10.18 GREEN: pure `EvaluateContinueGate(RepoState, markerFiles)` + `Service.StagedConflictMarkers` (`git diff --cached --check` parse) in `continue_gate.go`.
+- [ ] 10.19 `[T]` RED (AC4 live re-poll) — DEFERRED to Phase 11 (`internal/app`/`tea.Tick`; engine substance covered by 10.23/10.24 reconciliation).
+- [ ] 10.20 GREEN (`tea.Tick` re-poll in `internal/app`) — DEFERRED to Phase 11.
+- [x] 10.21 `[I]` RED (AC5): once the gate passes, `git cherry-pick --continue` runs non-interactively (no hang).
+- [x] 10.22 GREEN: `Service.ContinueCherryPick` wires gate → `ErrContinueBlocked` when unresolved, else runs `--continue`.
+- [x] 10.23 `[I]` RED (AC6): external `--continue`/`--abort` during a real sequencer run is detected on re-read.
+- [x] 10.24 GREEN: `RepoState()` re-reads from repo on EVERY call (no cached state), so external actions reconcile by construction.
+- [x] 10.25 `[I]` RED (AC7a): confirmed abort runs `git cherry-pick --abort`.
+- [x] 10.26 GREEN: `Service.AbortCherryPick` (`internal/git/service_abort.go`).
+- [x] 10.27 `[I]` RED (AC7b): abort after partial picks offers temp-branch cleanup.
+- [x] 10.28 GREEN: `Service.AppliedPickCount` (`rev-list --count base..HEAD`) + pure `OfferPartialBranchCleanup`.
+- [x] 10.29 `[I]` RED (AC8): content already present under a different SHA → empty pick detected, `--skip` offered with a message.
+- [x] 10.30 GREEN: `isEmptyPickMessage`/`emptyPickExplanation` (`empty.go`) + `Service.SkipCherryPick`; `pickOutcome` surfaces `Empty`+`EmptyMessage`.
+- [x] 10.31 `[I]` RED (AC9): `git rerere` auto-resolves a repeat conflict — labeled auto-resolved-from-prior, still requires confirmation (unmerged until staged).
+- [x] 10.32 GREEN: `rerereResolvedPaths`/`Service.RerereEnabled`/`SuggestEnableRerere` (`rerere.go`); `pickOutcome` sets `RerereResolved`.
+- [x] 10.33 `[I]` RED (AC10): a touched file differing from source after all picks → per-file partial-promotion warning.
+- [x] 10.34 GREEN: `Service.VerifyPromotedContent` (`git diff --name-only -z HEAD <source> -- <files>`) + `PickVerification` (`pick_verification.go`).
+- [x] 10.35 `[U]` RED (AC11): a failed/in-progress/aborted run blocks delta + Salesforce validation.
+- [x] 10.36 GREEN: pure `DeltaAndValidationAllowed(state, aborted)`.
+- [ ] 10.37 `[U]` RED (`internal/app` never imports `internal/exec`, `go list -deps` boundary) — DEFERRED to Phase 11 (requires `internal/app`).
+- [ ] 10.38 GREEN (route all `internal/app` git/sf calls through `git.Service`/`salesforce.Client`) — DEFERRED to Phase 11.
+- [x] HU-006 Test E2E (required deliverable): `internal/git/cherry_pick_e2e_test.go` — `TestHU006_CherryPick_E2E` on `newTempRepo` (real git, no FakeRunner for the pick): clean promotion (both commits, content==source, topo order) plus 7 named variants (text/binary/modify-delete conflict lifecycle with external-resolve reconciliation, empty-pick `--skip`, mid-sequence abort with partial-branch cleanup, external-abort reconciliation, post-pick partial-promotion verification).
+
+## TDD Cycle Evidence (Phase 10 — this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 10.1-10.4 | `internal/git/conflict_test.go` | Unit (pure) | ✅ 118/118 (whole module, pre-Phase-10) | ✅ Written (`undefined: ConflictFile`/`ConflictText` …) | ✅ Passed | ✅ 8 classify cases + spaced/unicode + rename-skip + 3 numstat cases | ➖ None needed |
+| 10.5/10.6, 10.23/10.24 | `internal/git/service_repostate_test.go` | Integration (`newTempRepo`, real multi-commit pick) | ✅ (green pre-task) | ✅ Written (`svc.RepoState undefined`) | ✅ Passed | ✅ 4 scenarios (mid-pick assembly, external abort, external continue, clean repo) | ➖ None needed |
+| 10.7/10.8 | `internal/git/service_cherrypick_test.go` | Integration (`callRecordingRunner`) + Unit (pure) | ✅ (green pre-task) | ✅ Written (`svc.CherryPick undefined`) | ✅ Passed | ✅ single-invocation + range-form + 4 `CherryPickRevisions` + 5 `IsContiguousSelection` cases | ➖ None needed |
+| 10.9/10.10 | `internal/git/service_cherrypick_test.go` | Unit (`capturingRunner`) | ✅ (green pre-task) | ✅ Written (`-c commit.gpgsign=false` absent) | ✅ Passed | ✅ cherry-pick + `--continue` + arg-order-before-subcommand | ➖ None needed |
+| 10.11-10.16 | `internal/git/service_conflict_resolution_test.go` | Integration (`newTempRepo`, real conflicts) | ✅ (green pre-task) | ✅ Written (`svc.KeepConflictFile`/`ResolveBinaryConflict` undefined) | ✅ Passed | ✅ text stop+classify, modify/delete keep AND delete, binary theirs (content-verified) | ➖ None needed |
+| 10.17/10.18, 10.21/10.22 | `internal/git/continue_gate_test.go`, `service_continue_test.go` | Unit (pure) + Integration | ✅ (green pre-task) | ✅ Written (`undefined: EvaluateContinueGate`; `ErrContinueBlocked`) | ✅ Passed | ✅ 4 gate cases + marker parse (spaced path) + full blocked→marker-blocked→continue lifecycle | ➖ None needed |
+| 10.25-10.30 | `internal/git/service_abort_test.go`, `empty_test.go` | Integration + Unit (pure) | ✅ (green pre-task) | ✅ Written (`svc.AbortCherryPick`/`SkipCherryPick`/`AppliedPickCount` undefined) | ✅ Passed | ✅ abort-to-clean, mid-sequence partial-cleanup offer, empty-detect+skip-completes, `isEmptyPickMessage` + `OfferPartialBranchCleanup` cases | ➖ None needed |
+| 10.31/10.32 | `internal/git/rerere_test.go`, `service_rerere_test.go` | Unit (pure) + Integration (record→reset→replay) | ✅ (green pre-task) | ✅ Written (`svc.RerereEnabled` undefined; `rerereResolvedPaths` undefined) | ✅ Passed | ✅ 3 parse cases + suggestion + real rerere replay leaving file unmerged-pending-confirmation | ➖ None needed |
+| 10.33-10.36 | `internal/git/pick_verification_test.go`, `service_verification_test.go` | Unit (pure) + Integration | ✅ (green pre-task) | ✅ Written (`svc.VerifyPromotedContent` undefined; `DeltaAndValidationAllowed` undefined) | ✅ Passed | ✅ partial-promotion detect + clean-matches-source + 3 gating cases + warnings | ➖ None needed |
+| HU-006 Test E2E | `internal/git/cherry_pick_e2e_test.go` (`TestHU006_CherryPick_E2E`) | Integration (`newTempRepo`, real git, full flow) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN production code; first real-git run is the empirical proof | ✅ Passed on first run | ✅ primary + 7 named subtests | ➖ None needed |
+
+### Test Summary (Phase 10)
+
+- **Total new top-level test functions this batch**: 21 (across `internal/git`); the whole module `go test -race ./...` is green (`internal/git` runs ~40s under `-race`).
+- **`go test -race ./...`**: all packages `ok`, no data races.
+- **`go test -short ./...`**: every new real-git integration test skips via the shared `newTempRepo`/`newTempRepoWithRemote` harness's `testing.Short()` guard; the pure classification/gate/rerere/verification/arg-builder unit tests still run.
+- **Layers used**: Unit (porcelain `-z` classification, numstat binary marker, continue-gate, `git diff --check` marker parse, empty/rerere/name-only parsers, revision-form + contiguity selection, gpgsign arg builders, downstream gating), Integration (real cherry-pick sequence conflict/continue/skip/abort/reconcile/verify via `newTempRepo`), plus the consolidated HU-006 E2E.
+- **Pure functions/types created**: `ConflictKind`/`ConflictFile`/`ClassifyConflicts`/`parsePorcelainZ`/`numstatIsBinary`, `CherryPickRevisions`/`IsContiguousSelection`, `EvaluateContinueGate`/`parseCheckMarkers`, `isEmptyPickMessage`/`OfferPartialBranchCleanup`, `rerereResolvedPaths`/`SuggestEnableRerere`, `PickVerification`/`DeltaAndValidationAllowed`; composed (Runner-backed): `Service.RepoState`/`CherryPick`/`ContinueCherryPick`/`SkipCherryPick`/`AbortCherryPick`/`KeepConflictFile`/`DeleteConflictFile`/`ResolveBinaryConflict`/`StagedConflictMarkers`/`AppliedPickCount`/`RerereEnabled`/`VerifyPromotedContent`; error `ErrContinueBlocked`.
+
+## Work Unit Evidence (Phase 10)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/git/... -run 'TestClassifyConflicts\|TestService_RepoState\|TestService_CherryPick\|TestCherryPickRevisions\|TestEvaluateContinueGate\|TestService_ContinueCherryPick\|TestService_AbortCherryPick\|TestService_EmptyPick\|TestService_CherryPick_Rerere\|TestService_VerifyPromotedContent\|TestHU006_CherryPick_E2E'` → `ok`. |
+| Runtime harness command/scenario and exact result | `go test ./internal/git/... -run TestHU006_CherryPick_E2E -v` → PASS (8 subtests): real temp git repo (`newTempRepo`), real multi-commit cherry-pick driven through pick → conflict (text/binary/modify-delete, classified) → external resolve reconciled on re-read → gated non-interactive `--continue` → completion; empty-pick `--skip`; mid-sequence abort with partial-branch cleanup offer; external-abort reconciliation; post-pick partial-promotion verification. `-short` skips it (real git). |
+| Rollback boundary | Revert commits `<conflict classify>`, `<RepoState reconcile>`, `<sequencer engine+gpgsign>`, `<conflict-stop+resolution>`, `<continue-gate>`, `<abort+partial+empty>`, `<rerere>`, `<post-pick verify+gating>`, `<E2E>`, plus the `tasks.md`/`apply-progress.md` mark commit. Phases 1-9 remain fully buildable/testable alone; `internal/app` (Phase 11) does not exist yet, so nothing depends on the Phase 10 engine. |
+
+## Deviations from Design (Phase 10)
+
+1. **10.19/10.20 (`tea.Tick` live re-poll) and 10.37/10.38 (`internal/app` `go list -deps` dependency-boundary test) are DEFERRED to Phase 11**: all four tasks are physically located in `internal/app`, which the orchestrator explicitly instructed this batch NOT to start ("Do NOT start Phase 11 (`internal/app` wiring)"). AC4's ENGINE substance — the repo is re-read from disk on every `RepoState()` call so an external resolution/`--continue`/`--abort` is reflected automatically — is fully implemented and tested here (10.23/10.24, and the E2E "external resolve reconciled on re-read" + "external abort reconciled on re-read" subtests). The remaining piece is purely the TUI timer (`tea.Tick`) that periodically CALLS `RepoState()`, plus the dependency-direction boundary test, both of which require the `internal/app` package to exist. Flagged so Phase 11 picks them up (11.6 already references extending the 10.37 boundary test).
+2. **Binary-conflict detection uses `git diff --numstat :2:<path> :3:<path>` (stage-2 vs stage-3 blobs), not a plain `git diff --numstat`**: design/tasks say "binary via numstat `-`". Verified empirically against git 2.50.1: during a conflict, a plain `git diff --numstat` reports `0\t0\t<path>` for a binary file (worktree-vs-unmerged-index is ambiguous), NOT the `-\t-` sentinel. Diffing the two conflict stages directly (`:2:`/`:3:`) DOES yield `-\t-` for binary and real counts for text. The pure `numstatIsBinary` parser is unchanged (it interprets the `-` sentinel exactly as specced); only the command that FEEDS it was chosen to be the per-file stage diff, run only for both-sides-present codes (`UU`/`AA`). Modify/delete (`DU`/`UD`) and both-deleted (`DD`) are classified by XY code alone and never probed. Documented in `binaryConflictPaths`.
+3. **Empty-pick is surfaced as `Empty`+`EmptyMessage` (offer model), not silently auto-`--skip`-ed inside `CherryPick`**: the batch scope says "auto-`--skip` it rather than erroring" and the spec AC8 says "offer `--skip` with a clear explanatory message". These are reconciled by: `CherryPick` NEVER errors on an empty pick (returns it as DATA with `Empty=true`), and exposes `Service.SkipCherryPick` as the action. The engine leaves the actual skip decision to the caller (`internal/app`, Phase 11) so the user is INFORMED (spec's "offer") — while the "rather than erroring" requirement is satisfied because empty is a clean outcome, never a Go error. Both halves are proven in `TestService_EmptyPick_DetectedAndSkipped` and the E2E empty subtest.
+4. **`RepoState.SequencerRemaining` counts ALL actionable `.git/sequencer/todo` lines, including the currently-conflicting commit**: verified against git 2.50.1 that on a conflict at commit N of M, `todo` still lists commit N plus the M−N after it. Reconciliation (AC6) only needs the count to change on external actions and drop to 0 on abort/completion, which holds; the integration tests assert `>=1` during a conflict and `==0` after abort/completion rather than a brittle exact mid-sequence count, so the behavior is version-robust. Documented on the field.
+5. **`DeltaAndValidationAllowed(state, aborted bool)` takes an explicit `aborted` flag**: a successful `--abort` leaves `InProgress=false` (indistinguishable from a clean completion by repo state alone), but an aborted run must still block downstream delta/validation. Rather than invent a run-status enum in `internal/git` (that lifecycle belongs to `internal/app`'s state machine, Phase 11), the pure predicate takes the caller's known `aborted` boolean. Flagged for Phase 11 to pass its real run phase.
+6. **Conflict-resolution + engine primitives live in `internal/git` as `Service` methods** (`CherryPick`, `ContinueCherryPick`, `KeepConflictFile`, `ResolveBinaryConflict`, …): consistent with every prior HU's "one domain, one package, grows without a cycle" precedent. `internal/app` (Phase 11) will compose these; none of them import or know about the TUI.
+
+## Issues Found (Phase 10)
+
+1. No blocking issues. Every Phase-10 acceptance criterion implementable at the `internal/git` engine layer (`specs/cherry-pick/spec.md` and `docs/HISTORIAS.md` HU-006, including its consolidated `### Test E2E` and all named variants) is implemented and green under `-race`; `gofmt -l .` is clean (the pre-existing Phase-7 `dependency_warning_test.go` nit flagged in the Phase-8 notes is no longer reported).
+2. The only unimplemented HU-006 tasks (10.19/10.20, 10.37/10.38) are the `internal/app`/TUI-layer ones, deferred per the explicit "do not start Phase 11" instruction — see Deviation 1. HU-006's reopen-and-resume AC (`docs/HISTORIAS.md:395`) remains owned by HU-013 per the spec note, out of this change's scope.
+
 ## Status
+
+**Phase 10 (HU-006 `cherry-pick`) engine complete under strict TDD — 34/38 Phase-10 tasks done; the 4 remaining
+(10.19/10.20, 10.37/10.38) are `internal/app`/TUI tasks deferred to Phase 11 per the explicit "do not start
+Phase 11" instruction.** The engine is fully in `internal/git`: `Service.CherryPick` issues ONE sequencer-driven
+invocation (range `<first>^..<last>` for contiguous ancestry, explicit ordered SHA list otherwise — never a Go
+loop of single-sha picks), carrying `-c commit.gpgsign=false` on its own commit-creating cherry-pick/`--continue`/`--skip`;
+`Service.RepoState` reconciles `InProgress`/`CurrentSHA`/`Unmerged`(classified text/binary/modify-delete/both-deleted)/`SequencerRemaining`
+from `CHERRY_PICK_HEAD` + `.git/sequencer/todo` + `git status --porcelain -z` on EVERY call (so external
+`--continue`/`--abort` reconcile by construction); the pure continue-gate blocks on unmerged paths or staged
+`<<<<<<<` markers and `ContinueCherryPick` refuses with `ErrContinueBlocked` until clean; modify/delete keep/delete
+and binary theirs/ours resolution primitives; empty-pick detection + `--skip` safety-net; rerere auto-resolution
+detection requiring confirmation; mid-sequence abort with a partial-branch-cleanup offer; and post-pick verification
+(`git diff --name-only -z HEAD <source>`) surfacing per-file partial-promotion warnings before any delta step, with
+`DeltaAndValidationAllowed` gating delta/validation off on any failed/in-progress/aborted run. All proved end-to-end
+via the consolidated HU-006 Test E2E on the real `newTempRepo` harness (no FakeRunner for the pick) with seeded real
+conflicts. `go build ./...`, `go vet ./...`, `gofmt -l .`, and `go test -race ./...` all green; `go test -short ./...`
+skips the real-git integration tests. Ready for Phase 11 (`internal/app` wiring), which also picks up 10.19/10.20/10.37/10.38.
+
+---
+
+### Historical Status (Phases 1-9)
 
 123/123 tasks in scope (Phases 1-9) complete (170 total tasks in `tasks.md`; 47 remain across Phases 10-12).
 Phase 9 (HU-005 `promotion-branch`) complete under strict TDD: `Service.CreatePromotionBranch` always runs
