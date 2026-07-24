@@ -73,16 +73,16 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 2: `internal/exec` — Runner seam
 
-- [ ] 2.1 `[U]` RED: `FakeRunner.Run` returns canned `CommandResult` for a matching Name+Args key; unmatched request errors explicitly.
-- [ ] 2.2 GREEN: `internal/exec/runner.go` — `Runner`, `CommandRequest{Dir,Name,Args,Env}`, `CommandResult{Stdout,Stderr,ExitCode,Duration}`, `FakeRunner`. No git-specific env here — layered in `internal/git` (Phase 4), never globally.
-- [ ] 2.3 `[I]` RED: `NewOSRunner` runs a real command in `t.TempDir()`, captures stdout/exit/duration (skip `-short`).
-- [ ] 2.4 GREEN: implement `NewOSRunner` wrapping `os/exec.CommandContext`.
-- [ ] 2.5 `[I]` RED: `NewOSRunner` merges env — a `req.Env` override (e.g. a git-style var) is present AND an inherited process var (e.g. `PATH`) still resolves inside the child, proving `cmd.Env = append(os.Environ(), req.Env...)`, not a full replace.
-- [ ] 2.6 GREEN: implement env layering in `NewOSRunner` (append `req.Env` onto `os.Environ()`; never assign a bare `req.Env`).
-- [ ] 2.7 `[I]` RED: context timeout/cancel on `OSRunner` returns an error, no hang.
-- [ ] 2.8 GREEN: implement ctx-cancel/timeout handling in `OSRunner`.
-- [ ] 2.9 `[I]` RED: a process that runs but exits non-zero yields a nil `Runner` error and a populated `CommandResult.ExitCode`, distinguishable from a start failure (missing/non-executable binary → non-nil error, `ExitCode=-1`) and from timeout/cancel (non-nil error with `ctx.Err()` set).
-- [ ] 2.10 GREEN: implement exit-code extraction from `*exec.ExitError` in `OSRunner`, keeping start/timeout failures as errors so downstream git-exit-code-as-data reads (`merge-base --is-ancestor`, `cherry-pick`, `diff --quiet`, `log --grep`) are interpreted per-command, not as `Runner` failures.
+- [x] 2.1 `[U]` RED: `FakeRunner.Run` returns canned `CommandResult` for a matching Name+Args key; unmatched request errors explicitly.
+- [x] 2.2 GREEN: `internal/exec/runner.go` — `Runner`, `CommandRequest{Dir,Name,Args,Env}`, `CommandResult{Stdout,Stderr,ExitCode,Duration}`, `FakeRunner`. No git-specific env here — layered in `internal/git` (Phase 4), never globally.
+- [x] 2.3 `[I]` RED: `NewOSRunner` runs a real command in `t.TempDir()`, captures stdout/exit/duration (skip `-short`).
+- [x] 2.4 GREEN: implement `NewOSRunner` wrapping `os/exec.CommandContext`.
+- [x] 2.5 `[I]` RED: `NewOSRunner` merges env — a `req.Env` override (e.g. a git-style var) is present AND an inherited process var (e.g. `PATH`) still resolves inside the child, proving `cmd.Env = append(os.Environ(), req.Env...)`, not a full replace.
+- [x] 2.6 GREEN: implement env layering in `NewOSRunner` (append `req.Env` onto `os.Environ()`; never assign a bare `req.Env`).
+- [x] 2.7 `[I]` RED: context timeout/cancel on `OSRunner` returns an error, no hang.
+- [x] 2.8 GREEN: implement ctx-cancel/timeout handling in `OSRunner`. (Already satisfied by `os/exec.CommandContext` from 2.4 — no additional production code required; test written and passing to lock in the behavior.)
+- [x] 2.9 `[I]` RED: a process that runs but exits non-zero yields a nil `Runner` error and a populated `CommandResult.ExitCode`, distinguishable from a start failure (missing/non-executable binary → non-nil error, `ExitCode=-1`) and from timeout/cancel (non-nil error with `ctx.Err()` set).
+- [x] 2.10 GREEN: implement exit-code extraction from `*exec.ExitError` in `OSRunner`, keeping start/timeout failures as errors so downstream git-exit-code-as-data reads (`merge-base --is-ancestor`, `cherry-pick`, `diff --quiet`, `log --grep`) are interpreted per-command, not as `Runner` failures.
 
 ## Phase 3: `internal/config`
 
