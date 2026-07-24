@@ -65,11 +65,11 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 1: Bootstrap
 
-- [ ] 1.1 Create `go.mod` (module `deploydeck`) at repo root.
-- [ ] 1.2 Create `.gitignore` including `.deploydeck/` + standard Go ignores.
-- [ ] 1.3 `[U]` RED: `cmd/deploydeck/root_test.go` — `newRootCmd(deps)` builds and registers a `doctor` subcommand.
-- [ ] 1.4 GREEN: `cmd/deploydeck/main.go` + `newRootCmd(deps)` — Cobra root, stub `doctor` (exit 0 placeholder; real behavior Phase 5).
-- [ ] 1.5 Verify `go build ./...` and `go test ./...` run clean (CI smoke check).
+- [x] 1.1 Create `go.mod` (module `deploydeck`) at repo root.
+- [x] 1.2 Create `.gitignore` including `.deploydeck/` + standard Go ignores.
+- [x] 1.3 `[U]` RED: `cmd/deploydeck/root_test.go` — `newRootCmd(deps)` builds and registers a `doctor` subcommand.
+- [x] 1.4 GREEN: `cmd/deploydeck/main.go` + `newRootCmd(deps)` — Cobra root, stub `doctor` (exit 0 placeholder; real behavior Phase 5).
+- [x] 1.5 Verify `go build ./...` and `go test ./...` run clean (CI smoke check).
 
 ## Phase 2: `internal/exec` — Runner seam
 

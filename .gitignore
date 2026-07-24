@@ -1,0 +1,24 @@
+# DeployDeck local state (runs, manifests, lock file)
+.deploydeck/
+
+# Go build artifacts
+/deploydeck
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go tooling
+/vendor/
+
+# Coverage
+coverage.out
+coverage.html
+
+# OS/editor cruft
+.DS_Store
+*.swp
