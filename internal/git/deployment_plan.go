@@ -16,6 +16,14 @@ type DeploymentPlan struct {
 	// the "ordered chosen set" HU-006's cherry-pick engine consumes
 	// directly.
 	SelectedCommits []DiscoveredCommit
+
+	// TargetBranch, SandboxAlias, and TestLevel are set by
+	// ConfirmTargetSelection (HU-004): the confirmed destination branch,
+	// its resolved Salesforce sandbox alias, and the deploy test level to
+	// use against it.
+	TargetBranch string
+	SandboxAlias string
+	TestLevel    string
 }
 
 // GenerateDeploymentPlan produces a preliminary DeploymentPlan from a
