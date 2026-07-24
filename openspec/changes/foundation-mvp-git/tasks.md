@@ -167,8 +167,8 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 7.6 GREEN: implement merge-commit disable rule.
 - [x] 7.7 `[U]` RED: commit message referencing other tickets sets a multi-ticket notice.
 - [x] 7.8 GREEN: implement multi-ticket notice detection.
-- [ ] 7.9 `[I]` RED: real `git diff --name-only` — selected commit's file also touched by an unselected intermediate commit triggers a dependency warning.
-- [ ] 7.10 GREEN: implement per-file dependency-warning computation.
+- [x] 7.9 `[I]` RED: real `git diff --name-only` — selected commit's file also touched by an unselected intermediate commit triggers a dependency warning.
+- [x] 7.10 GREEN: implement per-file dependency-warning computation.
 - [ ] 7.11 `[U]` RED: confirming with zero selected commits is blocked.
 - [ ] 7.12 GREEN: implement empty-selection guard.
 - [ ] 7.13 `[U]` RED: advanced-mode reorder shows conflict-risk warning; non-advanced reorder unavailable.
