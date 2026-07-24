@@ -143,6 +143,38 @@ NOT started.
 2. **Test bug, fixed within this batch**: `TestNewRootCmd_Doctor_AllChecksPass_ExitsZero` initially used a literal non-existent path (`/repo`) as the `FakeRunner`-canned `rev-parse --show-toplevel` result; `CheckGitignore`/`CheckHooks` read the filesystem directly at that resolved root (by design — they are not git subcommands), so the canned root must be a real directory. Fixed by using a real `t.TempDir()` as the canned root with a real seeded `.gitignore`.
 3. No other blocking issues. All Phase 5 acceptance criteria (`specs/prereq-check/spec.md`) are implemented and green, including the informative/non-blocking `gh` CLI check's explicit exclusion (documented in that spec file itself as deferred to HU-014, out of this change's scope).
 
+## HU-001 Remediation Batch (adversarial review + sdd-verify)
+
+Scope: fix confirmed bugs and close named test gaps in HU-001 `prereq-check`, under strict TDD
+(RED reproducing the real defect first, then minimal GREEN). The already-sound machinery — the
+`os.Link`-based exclusive acquire and the content-gated stale-takeover — was NOT changed.
+
+### Remediation TDD Cycle Evidence
+
+| Item | Test File | RED (reproduces defect) | GREEN (minimal fix) | Commit |
+|------|-----------|-------------------------|---------------------|--------|
+| H1 — prober fails OPEN on localized/unparseable `ps` | `internal/prereq/process_prober_test.go` | ✅ localized & garbage lines returned `Alive=false` (=> takeover); no `LC_ALL=C` on the call | ✅ pin `LC_ALL=C`/`LANG=C`; non-empty-unparseable → `Alive=true` (fail-safe); empty/non-zero-exit → `false`; route via `exec.Runner` seam | `16c94f4` |
+| H2 — stored `StartedAt` was Acquire wall-clock, not OS start-time | `internal/prereq/lock_test.go` (`…StampsStartedAtFromProber`, `…LiveOwnerWithSlowStartupToLock_NotTakenOver`) | ✅ persisted `StartedAt` == `time.Now()` not the prober start-time; a live owner with >2s startup-to-lock latency was taken over | ✅ `StartTimeReader` seam + `Lock.currentStartTime()` stamp `StartedAt` from the same `ps -o lstart=` source (`os.Getpid()`) | `7fec6c4` |
+| H3 — corrupt/zero-length lock → misleading generic error, no FixCommand | `internal/prereq/lock_test.go` (`…CorruptLock_ReturnsErrLockCorrupt`), `internal/prereq/checker_lock_test.go` | ✅ garbage/zero-length/truncated lock returned `*errors.errorString` "contended stale takeover"; `CheckLock` propagated a hard error | ✅ typed `*ErrLockCorrupt` (file preserved, NOT auto-deleted — safer); `CheckLock` maps it to a `StatusBlocking` check with a `rm <path>` FixCommand | `fc99a82` |
+| GAP A — HU-001 consolidated `### Test E2E` (HISTORIAS.md:86-92) | `cmd/deploydeck/doctor_e2e_test.go` | ✅ scenario did not exist | ✅ 10 variants (origin, gitignore, delta present/absent/below-min, git/sf below-min, dirty tree, alias missing, lock taken) asserted through `Checker.Check()` AND `deploydeck doctor` exit code | `9584e59` |
+| GAP B — `CheckLock` blocking branch direct unit test | `internal/prereq/checker_lock_test.go` | ✅ no direct `checker_lock` unit test existed | ✅ nil-skip, live-owner blocks naming pid/pname, corrupt blocks with remove FixCommand, free lock acquires OK | `fc99a82` |
+| Missing `OSProcessProber` test | `internal/prereq/process_prober_test.go` | ✅ prober had no unit test (prior Deviation 4) | ✅ covered by the H1 Runner-seam table (localized/garbage/empty/non-zero/matching/mismatch) + locale-pin assertion | `16c94f4` |
+
+Design choice justified in code: a corrupt/zero-length lock is **surfaced** as an actionable blocking
+check rather than auto-cleaned. Rationale (in `lock.go` / `checker_lock.go` comments): normal Acquire
+publishes a COMPLETE record atomically via `os.Link`, so a corrupt lock was never produced by a live
+instance's normal path — but deleting a file we cannot interpret is the less-safe option, so a human
+decides.
+
+### Remediation Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test -race ./internal/prereq/... ./cmd/...` → both `ok` (H1/H2/H3 + GAP A/B green, `-race` clean) |
+| Runtime harness command/scenario and exact result | `go test ./cmd/deploydeck/... -run TestHU001_Doctor_E2E -v` → PASS all 10 variants (real temp git repo + fake `sf`); each asserts `Checker.Check()` Status AND `deploydeck doctor` exit code (0 vs non-zero). `-short` correctly SKIPS it (shells out to real git). |
+| Full verification | `go build ./... && go vet ./... && go test -race ./...` → all packages `ok`; `go test -short ./...` → all `ok` (integration skipped) |
+| Rollback boundary | Revert commits `16c94f4` (H1 prober fail-safe/locale), `7fec6c4` (H2 start-time in lock), `fc99a82` (H3 corrupt lock + GAP B), `9584e59` (GAP A E2E). The `os.Link` acquire and content-gated stale-takeover are untouched. No Phase 6+ scope affected. |
+
 ## Workload / PR Boundary
 
 - Mode: single PR (`size:exception` GRANTED by maintainer per tasks.md Delivery Decision, recorded 2026-07-24)
@@ -152,4 +184,7 @@ NOT started.
 
 ## Status
 
-56/56 tasks in scope (Phases 1-5) complete (170 total tasks in `tasks.md`; 114 remain across Phases 6-12). Ready for next batch (Phase 6: HU-002 `commit-discovery`).
+56/56 tasks in scope (Phases 1-5) complete (170 total tasks in `tasks.md`; 114 remain across Phases 6-12).
+HU-001 remediation batch complete: H1/H2/H3 fixed and GAP A/B closed under strict TDD; `go build`,
+`go vet`, `go test -race ./...` all green, `-short` skips integration. Ready for next batch
+(Phase 6: HU-002 `commit-discovery`).
