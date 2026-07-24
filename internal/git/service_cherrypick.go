@@ -188,5 +188,23 @@ func (s *Service) pickOutcome(ctx context.Context, root string, result exec.Comm
 		return PickOutcome{}, err
 	}
 
-	return PickOutcome{State: state}, nil
+	out := PickOutcome{State: state}
+	combined := string(result.Stdout) + "\n" + string(result.Stderr)
+	if isEmptyPickMessage(combined) {
+		out.Empty = true
+		out.EmptyMessage = emptyPickExplanation
+	}
+	return out, nil
+}
+
+// SkipCherryPick runs `git cherry-pick --skip`, used to drop an empty pick
+// (content already present) and resume the sequence — the squash safety-net
+// (HU-006 AC8). It is non-interactive and keeps the gpgsign override since
+// resuming may create later commits.
+func (s *Service) SkipCherryPick(ctx context.Context, dir string) (PickOutcome, error) {
+	root, err := s.RepoRoot(ctx, dir)
+	if err != nil {
+		return PickOutcome{}, err
+	}
+	return s.runSequencerStep(ctx, root, skipArgs())
 }

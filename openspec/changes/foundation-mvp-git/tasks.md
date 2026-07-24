@@ -239,12 +239,12 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.22 GREEN: implement continue action wiring gate + `git.Service.ContinueCherryPick()`.
 - [x] 10.23 `[I]` RED (AC6): `--continue`/`--abort` run outside DeployDeck during a multi-commit sequencer run is detected on reread (real `.git/sequencer/todo` remaining count) and resynchronizes.
 - [x] 10.24 GREEN: implement reconciliation re-read on every `RepoState()` call (no cached state trusted).
-- [ ] 10.25 `[I]` RED (AC7a): confirmed abort runs `git cherry-pick --abort`, marks the run aborted.
-- [ ] 10.26 GREEN: implement Abort action.
-- [ ] 10.27 `[I]` RED (AC7b): abort after partial picks offers temp-branch cleanup.
-- [ ] 10.28 GREEN: implement partial-sequence detection + cleanup offer.
-- [ ] 10.29 `[I]` RED (AC8): content already applied under a different SHA → empty pick detected, `--skip` offered with an explanatory message (implemented regardless of merge/squash policy, DEC-001 is process context only).
-- [ ] 10.30 GREEN: implement empty-pick detection + `--skip` action.
+- [x] 10.25 `[I]` RED (AC7a): confirmed abort runs `git cherry-pick --abort`, marks the run aborted.
+- [x] 10.26 GREEN: implement Abort action.
+- [x] 10.27 `[I]` RED (AC7b): abort after partial picks offers temp-branch cleanup.
+- [x] 10.28 GREEN: implement partial-sequence detection + cleanup offer.
+- [x] 10.29 `[I]` RED (AC8): content already applied under a different SHA → empty pick detected, `--skip` offered with an explanatory message (implemented regardless of merge/squash policy, DEC-001 is process context only).
+- [x] 10.30 GREEN: implement empty-pick detection + `--skip` action.
 - [ ] 10.31 `[I]` RED (AC9): `git rerere` auto-resolves a repeat conflict — labeled auto-resolved-from-prior, requires explicit user confirmation before continue.
 - [ ] 10.32 GREEN: implement rerere detection + confirmation-required flag; suggest enabling rerere when unset.
 - [ ] 10.33 `[I]` RED (AC10): after all picks, `git diff HEAD <source> -- <files>` on a touched file with remaining diff shows a per-file partial-promotion warning before any delta step.

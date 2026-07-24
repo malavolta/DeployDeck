@@ -149,6 +149,63 @@ func seedBinaryConflict(t *testing.T, runner exec.Runner, dir string) (featureSH
 	return featureSHA, theirs
 }
 
+// seedPartialThenConflict builds a UAT target and a feature branch whose
+// FIRST commit applies cleanly (adds c.cls) and whose SECOND commit conflicts
+// (diverges b.cls). Cherry-picking both onto UAT therefore applies one pick
+// and then stops on a conflict — the mid-sequence partial-picks case. Leaves
+// the repo on UAT and returns the two feature SHAs (topological order).
+func seedPartialThenConflict(t *testing.T, runner exec.Runner, dir string) (feature1, feature2 string) {
+	t.Helper()
+
+	writeFileHelper(t, dir, "b.cls", "b-base\n")
+	runGit(t, runner, dir, "add", "b.cls")
+	runGit(t, runner, dir, "commit", "-m", "seed b.cls")
+	runGit(t, runner, dir, "push", "origin", "main")
+
+	runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+	writeFileHelper(t, dir, "b.cls", "b-uat\n")
+	runGit(t, runner, dir, "add", "b.cls")
+	runGit(t, runner, dir, "commit", "-m", "UAT diverges b.cls")
+	runGit(t, runner, dir, "push", "origin", "UAT")
+
+	runGit(t, runner, dir, "checkout", "-b", "feature", "main")
+	feature1 = writeAndCommit(t, runner, dir, "c.cls", "public class C {}\n", "PROJ-1: add C (clean)")
+	feature2 = writeAndCommit(t, runner, dir, "b.cls", "b-feature\n", "PROJ-1: change b.cls (conflicts)")
+	runGit(t, runner, dir, "push", "origin", "feature")
+
+	runGit(t, runner, dir, "checkout", "UAT")
+	return feature1, feature2
+}
+
+// seedEmptyThenClean builds a UAT target that ALREADY contains the change the
+// feature's first commit makes (under a different SHA), plus a clean second
+// feature commit. Cherry-picking both onto UAT makes the first pick EMPTY
+// (content already present) and the second clean. Leaves the repo on UAT and
+// returns the two feature SHAs.
+func seedEmptyThenClean(t *testing.T, runner exec.Runner, dir string) (feature1, feature2 string) {
+	t.Helper()
+
+	writeFileHelper(t, dir, "a.cls", "x\n")
+	runGit(t, runner, dir, "add", "a.cls")
+	runGit(t, runner, dir, "commit", "-m", "seed a.cls")
+	runGit(t, runner, dir, "push", "origin", "main")
+
+	// UAT already has the a.cls change (different SHA than feature's).
+	runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+	writeFileHelper(t, dir, "a.cls", "x\nADDED\n")
+	runGit(t, runner, dir, "add", "a.cls")
+	runGit(t, runner, dir, "commit", "-m", "UAT already has the change (diff sha)")
+	runGit(t, runner, dir, "push", "origin", "UAT")
+
+	runGit(t, runner, dir, "checkout", "-b", "feature", "main")
+	feature1 = writeAndCommit(t, runner, dir, "a.cls", "x\nADDED\n", "PROJ-1: add line (already in UAT)")
+	feature2 = writeAndCommit(t, runner, dir, "d.cls", "public class D {}\n", "PROJ-1: add D (clean)")
+	runGit(t, runner, dir, "push", "origin", "feature")
+
+	runGit(t, runner, dir, "checkout", "UAT")
+	return feature1, feature2
+}
+
 // writeBytesHelper writes raw bytes to dir/name, failing the test on error.
 func writeBytesHelper(t *testing.T, dir, name string, content []byte) {
 	t.Helper()
