@@ -1,9 +1,9 @@
 # Apply Progress: Foundation + MVP Git (HU-001..HU-006)
 
 **Mode**: Strict TDD
-**Batch scope so far**: Phases 1-7 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
-HU-001 `prereq-check`, HU-002 `commit-discovery`, HU-003 `commit-selection`). Phases 8-12 (HU-004..HU-006,
-`internal/app` wiring, final verification) are NOT started.
+**Batch scope so far**: Phases 1-8 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
+HU-001 `prereq-check`, HU-002 `commit-discovery`, HU-003 `commit-selection`, HU-004 `target-selection`).
+Phases 9-12 (HU-005..HU-006, `internal/app` wiring, final verification) are NOT started.
 
 ## Completed Tasks (Phases 1-4)
 
@@ -117,9 +117,27 @@ confirmed against the full Phase 1-5 safety net before and after.
 - [x] 7.15 `[U]` RED: valid non-empty confirmed selection generates a preliminary `DeploymentPlan`.
 - [x] 7.16 GREEN: `internal/git/deployment_plan.go` — `DeploymentPlan{Ticket,SelectedCommits}` + `GenerateDeploymentPlan(ticket, items)` (reuses `ValidateSelection`).
 
+## Completed Tasks (Phase 8: HU-004 `target-selection`)
+
+- [x] 8.1 `[U]` RED: destination list from `config.Config.branches` shows associated sandbox.
+- [x] 8.2 GREEN: `internal/git/target_selection.go` — `Destination{Environment,Branch,Sandbox,SandboxResolved}` + `ListDestinations(cfg)` composing `config.SandboxFor`, sorted by environment key for deterministic output.
+- [x] 8.3 `[U]`/`[I]` RED: nonexistent local/remote destination branch blocks continuing.
+- [x] 8.4 GREEN: `internal/git/service_target.go` — `Service.BranchExists` via a shared `revParseVerify` helper (`git rev-parse --verify --quiet <ref>`, exit 0/1 as data per the established contract), checking local then `origin/<branch>`.
+- [x] 8.5 `[U]` RED: `Release/*` resolves sandbox via configured glob; unmapped `Release/*` blocks with actionable message.
+- [x] 8.6 GREEN: `ResolveSandbox(cfg, branch)` wraps `config.SandboxFor` (Phase 3), turning its error into an actionable, branch-naming block message.
+- [x] 8.7 `[I]` RED: `git rev-parse origin/<target>` remote HEAD is displayed.
+- [x] 8.8 GREEN: `Service.RemoteHead(ctx, dir, target)` via the same `revParseVerify` helper as `BranchExists`.
+- [x] 8.9 `[U]` RED (sf-fake): sandbox alias absent from `sf org list --json`, scanned across all five categories, shows a non-blocking warning before validation.
+- [x] 8.10 GREEN: `UnauthenticatedSandboxWarning(orgs, alias)` (pure, `salesforce.OrgList.FindByAlias`) + `SandboxAuthWarning(ctx, sf, alias)` composing `salesforce.Client.Orgs`.
+- [x] 8.11 `[U]` RED: selecting `main` shows a production-environment warning.
+- [x] 8.12 GREEN: `ProductionBranchName`/`IsProductionBranch(branch)` (pure, literal `"main"` per the spec's exact wording, not config-driven).
+- [x] 8.13 `[I]` RED: custom branch name — rejected when absent locally/remotely, accepted when present.
+- [x] 8.14 GREEN: reaches GREEN immediately, reusing `Service.BranchExists` from 8.3/8.4 — no new production code (see Deviations).
+- [x] 8.15 `[U]` RED: confirming a valid destination+sandbox saves branch/alias/testLevel into `DeploymentPlan`.
+- [x] 8.16 GREEN: `DeploymentPlan` extended with `TargetBranch`/`SandboxAlias`/`TestLevel` fields + `ConfirmTargetSelection(plan, branch, alias, testLevel)` (pure, preserves every other field already on the plan).
+
 ## Remaining Tasks (NOT in this batch)
 
-- [ ] Phase 8: HU-004 `target-selection` (8.1-8.16)
 - [ ] Phase 9: HU-005 `promotion-branch` (9.1-9.15)
 - [ ] Phase 10: HU-006 `cherry-pick` (10.1-10.38)
 - [ ] Phase 11: `internal/app` wiring (11.1-11.6)
@@ -316,15 +334,61 @@ decides.
 1. No blocking issues. The consolidated `TestHU003_CommitSelection_E2E` scenario passed on its first real-git run with no adjustment needed to the seeded topo order, equivalence classification, or dependency detection — all empirically verified rather than assumed.
 2. All Phase 7 acceptance criteria (`specs/commit-selection/spec.md` under `openspec/changes/foundation-mvp-git/specs/commit-selection/spec.md`, and `docs/HISTORIAS.md` HU-003, including its consolidated `### Test E2E` scenario and the advanced-mode-reorder variant) are implemented and green.
 
+## TDD Cycle Evidence (Phase 8 — this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 8.1/8.2 | `internal/git/target_selection_test.go` (`TestListDestinations_TableDriven`) | Unit (pure) | ✅ 99/99 (whole module, pre-Phase-8) | ✅ Written (`undefined: git.Destination`/`ListDestinations`) | ✅ Passed | ✅ 2 table cases (sandbox resolved / unmapped-but-listed) | ➖ None needed |
+| 8.3/8.4 | `internal/git/service_target_test.go` (`TestService_BranchExists_TableDriven`) | Integration (`newTempRepo`, real git) | ✅ (green pre-task) | ✅ Written (`svc.BranchExists undefined`) | ✅ Passed | ✅ 3 cases (local+remote / remote-only / neither) | ➖ None needed |
+| 8.5/8.6 | `internal/git/target_selection_test.go` (`TestResolveSandbox_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.ResolveSandbox`) | ✅ Passed | ✅ 3 cases (exact / Release/\* glob / unmapped block) | ➖ None needed |
+| 8.7/8.8 | `internal/git/service_target_test.go` (`TestService_RemoteHead_TableDriven`) | Integration (`newTempRepo`, real git) | ✅ (green pre-task) | ✅ Written (`svc.RemoteHead undefined`) | ✅ Passed | ✅ 3 cases (UAT / main / absent target) | ➖ None needed |
+| 8.9/8.10 | `internal/git/target_selection_test.go` (`TestUnauthenticatedSandboxWarning_TableDriven`, `TestSandboxAuthWarning_ComposesSalesforceClient`) | Unit (pure) + Unit (`FakeRunner` sf-fake) | ✅ (green pre-task) | ✅ Written (`undefined: git.UnauthenticatedSandboxWarning`/`SandboxAuthWarning`) | ✅ Passed | ✅ 4 pure cases (found in default category / found in non-default category / absent / empty alias) + 2 composed cases (warned / not warned) | ➖ None needed |
+| 8.11/8.12 | `internal/git/target_selection_test.go` (`TestIsProductionBranch_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.IsProductionBranch`) | ✅ Passed | ✅ 3 cases (`main` / `UAT` / a branch merely containing "main") | ➖ None needed |
+| 8.13/8.14 | `internal/git/service_target_test.go` (`TestService_BranchExists_CustomBranchName`) | Integration (`newTempRepo`, real git) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN `BranchExists` from 8.3/8.4; the first run itself is the empirical proof this generic primitive also works for an arbitrary custom (non-config) branch name | ✅ Passed on first run | ✅ 2 cases (custom branch present / custom branch never created) within the same test | ➖ None needed |
+| 8.15/8.16 | `internal/git/target_selection_test.go` (`TestConfirmTargetSelection_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.ConfirmTargetSelection`; `DeploymentPlan` had no `TargetBranch`/`SandboxAlias`/`TestLevel` fields) | ✅ Passed | ✅ 2 cases (UAT/RunLocalTests, Release/NoTestRun) + an explicit prior-field-preservation assertion (Ticket/SelectedCommits untouched) | ➖ None needed |
+| HU-004 Test E2E (required deliverable) | `internal/git/target_selection_e2e_test.go` (`TestHU004_TargetSelection_E2E`) | Integration (`newTempRepo`, real git) + fs (config fixture) + sf-fake (`FakeRunner`) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN production code; the first real-git/real-fs run is the empirical proof (destination/sandbox resolution, `Release/*` pattern, remote HEAD, production warning, `DeploymentPlan` persistence all asserted against real output) | ✅ Passed on first run | ✅ 2 named sub-variants (nonexistent destination branch, unauthenticated sandbox) plus the primary scenario's 6 distinct assertions | ➖ None needed |
+
+### Test Summary (Phase 8)
+
+- **Total new top-level test functions this batch**: 10 (`TestListDestinations_TableDriven`, `TestService_BranchExists_TableDriven`, `TestResolveSandbox_TableDriven`, `TestService_RemoteHead_TableDriven`, `TestUnauthenticatedSandboxWarning_TableDriven`, `TestSandboxAuthWarning_ComposesSalesforceClient`, `TestIsProductionBranch_TableDriven`, `TestService_BranchExists_CustomBranchName`, `TestConfirmTargetSelection_TableDriven`, `TestHU004_TargetSelection_E2E`); 109 total top-level test functions passing in the whole module (`go test ./... -v`), up from 99 at the end of the Phase 7 batch, including all table-driven sub-cases.
+- **`go test -race ./...`**: all packages `ok`, no data races.
+- **`go test -short ./...`**: all packages `ok`; the new real-git integration tests (`TestService_BranchExists_TableDriven`, `TestService_RemoteHead_TableDriven`, `TestService_BranchExists_CustomBranchName`, `TestHU004_TargetSelection_E2E`) correctly skip via the shared `newTempRepo` harness's `testing.Short()` guard.
+- **Layers used**: Unit (destination listing, sandbox resolution message, production-branch rule, unauthenticated-sandbox pure decision), Unit/sf-fake (`FakeRunner`-backed `salesforce.Client` composition), Integration (real `git rev-parse --verify` for branch existence and remote HEAD, via `newTempRepo`), fs (a real `deploydeck.yaml` fixture written to the temp repo root and loaded through `config.Load`) — the consolidated E2E test is the only scenario in this batch (or any prior HU) combining all three: fs + temp git + sf-fake in one flow, as HU-004's own harness description requires.
+- **Approval tests** (refactoring): None — Phase 8 is exclusively new code; `DeploymentPlan` was additively extended (three new fields), not refactored, and its own existing HU-003 test (`TestGenerateDeploymentPlan_TableDriven`) stayed green untouched throughout.
+- **Pure functions/types created**: `Destination`, `ListDestinations`, `ResolveSandbox`, `ProductionBranchName`/`IsProductionBranch`, `UnauthenticatedSandboxWarning`, `ConfirmTargetSelection`; composed (Runner/Salesforce-backed): `Service.revParseVerify` (unexported), `Service.RemoteHead`, `Service.BranchExists`, `SandboxAuthWarning`.
+
+## Work Unit Evidence (Phase 8)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/git/... -run 'TestListDestinations_TableDriven|TestService_BranchExists_TableDriven|TestResolveSandbox_TableDriven|TestService_RemoteHead_TableDriven|TestUnauthenticatedSandboxWarning_TableDriven|TestSandboxAuthWarning_ComposesSalesforceClient|TestIsProductionBranch_TableDriven|TestService_BranchExists_CustomBranchName|TestConfirmTargetSelection_TableDriven|TestHU004_TargetSelection_E2E' -v` → all PASS. |
+| Runtime harness command/scenario and exact result | `go test ./internal/git/... -run TestHU004_TargetSelection_E2E -v` → PASS: a real `deploydeck.yaml` fixture written to a real temp git repo's root (fs), loaded via `config.Load`/`Validate`; real branches `UAT` (seeded + pushed, known remote HEAD captured), `INT` (exists but deliberately has no sandbox mapping), and `Release/Julio2026` (resolves its sandbox via the configured glob pattern); a FakeRunner-canned `sf org list --json` (sf-fake) proving the unauthenticated-sandbox warning. Asserts `ListDestinations`, `ResolveSandbox`, `Service.RemoteHead`, `IsProductionBranch`, and `ConfirmTargetSelection` end-to-end, plus the nonexistent-destination-branch and unauthenticated-sandbox named variants from `docs/HISTORIAS.md`. `-short` correctly skips it (shells out to real git). |
+| Rollback boundary | Revert commits `5667b92` (`BranchExists`/`RemoteHead`), `3c29260` (`ListDestinations`/`ResolveSandbox`/warnings/`ConfirmTargetSelection` + `DeploymentPlan` field extension), `433bcaf` (consolidated HU-004 E2E test), plus this batch's `tasks.md`/`apply-progress.md` mark commit. Phases 1-7 (`internal/exec`, `internal/config`, `internal/git` HU-001/HU-002/HU-003 surface, `internal/prereq`, `internal/salesforce`, `deploydeck doctor`) remain fully buildable/testable alone; nothing in Phase 9+ exists yet to depend on Phase 8. |
+
+## Deviations from Design (Phase 8)
+
+1. **`internal/git` now imports `internal/config` and `internal/salesforce`, a first for the package**: Phase 7's own Deviation #3 flagged that `internal/git` had no precedent importing `internal/config`; design.md's package-layout table already anticipates this for Phase 9's `branchFormat` renderer, and HU-004's own spec (`specs/target-selection/spec.md`) requires composing both `config.Config` (branches/sandboxes) and `salesforce.Client` (`sf org list --json`) directly in the target-selection flow. No import cycle exists (`internal/config` and `internal/salesforce` both depend only on `internal/exec`/stdlib), and `DeploymentPlan` already lives in `internal/git` per Phase 7's own precedent for HU-003/004/005 shared state — so composing HU-004's whole domain here (pure config/salesforce composition in `target_selection.go`, real-git primitives in `service_target.go`) keeps the same "one domain, one package, grows without a cycle" shape the whole design already commits to, rather than introducing a new package for a six-function domain.
+2. **`SandboxAuthWarning`/`ConfirmTargetSelection` are free functions, not `Service` methods**: every existing `Service` method wraps only the `Runner` `Service` already carries; adding a `salesforce.Client` parameter to a `Service` method would be the first departure from that shape. Kept as free functions taking their dependency explicitly, matching `SuggestDefaultSource(candidates, cfg, target)`'s existing precedent (Phase 6) for composing `config.Config` without being a `Service` method.
+3. **8.13/8.14 (custom-branch validation) reached GREEN immediately, no separate production code**: `Service.BranchExists` (built for 8.3/8.4) is already fully generic — it validates ANY branch name, whether it came from `config.Config.Branches` or was typed freehand by the user; there is no "custom" code path to distinguish. This mirrors Phase 6's 6.13/6.14 precedent (merge-commit detection reached GREEN immediately via already-unified parsing): the dedicated test in this batch exists to LOCK IN and document that a custom branch name is correctly accepted/rejected too, not to drive new logic.
+4. **`ProductionBranchName`/`IsProductionBranch` is a literal `"main"` check, not config-driven**: `config.Config.Branches["production"]` maps a logical key to whatever branch name a repo actually configures (the example config happens to use `"main"`, but nothing requires it). `docs/HISTORIAS.md`'s AC and `specs/target-selection/spec.md`'s "Production Branch Warning" requirement both name `main` literally ("Dado que el usuario selecciona `main`..."), not "whatever the configured production branch is" — implemented exactly as the spec's literal wording states. Flagged here in case a future HU wants this warning driven by `cfg.Branches["production"]` instead.
+
+## Issues Found (Phase 8)
+
+1. **Pre-existing, untouched gofmt nit discovered, not introduced by this batch**: `gofmt -l .` flags `internal/git/dependency_warning_test.go` (a Phase 7 file, commit `759b82b`, not modified in this batch — confirmed via `git status`/`git log` showing zero pending changes to it) for a trailing-comment alignment difference. Not fixed here to keep this batch's diff scoped to Phase 8 only; flagged for a follow-up `gofmt -w` pass before Phase 12's `gofmt -l .` clean-check task.
+2. No other blocking issues. All Phase 8 acceptance criteria (`specs/target-selection/spec.md` under `openspec/changes/foundation-mvp-git/specs/target-selection/spec.md`, and `docs/HISTORIAS.md` HU-004, including its consolidated `### Test E2E` scenario and both named variants) are implemented and green.
+
 ## Status
 
-92/92 tasks in scope (Phases 1-7) complete (170 total tasks in `tasks.md`; 78 remain across Phases 8-12).
-Phase 7 (HU-003 `commit-selection`) complete under strict TDD: the `CommitSelectionItem` selection model
-built directly on HU-002's `DiscoveredCommit`/`Discover` output (disabled/reason for already-applied and
-merge commits, multi-ticket notice, Disabled-aware toggle), real per-file intermediate-commit dependency
-detection (`git diff --name-only` composed with a pure earlier-unselected-commit rule), the empty-selection
-guard, advanced-mode-gated reordering with its conflict-risk warning, and preliminary `DeploymentPlan`
-generation on confirm — all proved end-to-end via the consolidated HU-003 Test E2E scenario from
-`docs/HISTORIAS.md` plus its advanced-mode-reorder variant. `go build ./...`, `go vet ./...`,
-`go test -race ./...` all green; `go test -short ./...` correctly skips the real-git integration tests.
-Ready for next batch (Phase 8: HU-004 `target-selection`).
+108/108 tasks in scope (Phases 1-8) complete (170 total tasks in `tasks.md`; 62 remain across Phases 9-12).
+Phase 8 (HU-004 `target-selection`) complete under strict TDD: config-driven destination listing with
+resolved sandbox alias/test level (`ListDestinations`), `Release/*` glob-pattern sandbox resolution with an
+actionable block message for any unmapped destination (`ResolveSandbox`), real destination-branch existence
+validation covering both configured and custom branch names (`Service.BranchExists`), real remote-HEAD
+display (`Service.RemoteHead`), the non-blocking unauthenticated-sandbox warning composing
+`salesforce.Client` (`UnauthenticatedSandboxWarning`/`SandboxAuthWarning`), the literal `main`
+production-environment warning (`IsProductionBranch`), and selection persistence extending `DeploymentPlan`
+with `TargetBranch`/`SandboxAlias`/`TestLevel` (`ConfirmTargetSelection`) — all proved end-to-end via the
+consolidated HU-004 Test E2E scenario from `docs/HISTORIAS.md`, run through the documented
+fs + temp-git + sf-fake harness, plus its nonexistent-branch and unauthenticated-sandbox variants.
+`go build ./...`, `go vet ./...`, `go test -race ./...` all green; `go test -short ./...` correctly skips
+the real-git integration tests. Ready for next batch (Phase 9: HU-005 `promotion-branch`).

@@ -178,22 +178,22 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 8: HU-004 `target-selection`
 
-- [ ] 8.1 `[U]` RED: destination list from `config.Config.branches` shows associated sandbox.
-- [ ] 8.2 GREEN: implement destination-listing assembly composing config.
-- [ ] 8.3 `[I]` RED: nonexistent local/remote destination branch blocks continuing.
-- [ ] 8.4 GREEN: implement existence check via `git.Service`.
-- [ ] 8.5 `[U]` RED: `Release/*` resolves sandbox via configured glob; unmapped `Release/*` blocks with actionable message.
-- [ ] 8.6 GREEN: wire `config.SandboxFor` (Phase 3) into target-selection flow.
-- [ ] 8.7 `[I]` RED: `git rev-parse origin/<target>` remote HEAD is displayed.
-- [ ] 8.8 GREEN: implement remote-HEAD lookup.
-- [ ] 8.9 `[U]` RED (sf-fake): sandbox alias absent from `sf org list --json`, scanned across all five categories (`nonScratchOrgs`/`scratchOrgs`/`sandboxes`/`devHubs`/`other`), shows a non-blocking warning before validation.
-- [ ] 8.10 GREEN: implement unauthenticated-sandbox warning composing `salesforce.Client`.
-- [ ] 8.11 `[U]` RED: selecting `main` shows a production-environment warning.
-- [ ] 8.12 GREEN: implement production-branch warning rule.
-- [ ] 8.13 `[I]` RED: custom branch name — rejected when absent locally/remotely, accepted when present.
-- [ ] 8.14 GREEN: implement custom-branch validation.
-- [ ] 8.15 `[U]` RED: confirming a valid destination+sandbox saves branch/alias/testLevel into `DeploymentPlan`.
-- [ ] 8.16 GREEN: implement selection persistence.
+- [x] 8.1 `[U]` RED: destination list from `config.Config.branches` shows associated sandbox.
+- [x] 8.2 GREEN: implement destination-listing assembly composing config.
+- [x] 8.3 `[I]` RED: nonexistent local/remote destination branch blocks continuing.
+- [x] 8.4 GREEN: implement existence check via `git.Service`.
+- [x] 8.5 `[U]` RED: `Release/*` resolves sandbox via configured glob; unmapped `Release/*` blocks with actionable message.
+- [x] 8.6 GREEN: wire `config.SandboxFor` (Phase 3) into target-selection flow.
+- [x] 8.7 `[I]` RED: `git rev-parse origin/<target>` remote HEAD is displayed.
+- [x] 8.8 GREEN: implement remote-HEAD lookup.
+- [x] 8.9 `[U]` RED (sf-fake): sandbox alias absent from `sf org list --json`, scanned across all five categories (`nonScratchOrgs`/`scratchOrgs`/`sandboxes`/`devHubs`/`other`), shows a non-blocking warning before validation.
+- [x] 8.10 GREEN: implement unauthenticated-sandbox warning composing `salesforce.Client`.
+- [x] 8.11 `[U]` RED: selecting `main` shows a production-environment warning.
+- [x] 8.12 GREEN: implement production-branch warning rule.
+- [x] 8.13 `[I]` RED: custom branch name — rejected when absent locally/remotely, accepted when present.
+- [x] 8.14 GREEN: implement custom-branch validation.
+- [x] 8.15 `[U]` RED: confirming a valid destination+sandbox saves branch/alias/testLevel into `DeploymentPlan`.
+- [x] 8.16 GREEN: implement selection persistence.
 
 ## Phase 9: HU-005 `promotion-branch`
 
