@@ -25,7 +25,8 @@ func TestDeltaAndValidationAllowed_TableDriven(t *testing.T) {
 	}
 }
 
-// TestPickVerification_Warnings pins the per-file warning rendering.
+// TestPickVerification_Warnings pins the per-file warning rendering across
+// both partial and spurious files.
 func TestPickVerification_Warnings(t *testing.T) {
 	v := PickVerification{PartialFiles: []string{"a.cls", "b.cls"}}
 	if v.OK() {
@@ -34,8 +35,24 @@ func TestPickVerification_Warnings(t *testing.T) {
 	if len(v.Warnings()) != 2 {
 		t.Errorf("expected one warning per partial file, got %v", v.Warnings())
 	}
+
+	// Spurious files alone also make the result not OK and render a warning.
+	spurious := PickVerification{SpuriousFiles: []string{"x.cls"}}
+	if spurious.OK() {
+		t.Errorf("expected OK()=false when spurious files exist")
+	}
+	if len(spurious.Warnings()) != 1 {
+		t.Errorf("expected one warning per spurious file, got %v", spurious.Warnings())
+	}
+
+	// Partial and spurious render one warning each.
+	both := PickVerification{PartialFiles: []string{"a.cls"}, SpuriousFiles: []string{"x.cls"}}
+	if len(both.Warnings()) != 2 {
+		t.Errorf("expected one warning per partial+spurious file, got %v", both.Warnings())
+	}
+
 	empty := PickVerification{}
 	if !empty.OK() {
-		t.Errorf("expected OK()=true with no partial files")
+		t.Errorf("expected OK()=true with no partial or spurious files")
 	}
 }

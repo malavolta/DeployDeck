@@ -50,13 +50,14 @@ func TestHU006_CherryPick_E2E(t *testing.T) {
 			t.Errorf("expected topological order (A before B) in log:\n%s", log)
 		}
 
-		// Content equals the source branch for all touched files.
-		verify, err := svc.VerifyPromotedContent(context.Background(), dir, "feature", []string{"a.cls", "b.cls"})
+		// Content equals the selected commits for all touched files, and no
+		// unselected file was dragged onto the branch.
+		verify, err := svc.VerifyPromotedContent(context.Background(), dir, "origin/UAT", feature2, []string{"a.cls", "b.cls"})
 		if err != nil {
 			t.Fatalf("VerifyPromotedContent error: %v", err)
 		}
 		if !verify.OK() {
-			t.Errorf("expected promoted content == source, partial files: %v", verify.PartialFiles)
+			t.Errorf("expected promoted content == source, partial files: %v, spurious files: %v", verify.PartialFiles, verify.SpuriousFiles)
 		}
 
 		if !git.DeltaAndValidationAllowed(outcome.State, false) {
@@ -260,7 +261,7 @@ func TestHU006_CherryPick_E2E(t *testing.T) {
 		if _, err := svc.ContinueCherryPick(context.Background(), dir); err != nil {
 			t.Fatalf("ContinueCherryPick error: %v", err)
 		}
-		verify, err := svc.VerifyPromotedContent(context.Background(), dir, "feature", []string{"a.cls", "b.cls"})
+		verify, err := svc.VerifyPromotedContent(context.Background(), dir, "origin/UAT", feature2, []string{"a.cls", "b.cls"})
 		if err != nil {
 			t.Fatalf("VerifyPromotedContent error: %v", err)
 		}

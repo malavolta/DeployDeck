@@ -26,7 +26,7 @@ func TestService_VerifyPromotedContent_DetectsPartialPromotion(t *testing.T) {
 		t.Fatalf("CherryPick error: %v", err)
 	}
 
-	// Resolve a.cls to content that does NOT match the source branch — a
+	// Resolve a.cls to content that does NOT match the selected commits — a
 	// deliberate partial promotion. b.cls was applied cleanly (matches).
 	writeFileHelper(t, dir, "a.cls", "l1\nPARTIAL-DIFFERENT\nl3\n")
 	runGit(t, runner, dir, "add", "a.cls")
@@ -34,7 +34,7 @@ func TestService_VerifyPromotedContent_DetectsPartialPromotion(t *testing.T) {
 		t.Fatalf("ContinueCherryPick error: %v", err)
 	}
 
-	verify, err := svc.VerifyPromotedContent(context.Background(), dir, "feature", []string{"a.cls", "b.cls"})
+	verify, err := svc.VerifyPromotedContent(context.Background(), dir, "origin/UAT", feature2, []string{"a.cls", "b.cls"})
 	if err != nil {
 		t.Fatalf("VerifyPromotedContent error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestService_VerifyPromotedContent_CleanPromotionMatchesSource(t *testing.T)
 		t.Fatalf("CherryPick error: %v", err)
 	}
 
-	verify, err := svc.VerifyPromotedContent(context.Background(), dir, "feature", []string{"a.cls", "b.cls"})
+	verify, err := svc.VerifyPromotedContent(context.Background(), dir, "origin/UAT", feature2, []string{"a.cls", "b.cls"})
 	if err != nil {
 		t.Fatalf("VerifyPromotedContent error: %v", err)
 	}
