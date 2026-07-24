@@ -159,14 +159,14 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 7: HU-003 `commit-selection`
 
-- [ ] 7.1 `[U]` RED: `CommitSelectionItem` row shows short SHA/message/author/date/flags.
-- [ ] 7.2 GREEN: implement `CommitSelectionItem{Commit,Selected,Disabled,Reason}` + rendering fields.
-- [ ] 7.3 `[U]` RED: already-applied commit → `Disabled=true` + `Reason`; select attempt is a no-op.
-- [ ] 7.4 GREEN: implement disabled/reason logic for already-applied.
-- [ ] 7.5 `[U]` RED: merge commit → `Disabled=true` (cherry-pick `-m` unsupported in MVP).
-- [ ] 7.6 GREEN: implement merge-commit disable rule.
-- [ ] 7.7 `[U]` RED: commit message referencing other tickets sets a multi-ticket notice.
-- [ ] 7.8 GREEN: implement multi-ticket notice detection.
+- [x] 7.1 `[U]` RED: `CommitSelectionItem` row shows short SHA/message/author/date/flags.
+- [x] 7.2 GREEN: implement `CommitSelectionItem{Commit,Selected,Disabled,Reason}` + rendering fields.
+- [x] 7.3 `[U]` RED: already-applied commit → `Disabled=true` + `Reason`; select attempt is a no-op.
+- [x] 7.4 GREEN: implement disabled/reason logic for already-applied.
+- [x] 7.5 `[U]` RED: merge commit → `Disabled=true` (cherry-pick `-m` unsupported in MVP).
+- [x] 7.6 GREEN: implement merge-commit disable rule.
+- [x] 7.7 `[U]` RED: commit message referencing other tickets sets a multi-ticket notice.
+- [x] 7.8 GREEN: implement multi-ticket notice detection.
 - [ ] 7.9 `[I]` RED: real `git diff --name-only` — selected commit's file also touched by an unselected intermediate commit triggers a dependency warning.
 - [ ] 7.10 GREEN: implement per-file dependency-warning computation.
 - [ ] 7.11 `[U]` RED: confirming with zero selected commits is blocked.
