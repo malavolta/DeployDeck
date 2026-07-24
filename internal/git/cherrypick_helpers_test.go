@@ -68,10 +68,71 @@ func seedConflictingFeature(t *testing.T, runner exec.Runner, dir string) (featu
 	return feature1, feature2
 }
 
+// seedCleanFeature builds a "UAT" target and a "feature" branch whose two
+// commits (touching DIFFERENT files than UAT) cherry-pick onto UAT with NO
+// conflict. It leaves the repo checked out on UAT and returns the two
+// feature commit SHAs (topological order). Used to prove the happy-path
+// ordered application and content-equals-source property.
+func seedCleanFeature(t *testing.T, runner exec.Runner, dir string) (feature1, feature2 string) {
+	t.Helper()
+
+	// Target branch UAT off main, unrelated to the files feature touches.
+	runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+	writeFileHelper(t, dir, "uat-only.txt", "uat\n")
+	runGit(t, runner, dir, "add", "uat-only.txt")
+	runGit(t, runner, dir, "commit", "-m", "UAT-only change")
+	runGit(t, runner, dir, "push", "origin", "UAT")
+
+	runGit(t, runner, dir, "checkout", "-b", "feature", "main")
+	feature1 = writeAndCommit(t, runner, dir, "a.cls", "public class A {}\n", "PROJ-1: add A")
+	feature2 = writeAndCommit(t, runner, dir, "b.cls", "public class B {}\n", "PROJ-1: add B")
+	runGit(t, runner, dir, "push", "origin", "feature")
+
+	runGit(t, runner, dir, "checkout", "UAT")
+	return feature1, feature2
+}
+
+// capturingRunner records every CommandRequest and returns a single canned
+// CommandResult for all of them. It lets unit tests assert the exact Args a
+// Service method issues (e.g. the `-c commit.gpgsign=false` flag) without a
+// real git binary.
+type capturingRunner struct {
+	calls  []exec.CommandRequest
+	result exec.CommandResult
+}
+
+func (r *capturingRunner) Run(_ context.Context, req exec.CommandRequest) (exec.CommandResult, error) {
+	r.calls = append(r.calls, req)
+	return r.result, nil
+}
+
+// findCall returns the first recorded request whose Args contain sub as a
+// contiguous subslice-free token, matching on the presence of the token.
+func (r *capturingRunner) callWithArg(token string) (exec.CommandRequest, bool) {
+	for _, c := range r.calls {
+		for _, a := range c.Args {
+			if a == token {
+				return c, true
+			}
+		}
+	}
+	return exec.CommandRequest{}, false
+}
+
 // writeFileHelper writes content to dir/name, failing the test on error.
 func writeFileHelper(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to write %s: %v", name, err)
 	}
+}
+
+// argsContain reports whether args contains token.
+func argsContain(args []string, token string) bool {
+	for _, a := range args {
+		if a == token {
+			return true
+		}
+	}
+	return false
 }

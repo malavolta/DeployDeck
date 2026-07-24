@@ -221,10 +221,10 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.4 GREEN: implement `-z` NUL-delimited porcelain parsing in the `ConflictFile`/status builder.
 - [x] 10.5 `[I]` RED: `RepoState{InProgress,CurrentSHA,Unmerged,SequencerRemaining}` assembled from `CHERRY_PICK_HEAD` + `.git/sequencer/todo` + `git status --porcelain -z`, during a real multi-commit cherry-pick sequence so `.git/sequencer/todo` is actually populated.
 - [x] 10.6 GREEN: implement `git.Service.RepoState()`.
-- [ ] 10.7 `[I]` RED (AC1): selected commits apply in order via ONE sequencer-driven invocation — `git cherry-pick <sha1>..<shaN>` for a contiguous topo-ancestry selection, or the explicit ordered SHA-list form `git cherry-pick <sha1> <sha2> ... <shaN>` for a non-contiguous selection — final content matches the source branch and `.git/sequencer/todo` ordering matches the user's selection.
-- [ ] 10.8 GREEN: implement `git.Service` range-vs-explicit-list form selection + a single sequencer-driven cherry-pick invocation (never a Go loop of single-sha picks).
-- [ ] 10.9 `[U]` RED (M2): `git.Service` cherry-pick and `--continue` invocations carry `-c commit.gpgsign=false` in `Args` (assert via `FakeRunner` captured `Args`) so promotion commits never invoke gpg with no tty.
-- [ ] 10.10 GREEN: add `-c commit.gpgsign=false` to both the initial cherry-pick and `--continue` command construction in `git.Service`.
+- [x] 10.7 `[I]` RED (AC1): selected commits apply in order via ONE sequencer-driven invocation — `git cherry-pick <sha1>..<shaN>` for a contiguous topo-ancestry selection, or the explicit ordered SHA-list form `git cherry-pick <sha1> <sha2> ... <shaN>` for a non-contiguous selection — final content matches the source branch and `.git/sequencer/todo` ordering matches the user's selection.
+- [x] 10.8 GREEN: implement `git.Service` range-vs-explicit-list form selection + a single sequencer-driven cherry-pick invocation (never a Go loop of single-sha picks).
+- [x] 10.9 `[U]` RED (M2): `git.Service` cherry-pick and `--continue` invocations carry `-c commit.gpgsign=false` in `Args` (assert via `FakeRunner` captured `Args`) so promotion commits never invoke gpg with no tty.
+- [x] 10.10 GREEN: add `-c commit.gpgsign=false` to both the initial cherry-pick and `--continue` command construction in `git.Service`.
 - [ ] 10.11 `[I]` RED (AC2): a conflicting commit stops the flow; conflicting files shown classified by type.
 - [ ] 10.12 GREEN: implement conflict-stop handling wiring `RepoState` + `ConflictFile`.
 - [ ] 10.13 `[I]` RED: modify/delete conflict resolution offers an explicit choice to keep the file (`git add`) or delete it (`git rm`).
