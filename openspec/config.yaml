@@ -1,0 +1,74 @@
+schema: spec-driven
+
+context: |
+  Project: DeployDeck — Go TUI that orchestrates Git cherry-picks, Salesforce
+  deploy validation (sf), delta packages (sfdx-git-delta), and optional PR
+  creation (gh). Stack: Go, Bubble Tea, Bubbles, Lip Gloss, Cobra.
+  Status: pre-code — only planning docs exist; no go.mod yet (created on first change).
+  Architecture: cmd/deploydeck -> internal/app (TUI, no direct external exec) ->
+  internal/{git,salesforce,github,delta,config,runs} -> internal/exec (sole
+  external-command boundary; non-interactive Git via GIT_EDITOR/GIT_TERMINAL_PROMPT/GIT_PAGER).
+  Persistence: local runs/manifests under .deploydeck/ (must be gitignored, doctor-checked).
+  Fixture: test-e2e-org/ is a Salesforce Node fixture for e2e only, not the app stack.
+
+strict_tdd: true
+
+testing:
+  test_command: "go test ./..."
+  strict_tdd: true
+  layers:
+    unit:
+      available: false
+      tool: "go test (table-driven), will cover Git parsing, package.xml/destructive parsing, sf JSON parsing, config validation"
+    integration:
+      available: false
+      tool: "go test, ephemeral local Git repos (real branches/commits/cherry-picks), skippable via testing.Short()"
+    e2e:
+      available: false
+      tool: "go test -run E2E, opt-in via DEPLOYDECK_E2E_ORG env var, local only per docs/ARQUITECTURA.md — never runs in CI"
+  coverage:
+    available: false
+    command: "go test ./... -cover"
+  quality:
+    linter:
+      available: false
+      command: "golangci-lint run (to be added when go.mod is created)"
+    type_checker:
+      available: false
+      command: "-"
+    formatter:
+      available: false
+      command: "gofmt -l . && go vet ./..."
+  ci:
+    scope: "unit + local-integration tests run on every PR"
+    excluded: "real Salesforce e2e stays local-only (DEPLOYDECK_E2E_ORG opt-in); would need JWT auth to ever run in CI (see HU-019)"
+
+rules:
+  proposal:
+    - Include a rollback plan for changes that touch shared Git state (branches, cherry-picks) or Salesforce sandboxes
+    - State which delivery phase the change belongs to (Fase 1 MVP Git / Fase 2 Delta / Fase 3 Validacion / Fase 4 Cola / Fase 5 Productizacion) per EPICA.md Plan De Entrega
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Reference the matching HU-XXX from docs/HISTORIAS.md when the change maps to an existing user story
+  design:
+    - Document architecture decisions with rationale, respecting docs/ARQUITECTURA.md module boundaries — internal/app MUST NOT call external commands directly; internal/exec is the only execution boundary
+    - Include sequence or state diagrams for complex flows (cherry-pick conflict handling, validation polling, run resume)
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - "Strict TDD (ENABLED): every task implementing behavior MUST start with a failing test (RED) before implementation (GREEN); no production code without a preceding failing test"
+  apply:
+    guidelines:
+      - Follow the module layout in docs/ARQUITECTURA.md (cmd/deploydeck, internal/app|git|salesforce|github|delta|config|runs|exec)
+      - Never execute external commands via shell; pass arguments as a slice through internal/exec (CommandRequest/CommandResult contract)
+      - Run Git non-interactively: GIT_EDITOR=true, GIT_TERMINAL_PROMPT=0, GIT_PAGER=cat
+      - Never persist or log Salesforce credentials; redact sensitive values in captured command output
+    tdd: true
+    test_command: "go test ./..."
+  verify:
+    test_command: "go test ./..."
+    build_command: "go build ./..."
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
