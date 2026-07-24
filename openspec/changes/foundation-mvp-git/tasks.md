@@ -169,10 +169,10 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 7.8 GREEN: implement multi-ticket notice detection.
 - [x] 7.9 `[I]` RED: real `git diff --name-only` — selected commit's file also touched by an unselected intermediate commit triggers a dependency warning.
 - [x] 7.10 GREEN: implement per-file dependency-warning computation.
-- [ ] 7.11 `[U]` RED: confirming with zero selected commits is blocked.
-- [ ] 7.12 GREEN: implement empty-selection guard.
-- [ ] 7.13 `[U]` RED: advanced-mode reorder shows conflict-risk warning; non-advanced reorder unavailable.
-- [ ] 7.14 GREEN: implement advanced-mode reorder + warning.
+- [x] 7.11 `[U]` RED: confirming with zero selected commits is blocked.
+- [x] 7.12 GREEN: implement empty-selection guard.
+- [x] 7.13 `[U]` RED: advanced-mode reorder shows conflict-risk warning; non-advanced reorder unavailable.
+- [x] 7.14 GREEN: implement advanced-mode reorder + warning.
 - [ ] 7.15 `[U]` RED: valid non-empty confirmed selection generates a preliminary `DeploymentPlan`.
 - [ ] 7.16 GREEN: implement `DeploymentPlan` generation on confirm.
 

@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -208,4 +209,97 @@ func TestToggleSelection_TableDriven(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateSelection_TableDriven proves confirming with zero selected
+// commits is blocked (HU-003 AC: "el usuario confirma sin seleccionar
+// commits, entonces se bloquea el avance"), while any non-empty selection
+// (including one where every OTHER item is disabled) is allowed through.
+func TestValidateSelection_TableDriven(t *testing.T) {
+	tests := []struct {
+		name    string
+		items   []git.CommitSelectionItem
+		wantErr error
+	}{
+		{
+			name: "zero selected items is blocked",
+			items: []git.CommitSelectionItem{
+				{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "a"}}, Selected: false},
+				{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "b"}}, Selected: false, Disabled: true, Reason: "merge commits are not supported for cherry-pick (-m) in MVP"},
+			},
+			wantErr: git.ErrEmptySelection,
+		},
+		{
+			name: "at least one selected item passes",
+			items: []git.CommitSelectionItem{
+				{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "a"}}, Selected: true},
+				{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "b"}}, Selected: false, Disabled: true},
+			},
+			wantErr: nil,
+		},
+		{
+			name:    "an empty item list is blocked",
+			items:   nil,
+			wantErr: git.ErrEmptySelection,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := git.ValidateSelection(tt.items)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("ValidateSelection() unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ValidateSelection() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestReorderSelection_TableDriven proves reordering is available ONLY in
+// advanced mode and always carries the conflict-risk warning (HU-003 AC:
+// "Permitir reordenar commits solo en modo avanzado, mostrando
+// advertencia... aumenta el riesgo de conflictos").
+func TestReorderSelection_TableDriven(t *testing.T) {
+	base := []git.CommitSelectionItem{
+		{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "a"}}, Selected: true},
+		{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "b"}}, Selected: true},
+		{DiscoveredCommit: git.DiscoveredCommit{Commit: git.Commit{SHA: "c"}}, Selected: true},
+	}
+
+	t.Run("non-advanced mode rejects reordering", func(t *testing.T) {
+		got, warning, err := git.ReorderSelection(base, 0, 2, false)
+		if !errors.Is(err, git.ErrReorderRequiresAdvancedMode) {
+			t.Fatalf("ReorderSelection() error = %v, want %v", err, git.ErrReorderRequiresAdvancedMode)
+		}
+		if warning != "" {
+			t.Errorf("expected no warning on rejection, got %q", warning)
+		}
+		if len(got) != len(base) || got[0].SHA != "a" {
+			t.Errorf("expected items unchanged on rejection, got %+v", got)
+		}
+	})
+
+	t.Run("advanced mode reorders and returns the conflict-risk warning", func(t *testing.T) {
+		got, warning, err := git.ReorderSelection(base, 0, 2, true)
+		if err != nil {
+			t.Fatalf("ReorderSelection() unexpected error: %v", err)
+		}
+		if warning != git.ReorderConflictRiskWarning {
+			t.Errorf("warning = %q, want %q", warning, git.ReorderConflictRiskWarning)
+		}
+		wantOrder := []string{"b", "c", "a"}
+		if len(got) != len(wantOrder) {
+			t.Fatalf("expected %d items, got %d: %+v", len(wantOrder), len(got), got)
+		}
+		for i, want := range wantOrder {
+			if got[i].SHA != want {
+				t.Errorf("got[%d].SHA = %q, want %q", i, got[i].SHA, want)
+			}
+		}
+	})
 }

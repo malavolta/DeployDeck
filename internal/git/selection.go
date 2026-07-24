@@ -1,6 +1,8 @@
 package git
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -134,4 +136,54 @@ func ToggleSelection(items []CommitSelectionItem, index int) []CommitSelectionIt
 	toggled := append([]CommitSelectionItem(nil), items...)
 	toggled[index].Selected = !toggled[index].Selected
 	return toggled
+}
+
+// ErrEmptySelection means the user confirmed with zero commits selected
+// (HU-003 AC: "el usuario confirma sin seleccionar commits, entonces se
+// bloquea el avance").
+var ErrEmptySelection = errors.New("git: no commits selected")
+
+// ValidateSelection blocks confirming with zero Selected items.
+func ValidateSelection(items []CommitSelectionItem) error {
+	for _, item := range items {
+		if item.Selected {
+			return nil
+		}
+	}
+	return ErrEmptySelection
+}
+
+// ErrReorderRequiresAdvancedMode means the caller tried to reorder the
+// selection outside advanced mode (HU-003: "Permitir reordenar commits
+// solo en modo avanzado").
+var ErrReorderRequiresAdvancedMode = errors.New("git: reordering commits requires advanced mode")
+
+// ReorderConflictRiskWarning is returned alongside every successful
+// reorder: altering topological order increases conflict risk, since each
+// commit was written against the state its predecessor left (HU-003 AC).
+const ReorderConflictRiskWarning = "reordering selected commits alters topological order and increases conflict risk"
+
+// ReorderSelection moves the item at index from to index to within items,
+// returning the reordered slice, ReorderConflictRiskWarning, and a nil
+// error — but ONLY when advancedMode is true; otherwise it returns items
+// unchanged, an empty warning, and ErrReorderRequiresAdvancedMode.
+func ReorderSelection(items []CommitSelectionItem, from, to int, advancedMode bool) ([]CommitSelectionItem, string, error) {
+	if !advancedMode {
+		return items, "", ErrReorderRequiresAdvancedMode
+	}
+	if from < 0 || from >= len(items) || to < 0 || to >= len(items) {
+		return items, "", fmt.Errorf("git: reorder index out of range: from=%d to=%d len=%d", from, to, len(items))
+	}
+	if from == to {
+		return items, ReorderConflictRiskWarning, nil
+	}
+
+	reordered := append([]CommitSelectionItem(nil), items...)
+	moved := reordered[from]
+	reordered = append(reordered[:from], reordered[from+1:]...)
+
+	rest := append([]CommitSelectionItem{moved}, reordered[to:]...)
+	reordered = append(reordered[:to], rest...)
+
+	return reordered, ReorderConflictRiskWarning, nil
 }
