@@ -9,10 +9,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"deploydeck/internal/app"
 	"deploydeck/internal/config"
 	"deploydeck/internal/exec"
 	"deploydeck/internal/git"
@@ -27,14 +30,30 @@ type Deps struct {
 	// OS-backed dependencies (NewOSRunner, config.Load, a real
 	// ProcessProber); tests inject fakes without changing this signature.
 	NewChecker func(dir string) (*prereq.Checker, error)
+	// RunTUI launches the Bubble Tea promotion flow rooted at dir. main()
+	// wires the real program; tests inject a fake to assert routing without
+	// launching a terminal program.
+	RunTUI func(dir string) error
 }
 
 // newRootCmd builds the deploydeck Cobra root command and registers its
-// subcommands.
+// subcommands. With no subcommand, the root launches the Bubble Tea TUI; the
+// `doctor` subcommand remains for the CLI prerequisite check.
 func newRootCmd(deps Deps) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "deploydeck",
-		Short: "Guides Salesforce commit promotion through controlled Git cherry-picks",
+		Use:          "deploydeck",
+		Short:        "Guides Salesforce commit promotion through controlled Git cherry-picks",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("resolving working directory: %w", err)
+			}
+			if deps.RunTUI == nil {
+				return errors.New("no TUI runner configured")
+			}
+			return deps.RunTUI(dir)
+		},
 	}
 
 	root.AddCommand(newDoctorCmd(deps))
@@ -122,8 +141,48 @@ func defaultChecker(dir string) (*prereq.Checker, error) {
 	}, nil
 }
 
+// defaultRunTUI composes the real NewOSRunner-backed services and launches the
+// Bubble Tea promotion flow. The interactive editor handoff (tea.ExecProcess)
+// is built HERE — main may import os/exec, so internal/app never has to (it
+// stays behind the service seam, enforced by internal/app/boundary_test.go).
+func defaultRunTUI(dir string) error {
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return fmt.Errorf("loading %s: %w", config.FileName, err)
+	}
+
+	runner := exec.NewOSRunner()
+	deps := app.Deps{
+		Git:        git.New(runner),
+		SF:         salesforce.New(runner),
+		Config:     cfg,
+		Dir:        dir,
+		NewChecker: defaultChecker,
+		Edit:       editHandoff,
+	}
+
+	program := tea.NewProgram(app.New(deps))
+	_, err = program.Run()
+	return err
+}
+
+// editHandoff returns a tea.Cmd that suspends the TUI and opens $EDITOR on
+// path for manual conflict resolution (the mockup's `e` affordance). It is the
+// ONLY sanctioned use of tea.ExecProcess — an interactive editor handoff,
+// never a git/sf command — and lives in main so internal/app stays exec-free.
+func editHandoff(path string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	return tea.ExecProcess(osexec.Command(editor, path), func(error) tea.Msg { return nil })
+}
+
 func main() {
-	deps := Deps{NewChecker: defaultChecker}
+	deps := Deps{
+		NewChecker: defaultChecker,
+		RunTUI:     defaultRunTUI,
+	}
 
 	if err := newRootCmd(deps).Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

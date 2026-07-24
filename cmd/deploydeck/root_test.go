@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,57 @@ import (
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/salesforce"
 )
+
+// TestNewRootCmd_NoSubcommand_LaunchesTUI proves that running `deploydeck`
+// with no subcommand launches the Bubble Tea TUI (via the injected RunTUI),
+// resolving the working directory to run it in.
+func TestNewRootCmd_NoSubcommand_LaunchesTUI(t *testing.T) {
+	var launched bool
+	var launchedDir string
+	deps := Deps{
+		RunTUI: func(dir string) error {
+			launched = true
+			launchedDir = dir
+			return nil
+		},
+		NewChecker: func(string) (*prereq.Checker, error) {
+			t.Fatal("bare `deploydeck` must launch the TUI, not run doctor")
+			return nil, nil
+		},
+	}
+
+	cmd := newRootCmd(deps)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("bare deploydeck should launch the TUI cleanly, got: %v", err)
+	}
+	if !launched {
+		t.Fatal("bare deploydeck did not launch the TUI")
+	}
+	if launchedDir == "" {
+		t.Errorf("TUI should be launched with a resolved working directory")
+	}
+}
+
+// TestNewRootCmd_Doctor_DoesNotLaunchTUI proves the doctor subcommand routes
+// to the checker, never the TUI.
+func TestNewRootCmd_Doctor_DoesNotLaunchTUI(t *testing.T) {
+	var launched bool
+	deps := Deps{
+		RunTUI: func(string) error { launched = true; return nil },
+		NewChecker: func(string) (*prereq.Checker, error) {
+			return nil, errors.New("checker unavailable")
+		},
+	}
+
+	cmd := newRootCmd(deps)
+	cmd.SetArgs([]string{"doctor"})
+	_ = cmd.Execute() // error is expected (checker unavailable); routing is what matters
+
+	if launched {
+		t.Fatal("`deploydeck doctor` must not launch the TUI")
+	}
+}
 
 func TestNewRootCmd_RegistersDoctorSubcommand(t *testing.T) {
 	cmd := newRootCmd(Deps{})
