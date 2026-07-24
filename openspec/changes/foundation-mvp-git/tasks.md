@@ -107,32 +107,32 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 5: HU-001 `prereq-check`
 
-- [ ] 5.1 `[U]` RED: `sf --version`/`sf plugins --json`/`sf org list --json` JSON parsing, incl. malformed-JSON error case (canned `FakeRunner`).
-- [ ] 5.2 GREEN: `internal/salesforce/client.go` — `Client`, `New(Runner)`, `VersionInfo`/`Plugin`/`Org`/`OrgList`.
-- [ ] 5.3 `[U]` RED: lock acquire/refuse/stale-takeover table-driven with fake `ProcessProber.Alive(pid, startedAt)` — same-host + alive (matching `StartedAt`) → refuse naming pname+pid; dead owner OR PID-reused (`StartedAt` mismatch) → stale takeover; different host → conservative refuse.
-- [ ] 5.4 GREEN: `internal/prereq/lock.go` — `LockInfo{PID,PName,Host,StartedAt,CreatedAt}`, `ProcessProber` interface widened to `Alive(pid int, startedAt time.Time) bool`; unit layer uses the fake prober only — the darwin OS start-time reader (`sysctl KERN_PROC` / `ps -o lstart`) is integration/manual, not fake-covered.
-- [ ] 5.5 `[U]`/`[I]` RED: stale-lock takeover race — two acquirers hit the same stale lock, both `os.Remove` it then retry `OpenFile(O_CREATE|O_EXCL)` in a bounded loop; exactly one wins, the loser re-reads the winner's `LockInfo` and refuses (never rename over an existing lock).
-- [ ] 5.6 GREEN: implement stale takeover as remove-then-bounded-retry `O_CREATE|O_EXCL` with an explicit iteration/backoff bound.
-- [ ] 5.7 `[U]` RED: `LockInfo` is never observable half-written — a concurrent reader sees either no file or a fully valid record.
-- [ ] 5.8 GREEN: implement atomic full-write-before-discoverable `LockInfo` persistence (temp-file+rename onto the `O_EXCL` path, or full write before the fd is discoverable).
-- [ ] 5.9 `[U]` RED: git/sf/`sfdx-git-delta` version-vs-`minVersions` check — below-min blocks with `FixCommand` (including `sfdx-git-delta` VERSION below min, not just presence); missing `sfdx-git-delta` plugin shows install `FixCommand`.
-- [ ] 5.10 GREEN: implement version/plugin checks in `internal/prereq/checker.go`, incl. `sfdx-git-delta` version comparison.
-- [ ] 5.11 `[I]` RED: repo-membership + missing-origin blocks with corrective action.
-- [ ] 5.12 GREEN: implement repo/origin checks composing `git.Service`.
-- [ ] 5.13 `[I]` RED: dirty working tree blocks branch-modifying operations.
-- [ ] 5.14 GREEN: implement dirty-tree check.
-- [ ] 5.15 `[I]` RED: `.gitignore` missing `.deploydeck/` blocks + offers to add; present entry passes.
-- [ ] 5.16 GREEN: implement gitignore check + add-entry action.
-- [ ] 5.17 `[U]` RED: repository Git hooks that could interfere with checkout/cherry-pick are detected and reported as an informative, non-blocking `PrereqCheck` (RNF-005).
-- [ ] 5.18 GREEN: implement git-hooks interference detection (informative-only, never blocking) in `internal/prereq/checker.go`.
-- [ ] 5.19 `[U]` RED: `commit.gpgsign=true` (via `git config --get commit.gpgsign`) produces a non-blocking doctor warning noting the tool neutralizes it with `-c commit.gpgsign=false` on its own commits.
-- [ ] 5.20 GREEN: implement gpgsign warning check in `internal/prereq/checker.go`.
-- [ ] 5.21 `[U]` RED: configured alias absent from `sf org list --json`, scanned across all five categories (`nonScratchOrgs`/`scratchOrgs`/`sandboxes`/`devHubs`/`other`), blocks that sandbox.
-- [ ] 5.22 GREEN: implement alias validation composing `salesforce.Client` + config.
-- [ ] 5.23 `[U]` RED: full report assembly — all-pass (`Status=OK`) and missing-git-binary-blocks (`FixCommand` shown) scenarios.
-- [ ] 5.24 GREEN: implement `Checker.Check()` aggregating `[]PrereqCheck{Status,Detail,FixCommand}`.
-- [ ] 5.25 `[U]`/`[I]` RED: `doctor` exits non-zero (distinct from success) on any blocker, zero when all pass.
-- [ ] 5.26 GREEN: wire `doctor` subcommand to `Checker` with distinct non-zero exit.
+- [x] 5.1 `[U]` RED: `sf --version`/`sf plugins --json`/`sf org list --json` JSON parsing, incl. malformed-JSON error case (canned `FakeRunner`).
+- [x] 5.2 GREEN: `internal/salesforce/client.go` — `Client`, `New(Runner)`, `VersionInfo`/`Plugin`/`Org`/`OrgList`.
+- [x] 5.3 `[U]` RED: lock acquire/refuse/stale-takeover table-driven with fake `ProcessProber.Alive(pid, startedAt)` — same-host + alive (matching `StartedAt`) → refuse naming pname+pid; dead owner OR PID-reused (`StartedAt` mismatch) → stale takeover; different host → conservative refuse.
+- [x] 5.4 GREEN: `internal/prereq/lock.go` — `LockInfo{PID,PName,Host,StartedAt,CreatedAt}`, `ProcessProber` interface widened to `Alive(pid int, startedAt time.Time) bool`; unit layer uses the fake prober only — the darwin OS start-time reader (`sysctl KERN_PROC` / `ps -o lstart`) is integration/manual, not fake-covered.
+- [x] 5.5 `[U]`/`[I]` RED: stale-lock takeover race — two acquirers hit the same stale lock, both `os.Remove` it then retry `OpenFile(O_CREATE|O_EXCL)` in a bounded loop; exactly one wins, the loser re-reads the winner's `LockInfo` and refuses (never rename over an existing lock).
+- [x] 5.6 GREEN: implement stale takeover as remove-then-bounded-retry `O_CREATE|O_EXCL` with an explicit iteration/backoff bound.
+- [x] 5.7 `[U]` RED: `LockInfo` is never observable half-written — a concurrent reader sees either no file or a fully valid record.
+- [x] 5.8 GREEN: implement atomic full-write-before-discoverable `LockInfo` persistence (temp-file+rename onto the `O_EXCL` path, or full write before the fd is discoverable).
+- [x] 5.9 `[U]` RED: git/sf/`sfdx-git-delta` version-vs-`minVersions` check — below-min blocks with `FixCommand` (including `sfdx-git-delta` VERSION below min, not just presence); missing `sfdx-git-delta` plugin shows install `FixCommand`.
+- [x] 5.10 GREEN: implement version/plugin checks in `internal/prereq/checker.go`, incl. `sfdx-git-delta` version comparison.
+- [x] 5.11 `[I]` RED: repo-membership + missing-origin blocks with corrective action.
+- [x] 5.12 GREEN: implement repo/origin checks composing `git.Service`.
+- [x] 5.13 `[I]` RED: dirty working tree blocks branch-modifying operations.
+- [x] 5.14 GREEN: implement dirty-tree check.
+- [x] 5.15 `[I]` RED: `.gitignore` missing `.deploydeck/` blocks + offers to add; present entry passes.
+- [x] 5.16 GREEN: implement gitignore check + add-entry action.
+- [x] 5.17 `[U]` RED: repository Git hooks that could interfere with checkout/cherry-pick are detected and reported as an informative, non-blocking `PrereqCheck` (RNF-005).
+- [x] 5.18 GREEN: implement git-hooks interference detection (informative-only, never blocking) in `internal/prereq/checker.go`.
+- [x] 5.19 `[U]` RED: `commit.gpgsign=true` (via `git config --get commit.gpgsign`) produces a non-blocking doctor warning noting the tool neutralizes it with `-c commit.gpgsign=false` on its own commits.
+- [x] 5.20 GREEN: implement gpgsign warning check in `internal/prereq/checker.go`.
+- [x] 5.21 `[U]` RED: configured alias absent from `sf org list --json`, scanned across all five categories (`nonScratchOrgs`/`scratchOrgs`/`sandboxes`/`devHubs`/`other`), blocks that sandbox.
+- [x] 5.22 GREEN: implement alias validation composing `salesforce.Client` + config.
+- [x] 5.23 `[U]` RED: full report assembly — all-pass (`Status=OK`) and missing-git-binary-blocks (`FixCommand` shown) scenarios.
+- [x] 5.24 GREEN: implement `Checker.Check()` aggregating `[]PrereqCheck{Status,Detail,FixCommand}`.
+- [x] 5.25 `[U]`/`[I]` RED: `doctor` exits non-zero (distinct from success) on any blocker, zero when all pass.
+- [x] 5.26 GREEN: wire `doctor` subcommand to `Checker` with distinct non-zero exit.
 
 ## Phase 6: HU-002 `commit-discovery`
 
