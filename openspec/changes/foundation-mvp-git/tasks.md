@@ -95,15 +95,15 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 4: `internal/git` core
 
-- [ ] 4.1 Create shared `newTempRepo(t)` test helper — inits temp repo via `NewOSRunner`, sets `user.name`/`user.email`, wires a bare origin remote so `origin/<branch>` refs exist (reused by HU-002 Phase 6 and HU-004 Phase 8; Phase 9 `newTempRepoWithRemote` extends it with a remote that advances after clone), skip on `-short`.
-- [ ] 4.2 `[I]` RED: `Service` resolves repo root via `git rev-parse --show-toplevel`; errors outside a repo.
-- [ ] 4.3 GREEN: `git.Service`, `New(Runner)`; `req.Dir` = rev-parse result, never shell `cd` (threat matrix: Git repository selection).
-- [ ] 4.4 `[U]` RED: every git request carries `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` (assert on captured `Env` via `FakeRunner`).
-- [ ] 4.5 GREEN: implement env injection in `git.Service` request builder.
-- [ ] 4.6 `[I]` RED: branch listing returns local + remote branches on `newTempRepo`.
-- [ ] 4.7 GREEN: implement branch-listing method.
-- [ ] 4.8 `[I]` RED: working-tree status distinguishes clean vs dirty (`git status --porcelain`).
-- [ ] 4.9 GREEN: implement status method + partial `RepoState` porcelain parse.
+- [x] 4.1 Create shared `newTempRepo(t)` test helper — inits temp repo via `NewOSRunner`, sets `user.name`/`user.email`, wires a bare origin remote so `origin/<branch>` refs exist (reused by HU-002 Phase 6 and HU-004 Phase 8; Phase 9 `newTempRepoWithRemote` extends it with a remote that advances after clone), skip on `-short`.
+- [x] 4.2 `[I]` RED: `Service` resolves repo root via `git rev-parse --show-toplevel`; errors outside a repo.
+- [x] 4.3 GREEN: `git.Service`, `New(Runner)`; `req.Dir` = rev-parse result, never shell `cd` (threat matrix: Git repository selection).
+- [x] 4.4 `[U]` RED: every git request carries `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat` (assert on captured `Env` via `FakeRunner`).
+- [x] 4.5 GREEN: implement env injection in `git.Service` request builder.
+- [x] 4.6 `[I]` RED: branch listing returns local + remote branches on `newTempRepo`.
+- [x] 4.7 GREEN: implement branch-listing method.
+- [x] 4.8 `[I]` RED: working-tree status distinguishes clean vs dirty (`git status --porcelain`).
+- [x] 4.9 GREEN: implement status method + partial `RepoState` porcelain parse.
 
 ## Phase 5: HU-001 `prereq-check`
 
