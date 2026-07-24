@@ -1,0 +1,114 @@
+package git_test
+
+import (
+	"testing"
+
+	"deploydeck/internal/config"
+	"deploydeck/internal/git"
+)
+
+func envConfig() config.Config {
+	return config.Config{
+		Branches: map[string]string{
+			"integration": "INT",
+			"uat":         "UAT",
+			"production":  "main",
+		},
+	}
+}
+
+func TestSuggestDefaultSource_TableDriven(t *testing.T) {
+	cfg := envConfig()
+
+	tests := []struct {
+		name       string
+		candidates []git.Branch
+		target     string
+		wantBranch git.Branch
+		wantOK     bool
+	}{
+		{
+			name:       "env-to-env promotion suggests the previous validated environment, not a feature branch",
+			candidates: []git.Branch{{Name: "feature/PROJ-1"}},
+			target:     "UAT",
+			wantBranch: git.Branch{Name: "INT"},
+			wantOK:     true,
+		},
+		{
+			name: "suggestion prefers the matching candidate entry (e.g. remote-tracking) over a bare synthesized branch",
+			candidates: []git.Branch{
+				{Name: "feature/PROJ-1"},
+				{Name: "origin/INT", Remote: true},
+			},
+			target:     "UAT",
+			wantBranch: git.Branch{Name: "origin/INT", Remote: true},
+			wantOK:     true,
+		},
+		{
+			name:       "the first pipeline stage has no previous environment to suggest",
+			candidates: []git.Branch{{Name: "feature/PROJ-1"}},
+			target:     "INT",
+			wantOK:     false,
+		},
+		{
+			name:       "a target that isn't a configured environment branch has no suggestion",
+			candidates: []git.Branch{{Name: "feature/PROJ-1"}},
+			target:     "feature/PROJ-1",
+			wantOK:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := git.SuggestDefaultSource(tt.candidates, cfg, tt.target)
+			if ok != tt.wantOK {
+				t.Fatalf("SuggestDefaultSource() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if ok && got != tt.wantBranch {
+				t.Fatalf("SuggestDefaultSource() = %+v, want %+v", got, tt.wantBranch)
+			}
+		})
+	}
+}
+
+// TestSuggestDefaultSource_OverrideStillEnforcesSingleSource proves the
+// RF-002 suggestion never bypasses single-source enforcement: the user can
+// override it with any other candidate, and SelectSingleSource still
+// validates the final choice against the candidate pool.
+func TestSuggestDefaultSource_OverrideStillEnforcesSingleSource(t *testing.T) {
+	cfg := envConfig()
+	candidates := []git.Branch{
+		{Name: "feature/PROJ-1"},
+		{Name: "origin/INT", Remote: true},
+	}
+
+	suggested, ok := git.SuggestDefaultSource(candidates, cfg, "UAT")
+	if !ok || suggested.Name != "origin/INT" {
+		t.Fatalf("expected origin/INT suggested, got %+v ok=%v", suggested, ok)
+	}
+
+	// Blocked without an explicit choice among >1 candidates, even though
+	// a suggestion exists — the suggestion is a UI default, not an
+	// automatic selection.
+	if _, err := git.SelectSingleSource(candidates, ""); err == nil {
+		t.Fatalf("expected SelectSingleSource to still require an explicit choice")
+	}
+
+	// Overriding with a different candidate is accepted.
+	override, err := git.SelectSingleSource(candidates, "feature/PROJ-1")
+	if err != nil {
+		t.Fatalf("expected override to be accepted, got error: %v", err)
+	}
+	if override.Name != "feature/PROJ-1" {
+		t.Fatalf("expected override to resolve to feature/PROJ-1, got %+v", override)
+	}
+
+	// Confirming the suggested branch itself is equally valid.
+	confirmed, err := git.SelectSingleSource(candidates, suggested.Name)
+	if err != nil {
+		t.Fatalf("expected the suggested branch to be a valid selection, got error: %v", err)
+	}
+	if confirmed != suggested {
+		t.Fatalf("expected confirming the suggestion to resolve to it, got %+v want %+v", confirmed, suggested)
+	}
+}
