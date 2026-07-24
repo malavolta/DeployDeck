@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,4 +84,77 @@ func newTempRepo(t *testing.T) string {
 	runGit(t, runner, dir, "push", "origin", "main")
 
 	return dir
+}
+
+// newTempRepoWithRemote initializes a bare "origin" remote seeded with
+// "main" and "UAT" (both pushed, one initial commit each), then returns a
+// LOCAL CLONE of it — via `git clone`, unlike newTempRepo's init+push —
+// plus the SEED working directory used to create the remote and the bare
+// remote's own path. Tests advance remoteDir's branches independently
+// AFTER localDir has already cloned by committing and pushing through
+// seedDir, NEVER through localDir itself: this is exactly the "remote
+// advances after the local clone, and only a fetch retrieves it" scenario
+// HU-005's Test E2E section requires (docs/HISTORIAS.md HU-005 — "tras el
+// clon local, el remoto avanza UAT a un nuevo HEAD que solo un fetch
+// trae"). Skips on -short like newTempRepo, since it shells out to real
+// git.
+func newTempRepoWithRemote(t *testing.T) (localDir, remoteDir, seedDir string) {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("skipping git integration test in -short mode")
+	}
+
+	runner := exec.NewOSRunner()
+
+	remoteDir = t.TempDir()
+	runGit(t, runner, remoteDir, "init", "--bare", "-b", "main")
+
+	seedDir = t.TempDir()
+	runGit(t, runner, seedDir, "init", "-b", "main")
+	runGit(t, runner, seedDir, "config", "user.name", "DeployDeck Test")
+	runGit(t, runner, seedDir, "config", "user.email", "deploydeck-test@example.com")
+	runGit(t, runner, seedDir, "remote", "add", "origin", remoteDir)
+
+	readmePath := filepath.Join(seedDir, "README.md")
+	if err := os.WriteFile(readmePath, []byte("# deploydeck temp repo\n"), 0o644); err != nil {
+		t.Fatalf("failed to seed README.md: %v", err)
+	}
+	runGit(t, runner, seedDir, "add", "README.md")
+	runGit(t, runner, seedDir, "commit", "-m", "chore: initial commit")
+	runGit(t, runner, seedDir, "push", "origin", "main")
+
+	runGit(t, runner, seedDir, "checkout", "-b", "UAT", "main")
+	uatPath := filepath.Join(seedDir, "uat.txt")
+	if err := os.WriteFile(uatPath, []byte("uat\n"), 0o644); err != nil {
+		t.Fatalf("failed to seed uat.txt: %v", err)
+	}
+	runGit(t, runner, seedDir, "add", "uat.txt")
+	runGit(t, runner, seedDir, "commit", "-m", "chore: seed UAT")
+	runGit(t, runner, seedDir, "push", "origin", "UAT")
+	runGit(t, runner, seedDir, "checkout", "main")
+
+	localParent := t.TempDir()
+	localDir = filepath.Join(localParent, "local")
+	runGit(t, runner, localParent, "clone", remoteDir, localDir)
+	runGit(t, runner, localDir, "config", "user.name", "DeployDeck Test")
+	runGit(t, runner, localDir, "config", "user.email", "deploydeck-test@example.com")
+
+	return localDir, remoteDir, seedDir
+}
+
+// callRecordingRunner wraps a real exec.Runner (typically NewOSRunner()),
+// recording every request's Name+Args (in call order, as a single
+// space-joined string) while still running it for real. Ordering
+// assertions that must exercise actual git behavior — proving `git fetch`
+// really runs before `git checkout -b` against a real repository, not a
+// canned FakeRunner response — use this instead of FakeRunner.
+type callRecordingRunner struct {
+	inner exec.Runner
+	calls []string
+}
+
+func (r *callRecordingRunner) Run(ctx context.Context, req exec.CommandRequest) (exec.CommandResult, error) {
+	r.calls = append(r.calls, req.Name+" "+strings.Join(req.Args, " "))
+	return r.inner.Run(ctx, req)
 }

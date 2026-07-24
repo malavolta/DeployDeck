@@ -24,6 +24,11 @@ type DeploymentPlan struct {
 	TargetBranch string
 	SandboxAlias string
 	TestLevel    string
+
+	// PromotionBranch is set by RegisterPromotionBranch (HU-005): the
+	// final name of the temporary branch Service.CreatePromotionBranch
+	// created, once creation succeeds.
+	PromotionBranch string
 }
 
 // GenerateDeploymentPlan produces a preliminary DeploymentPlan from a
