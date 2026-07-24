@@ -215,10 +215,10 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 10: HU-006 `cherry-pick` (largest/highest-risk — one RED→GREEN per AC)
 
-- [ ] 10.1 `[U]` RED: porcelain XY + numstat parsing — `DU`/`UD`→ModifyDelete, other conflict codes→Text, binary `-` marker→Binary.
-- [ ] 10.2 GREEN: implement `ConflictFile{Path,Kind}` classification (pure).
-- [ ] 10.3 `[U]` RED: porcelain parsing uses `git status --porcelain -z` NUL-delimited output so paths containing spaces/unicode split safely (not the default space-delimited porcelain format, which breaks on such paths).
-- [ ] 10.4 GREEN: implement `-z` NUL-delimited porcelain parsing in the `ConflictFile`/status builder.
+- [x] 10.1 `[U]` RED: porcelain XY + numstat parsing — `DU`/`UD`→ModifyDelete, other conflict codes→Text, binary `-` marker→Binary.
+- [x] 10.2 GREEN: implement `ConflictFile{Path,Kind}` classification (pure).
+- [x] 10.3 `[U]` RED: porcelain parsing uses `git status --porcelain -z` NUL-delimited output so paths containing spaces/unicode split safely (not the default space-delimited porcelain format, which breaks on such paths).
+- [x] 10.4 GREEN: implement `-z` NUL-delimited porcelain parsing in the `ConflictFile`/status builder.
 - [ ] 10.5 `[I]` RED: `RepoState{InProgress,CurrentSHA,Unmerged,SequencerRemaining}` assembled from `CHERRY_PICK_HEAD` + `.git/sequencer/todo` + `git status --porcelain -z`, during a real multi-commit cherry-pick sequence so `.git/sequencer/todo` is actually populated.
 - [ ] 10.6 GREEN: implement `git.Service.RepoState()`.
 - [ ] 10.7 `[I]` RED (AC1): selected commits apply in order via ONE sequencer-driven invocation — `git cherry-pick <sha1>..<shaN>` for a contiguous topo-ancestry selection, or the explicit ordered SHA-list form `git cherry-pick <sha1> <sha2> ... <shaN>` for a non-contiguous selection — final content matches the source branch and `.git/sequencer/todo` ordering matches the user's selection.
