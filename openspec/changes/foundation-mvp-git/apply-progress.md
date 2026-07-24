@@ -1,10 +1,12 @@
 # Apply Progress: Foundation + MVP Git (HU-001..HU-006)
 
 **Mode**: Strict TDD
-**Batch scope so far**: Phases 1-9 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
-HU-001 `prereq-check`, HU-002 `commit-discovery`, HU-003 `commit-selection`, HU-004 `target-selection`,
-HU-005 `promotion-branch`). Phases 10-12 (HU-006 `cherry-pick`, `internal/app` wiring, final
-verification) are NOT started.
+**Status**: COMPLETE — all 12 phases (170/170 tasks) implemented, reviewed, and verified on branch
+`foundation-mvp-git`. Covers Bootstrap, `internal/exec`, `internal/config`, `internal/git` core, and
+HU-001..HU-006 (`prereq-check`, `commit-discovery`, `commit-selection`, `target-selection`,
+`promotion-branch`, `cherry-pick`), plus `internal/app` TUI wiring and final verification. Includes the
+HU-001 lock and HU-006 cherry-pick adversarial-review remediations and the `sf plugins --json`
+field fix. Full `go test -race ./...` green, `go vet`/`gofmt` clean.
 
 ## Completed Tasks (Phases 1-4)
 

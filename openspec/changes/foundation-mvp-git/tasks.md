@@ -267,4 +267,4 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 - [x] 12.1 Run `go test ./...` (unit + integration) green in CI.
 - [x] 12.2 Run `go vet ./...` and `gofmt -l .` clean.
-- [ ] 12.3 Check off proposal.md Success Criteria: `doctor` non-zero on blockers; full TUI flow on temp repo; all six HUs' tests green, no real e2e org required.
+- [x] 12.3 Check off proposal.md Success Criteria: `doctor` non-zero on blockers; full TUI flow on temp repo; all six HUs' tests green, no real e2e org required.
