@@ -529,6 +529,136 @@ decides.
 1. No blocking issues. Every Phase-10 acceptance criterion implementable at the `internal/git` engine layer (`specs/cherry-pick/spec.md` and `docs/HISTORIAS.md` HU-006, including its consolidated `### Test E2E` and all named variants) is implemented and green under `-race`; `gofmt -l .` is clean (the pre-existing Phase-7 `dependency_warning_test.go` nit flagged in the Phase-8 notes is no longer reported).
 2. The only unimplemented HU-006 tasks (10.19/10.20, 10.37/10.38) are the `internal/app`/TUI-layer ones, deferred per the explicit "do not start Phase 11" instruction — see Deviation 1. HU-006's reopen-and-resume AC (`docs/HISTORIAS.md:395`) remains owned by HU-013 per the spec note, out of this change's scope.
 
+## HU-006 Remediation Batch (adversarial review of the cherry-pick engine)
+
+An adversarial review of the HU-006 `cherry-pick` engine found 3 real engine holes (one with
+data-loss risk). All three were fixed under strict TDD (RED reproducing the real bug on a real temp
+git repo FIRST, then minimal GREEN). The already-sound parts were NOT regressed: single
+sequencer-driven invocation, the continue-gate, repo-as-source-of-truth reconciliation, conflict
+classification, skip mechanics, and abort all remain green (full `TestHU006_CherryPick_E2E` and its
+7 named variants pass unchanged).
+
+### H1 (MEDIUM, DATA-LOSS) — empty-pick detection was a spoofable substring match
+
+- **Bug**: `isEmptyPickMessage` (`empty.go`) did `strings.Contains(output, "is now empty")`. A
+  successful pick echoes each applied commit's SUBJECT to stdout, and a conflicting pick echoes it in
+  the `could not apply <sha> <subject>` line, so a commit whose subject contains "is now empty" set
+  `Empty=true` on a NORMAL or CONFLICTING pick. Worst case: `Empty=true` co-occurred with a real
+  unresolved conflict, and an Empty-first consumer would `--skip` and SILENTLY DROP the conflicting
+  selected commit. The SAME CLASS existed in `rerere.go`: the un-anchored regex over combined echoed
+  output false-flagged a commit whose subject mirrored `Resolved '<path>' using previous resolution.`.
+- **Fix**: Empty is now derived from reconciled REPO STATE — `isEmptyPickState(state)` = a pick in
+  progress (`CHERRY_PICK_HEAD` set) AND clean tree AND zero unmerged paths. The rerere parser now
+  line-anchors the match (`(?m)^Resolved …`) AND reads only git's STDERR diagnostic (the subject echo
+  is on stdout, always `[branch sha] `-prefixed), so an echoed subject can never trigger it.
+- **RED (real git)**, all watched failing against the old code first:
+  (a) `TestHU006_EmptyDetection_SpoofSubjectCleanApply_NotEmpty` — subject contains "is now empty",
+      applies cleanly → old: `Empty=true`; new: `Empty=false`.
+  (b) `TestHU006_EmptyDetection_SpoofSubjectConflict_NotEmptySurfacesConflict` — same subject on a
+      CONFLICTING pick → old: `Empty=true` alongside `Unmerged=1` (the data-loss co-occurrence);
+      new: `Empty=false` AND the a.cls conflict surfaced.
+  (c) `TestHU006_EmptyDetection_GenuinelyAlreadyApplied_IsEmpty` — genuine already-applied commit →
+      still `Empty=true` (no regression).
+  (d) `TestHU006_Rerere_SpoofSubject_NotFalseFlaggedAsAutoResolved` — subject echoing git's rerere
+      line, clean apply → old: `RerereResolved=[evil.cls]`; new: `[]`.
+- **Commit**: `a9ceeb8` fix(git): detect empty cherry-pick from repo state not echoed output.
+
+### H2 (MEDIUM, latent) — range form `A^..B` did not verify its precondition
+
+- **Bug**: `CherryPickRevisions` used the ancestry range `commits[0].SHA^..commits[last].SHA` for
+  "contiguous" selections, which includes EVERY commit between A and B in the DAG. Safety rested
+  entirely on the caller passing a complete gap-free list to `IsContiguousSelection`; a mis-wire could
+  silently promote an unselected interleaved commit.
+- **Fix**: the range form is now DEFENSIVE. For a multi-commit contiguous selection, `cherryPickRevs`
+  verifies via `git rev-list --reverse <A>^..<B>` that the range commit set equals EXACTLY the selected
+  SHA set before using it; on any mismatch (or if the range cannot be listed, e.g. a root commit) it
+  falls back to the explicit ordered SHA list, which is unconditionally correct. Single/non-contiguous
+  selections are unaffected.
+- **RED (real git)**: `TestHU006_CherryPick_RangeGuard_DoesNotPromoteInterleavedUnselected` — history
+  `base ─ A(selected) ─ X(unselected) ─ B(selected)`, cherry-picking `[A,B]` → old: `x.cls` promoted
+  (watched failing); new: `x.cls` absent, A and B present.
+  `TestHU006_CherryPick_RangeGuard_KeepsRangeFormWhenProvablySafe` proves the guard does not over-fire
+  on a genuinely contiguous selection; the existing single-invocation test still asserts the
+  `<first>^..<last>` range form is used.
+- **Commit**: `d342d25` fix(git): guard cherry-pick range against unselected commits.
+
+### H3 (LOW-MEDIUM) — post-pick verification was weak (false-pass + false-fail)
+
+- **Bug**: `VerifyPromotedContent` did `git diff --name-only -z HEAD <source> -- <touchedFiles>`:
+  tip-relative, name-only, scoped to caller-supplied files. It FALSE-PASSED on an extra file dragged
+  in by a wrong pick (not in `touchedFiles` → never checked) and FALSE-FAILED on an intentional
+  non-contiguous subset promotion (files legitimately differ from later, deliberately-excluded commits
+  on the source tip). Both were reproduced on real git against the exact old command before the fix.
+- **Fix**: verification now runs two checks. (a) SPURIOUS: any file changed between the pre-pick base
+  (`origin/<target>`) and HEAD that the selected commit set never touched is flagged — closing the
+  false-pass. (b) PARTIAL: selected files are compared against the LAST SELECTED COMMIT (the intended
+  selected tip), not the source branch tip — closing the false-fail for subset promotions.
+  `PickVerification` now carries `SpuriousFiles` alongside `PartialFiles`; `OK()`/`Warnings()` cover
+  both. The residual content-equality limitation of the partial check is documented on the function.
+- **Signature change** (no production callers yet — only tests): `VerifyPromotedContent(ctx, dir,
+  base, selectedTip string, selectedFiles []string)`. The 4 existing call sites were updated to
+  `origin/UAT` + `feature2` (last selected) and their intent (clean == source; divergent resolution
+  flagged) is preserved.
+- **RED**: `TestService_VerifyPromotedContent_DetectsSpuriousExtraFile` (extra `x.cls` → flagged
+  spurious) and `TestService_VerifyPromotedContent_IntentionalSubset_NoFalsePartial` (promote only A
+  whose file is re-edited by excluded C → NOT flagged partial). Both bugs were first demonstrated
+  failing against the old `git diff HEAD <source> -- <files>` command on a scratch real-git repo.
+- **Commit**: `b7e23be` fix(git): strengthen post-pick verification against spurious files.
+
+### Remediation TDD Cycle Evidence
+
+| Hole | Test file (new) | Layer | RED (reproduced real bug) | GREEN | Triangulation |
+|------|-----------------|-------|---------------------------|-------|---------------|
+| H1 empty | `empty_detection_e2e_test.go` | Integration (real git) | ✅ (a)/(b) watched fail: `Empty=true` on clean spoof and alongside a real conflict | ✅ state-based `isEmptyPickState` | ✅ (c) genuine-empty guard + (d) rerere spoof + pure `TestIsEmptyPickState` (4 cases) |
+| H1 rerere | `empty_detection_e2e_test.go` + `rerere_test.go` | Integration + Unit (pure) | ✅ (d) watched fail: `RerereResolved=[evil.cls]` | ✅ stderr-only + `(?m)^` anchor | ✅ pure `TestRerereResolvedPaths` new echoed-subject case; real rerere replay still detected |
+| H2 range | `service_cherrypick_range_guard_test.go` | Integration (real git) | ✅ watched fail: interleaved `x.cls` promoted | ✅ `rev-list` set-equality guard + explicit-list fallback | ✅ provably-safe range still used; existing single-invocation range-form test green |
+| H3 verify | `pick_verification_hardening_test.go` | Integration (real git) | ✅ both false-pass and false-fail reproduced on real git vs the old command | ✅ base-vs-HEAD spurious + selected-tip partial | ✅ existing partial/clean tests re-pass on new signature; pure `TestPickVerification_Warnings` spurious cases |
+
+### Remediation Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/git/ -run 'TestHU006_EmptyDetection\|TestHU006_Rerere_SpoofSubject\|TestHU006_CherryPick_RangeGuard\|TestService_VerifyPromotedContent\|TestPickVerification\|TestIsEmptyPickState\|TestRerereResolvedPaths\|TestHU006_CherryPick_E2E' -count=1` → `ok`. |
+| Runtime harness command/scenario and exact result | `go test -race ./...` → all packages `ok` (`internal/git` ~45s), no data races. Real temp git repos (`newTempRepo`) drive every remediation RED/GREEN through actual cherry-pick / conflict / rev-list / diff behavior; `-short` skips them via the shared harness guard. |
+| Rollback boundary | Revert commits `a9ceeb8` (H1), `d342d25` (H2), `b7e23be` (H3) independently; each is self-contained (its own new test file + the narrow production edit) and the Phase-10 engine remains buildable/green after any subset. `internal/app` (Phase 11) does not exist yet, so nothing external depends on the changed signatures. |
+
+### Remediation Deviations / Notes
+
+1. **H1 empty signal moved from output parsing to repo state**: `isEmptyPickMessage(string)` was replaced by
+   `isEmptyPickState(RepoState)`. This is strictly more correct (state cannot be spoofed by echoed text) and
+   the genuine already-applied case is still detected (guard test (c) + the existing empty-pick E2E subtest).
+2. **H1 rerere kept as a pure parser but scoped to stderr + line-anchored**: the task's preferred "real rerere
+   state" and the accepted "at minimum scope the parse" were reconciled by reading only git's stderr diagnostic
+   (empirically confirmed stream) and anchoring to line start — robust against the subject echo without an extra
+   `git rerere` round-trip. Reconnaissance confirmed that on a rerere replay `git rerere status`/`remaining` are
+   both empty while the path stays `UU`, so a `status`/`remaining` subtraction would have been fragile; the
+   stderr+anchor parse is the cleaner, version-robust choice.
+3. **H2 fallback is fail-safe**: any `rev-list` failure (not just a set mismatch) falls back to the explicit
+   ordered SHA list — the guard never trusts a range it cannot prove safe.
+4. **H3 signature changed** from `(dir, source, touchedFiles)` to `(dir, base, selectedTip, selectedFiles)`. It
+   has no production callers yet (only tests), so the change is contained; a residual whole-blob content-equality
+   limitation of the partial check is documented honestly on the function.
+5. **Phase 11 NOT started** per instruction. This batch touched only the `internal/git` engine and its tests.
+
+### Remediation Final Verification (verbatim)
+
+```
+$ go build ./... && go vet ./... && gofmt -l . && go test -race ./...
+BUILD_OK
+VET_OK
+--- gofmt -l . (empty = clean) ---
+--- gofmt done ---
+ok  	deploydeck/cmd/deploydeck	5.525s
+ok  	deploydeck/internal/config	(cached)
+ok  	deploydeck/internal/exec	(cached)
+ok  	deploydeck/internal/git	45.519s
+ok  	deploydeck/internal/prereq	3.046s
+ok  	deploydeck/internal/salesforce	(cached)
+```
+
+`gofmt -l .` printed nothing (clean); `go build`/`go vet` succeeded; `go test -race ./...` reported every
+package `ok` with no data races.
+
 ## Status
 
 **Phase 10 (HU-006 `cherry-pick`) engine complete under strict TDD — 34/38 Phase-10 tasks done; the 4 remaining
