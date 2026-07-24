@@ -83,6 +83,14 @@ type PrereqCheck struct {
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Doctor / Prerequisitos`.
 
+### Test E2E
+
+- Harness: repo git temporal + `exec` falso para `git --version`, `sf --version`, `sf plugins` y `sf org list`.
+- Seed: repo con/sin remoto `origin`, `.gitignore` con/sin `.deploydeck/`, plugin `sfdx-git-delta` presente/ausente, versiones por debajo y por encima de `minVersions`, lock ya tomado.
+- Asserta: cada `PrereqCheck` devuelve el `Status` esperado (OK/warning/bloqueante); el plugin ausente devuelve bloqueante con el `FixCommand` de instalacion y el alias inexistente nombra el alias faltante; la version por debajo de `minVersions` bloquea mostrando version actual, requerida y comando de actualizacion; el lock tomado bloquea indicando el proceso propietario; `deploydeck doctor` sale con exit code != 0 si hay bloqueantes.
+- Variantes: `git` ausente, plugin `sfdx-git-delta` ausente, working tree sucio, alias inexistente, `.deploydeck/` no ignorado, otra instancia con el lock.
+- En CI: si (exec falso; binarios reales cubiertos en integracion).
+
 ## HU-002 - Buscar Commits Por Ticket
 
 Prioridad: Alta  
@@ -147,6 +155,14 @@ Reglas:
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Busqueda De Ticket` y `Seleccion De Commits`.
 
+### Test E2E
+
+- Harness: repo git temporal, sin org.
+- Seed: `main` + rama destino `UAT` + dos ramas candidatas cuyo nombre contiene el ticket (`feature/<ticket>`, `hotfix/<ticket>`) con commits del ticket (fechas de autor invertidas respecto al orden topologico para que topo != cronologico); uno ya presente en `UAT` por SHA identico (mergeado con merge commit, no squash) y otro ya cherry-pickeado a `UAT` con otro SHA; un merge commit; un commit que menciona dos tickets.
+- Asserta: se listan los commits del ticket y las ramas candidatas por nombre; el commit que menciona dos tickets se lista al buscar cualquiera de los dos; el ya presente por SHA se marca por `git merge-base --is-ancestor` y el equivalente por `git cherry`, y ninguno queda seleccionado por defecto; el merge aparece bloqueado; continuar con varias ramas candidatas exige elegir una unica rama origen; el orden es topologico estable.
+- Variantes: rama origen inexistente (solo grep de mensajes), historial con squash (aviso), ticket sin resultados.
+- En CI: si.
+
 ## HU-003 - Seleccionar Commits Manualmente
 
 Prioridad: Alta  
@@ -199,6 +215,14 @@ type CommitSelectionItem struct {
 ### Mockup TUI
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Seleccion De Commits`.
+
+### Test E2E
+
+- Harness: repo git temporal, sin org.
+- Seed: feature con un merge commit, un commit ya aplicado en destino (por SHA o equivalencia `git cherry`), un commit que menciona varios tickets, y una seleccion cuyo fichero tocado tiene un commit intermedio no seleccionado de otro ticket.
+- Asserta: merge y ya-aplicados salen `Disabled` con `Reason`; el commit con varios tickets muestra aviso de tickets adicionales; se emite warning de dependencia por fichero; se bloquea el avance con seleccion vacia; se genera un `DeploymentPlan` preliminar.
+- Variantes: reordenar en modo avanzado con warning.
+- En CI: si.
 
 ## HU-004 - Seleccionar Destino Y Sandbox
 
@@ -259,6 +283,14 @@ git rev-parse origin/<target>
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Seleccion De Destino`.
 
+### Test E2E
+
+- Harness: config YAML fixture + repo git temporal + `sf org list` falso.
+- Seed: config con `INT`/`UAT`/`Release/*`/`main`; rama `Release/Julio2026` y `origin/UAT` en un HEAD conocido; una rama destino sin sandbox mapeada.
+- Asserta: cada destino resuelve su alias y test level; `Release/*` resuelve por patron; el destino sin mapeo bloquea con mensaje accionable; se muestra el HEAD remoto (`git rev-parse origin/<target>`); `main` marca advertencia productiva; la seleccion (rama, alias, test level) queda en el `DeploymentPlan`.
+- Variantes: rama destino inexistente, sandbox no autenticada (aviso).
+- En CI: si.
+
 ## HU-005 - Crear Rama Temporal De Promocion
 
 Prioridad: Alta  
@@ -308,6 +340,14 @@ deploy/{{ticket}}-to-{{target}}
 ### Mockup TUI
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Preview Del Plan`.
+
+### Test E2E
+
+- Harness: repo git temporal con remoto bare local, sin org.
+- Seed: `origin/UAT` con un HEAD inicial; tras el clon local, el remoto avanza `UAT` a un nuevo HEAD que solo un fetch trae; una rama `deploy/<ticket>-to-UAT` preexistente en `origin` para la colision remota.
+- Asserta: `git fetch origin` corre antes de crear la rama; la rama `deploy/<ticket>-to-UAT` parte exactamente del HEAD de `origin/UAT` posterior al fetch (no del ref local desactualizado); el plan registra el nombre final.
+- Variantes: rama temporal ya existente en local y en remoto (pide accion), usuario sobre rama protegida al iniciar (no se modifica directamente), fallo de fetch (no cambia de rama).
+- En CI: si.
 
 ## HU-006 - Ejecutar Cherry-Pick Controlado
 
@@ -389,6 +429,14 @@ CherryPickAborted
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Cherry-Pick En Progreso` y `Conflicto De Cherry-Pick`.
 
+### Test E2E
+
+- Harness: repo git temporal, sin org (es el ejemplo de referencia; el helper `newTempRepo` se reutiliza en toda la familia Git).
+- Seed: `main` + rama `UAT` + feature con 2 commits (`a.cls`, `b.cls`).
+- Asserta: la rama temporal contiene ambos cambios, su contenido == rama origen y el orden es topologico; ante conflicto el flujo se detiene con los ficheros clasificados por tipo (texto/binario/modify-delete); mientras queden paths sin mergear, sin stagear o con marcadores `<<<<<<<` en ficheros staged, la opcion de continuar queda deshabilitada con el detalle de lo pendiente; al resolver y stagear por fuera, la relectura periodica del repo actualiza la lista de conflictos sin accion en la TUI y solo entonces se habilita `git cherry-pick --continue` no interactivo; ante fallo no se genera delta ni se valida.
+- Variantes: conflicto (texto, binario, modify/delete), pick vacio -> `--skip`, abort a mitad con limpieza de rama parcial, verificacion post-pick que detecta promocion parcial, reconciliacion tras `--continue`/`--abort` externo.
+- En CI: si.
+
 ## HU-007 - Generar Delta Package
 
 Prioridad: Alta  
@@ -447,6 +495,14 @@ Artefactos esperados:
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Resumen De Package`.
 
+### Test E2E
+
+- Harness: repo git temporal + `sfdx-git-delta` real, sin org.
+- Seed: cambios Salesforce en `force-app` entre `origin/UAT` y `HEAD`, incluyendo metadata borrada.
+- Asserta: se genera `package.xml` bajo `.deploydeck/manifest/`; con borrados aparece `destructiveChanges.xml`; los paths quedan en el plan y el raw guardado; el working tree sigue limpio (los artefactos solo se escriben bajo `.deploydeck/`, ignorado por Git).
+- Variantes: package vacio (aviso y validacion bloqueada salvo confirmacion futura), fallo de sgd (muestra stderr, no valida), spike multi `--source-dir`.
+- En CI: si (requiere `sfdx-git-delta` instalado en el runner).
+
 ## HU-008 - Resumir Package XML Y Destructive Changes
 
 Prioridad: Alta  
@@ -488,6 +544,7 @@ type PackageSummary struct {
     DestructiveTypes   []MetadataTypeSummary
     HasDestructive     bool
     SensitiveTypes     []string
+    OutsideSourceDirs  []string
     Empty              bool
 }
 ```
@@ -502,6 +559,14 @@ Tests recomendados:
 ### Mockup TUI
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Resumen De Package`.
+
+### Test E2E
+
+- Harness: fixtures `package.xml` / `destructiveChanges.xml` + fixture con la lista de ficheros cambiados del delta (para el chequeo de `sourceDirs`); unit puro, sin repo ni org.
+- Seed: package normal, vacio, con destructive changes, con metadata sensible y con un fichero cambiado fuera de `sourceDirs`.
+- Asserta: conteo correcto por tipo en `Types`; `HasDestructive` con sus `DestructiveTypes` contados por separado y no mezclados en `Types`; `SensitiveTypes` detecta `Profile`/`PermissionSet`/`Flow`/`CustomObject`/`CustomField`; `Empty`; `OutsideSourceDirs` lista los ficheros cambiados fuera de `sourceDirs`.
+- Variantes: los cuatro packages fixture mas el caso con un fichero cambiado fuera de `sourceDirs`.
+- En CI: si.
 
 ## HU-009 - Consultar Cola De Despliegues
 
@@ -551,6 +616,14 @@ sf data query \
 ### Mockup TUI
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Cola De Deploys`.
+
+### Test E2E
+
+- Harness: `sf data query` falso (JSON `DeployRequest` enlatado) en CI; alias local para real.
+- Seed: JSON con jobs `Pending`/`InProgress` de varios usuarios incluido el propio, con la identidad del usuario actual fijada por el harness (ej. `sf org display` falso o inyeccion directa) para hacer determinista la deteccion del job propio; JSON de error por permisos Tooling API.
+- Asserta: se listan ordenados por `CreatedDate`; cada job muestra usuario, estado, progreso (componentes/tests) y tiempo transcurrido; el job propio se resalta con posicion; `CheckOnly` distingue validacion de deploy; sin permisos -> aviso y el flujo continua.
+- Variantes: cola vacia (estado vacio claro); fallo de query generico no relacionado con permisos (error accionable, no aborta necesariamente todo el flujo); job propio ausente de la cola (lista el resto sin resaltado).
+- En CI: parcial (fake en CI; real contra alias en local).
 
 ## HU-010 - Ejecutar Validacion Salesforce Async
 
@@ -614,6 +687,14 @@ sf project deploy validate \
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Validacion En Vivo`.
 
+### Test E2E
+
+- Harness: `sf project deploy validate` falso devolviendo `jobId`; alias local para real.
+- Seed: manifest fixture con y sin destructive changes.
+- Asserta: se captura el `jobId`; con destructive incluye `--post-destructive-changes` y sin destructive no lo incluye; con `RunSpecifiedTests` incluye `--tests` con las clases indicadas; el run se persiste de inmediato en `.deploydeck/runs/`.
+- Variantes: error de CLI con JSON (muestra mensaje y JSON raw); error de CLI sin JSON parseable (muestra mensaje y salida cruda sin romper el flujo).
+- En CI: parcial (fake en CI; e2e real con `DEPLOYDECK_E2E_ORG`).
+
 ## HU-011 - Mostrar Progreso En Vivo De Validacion
 
 Prioridad: Alta  
@@ -671,6 +752,14 @@ Canceled
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Validacion En Vivo` y `Resultado De Validacion`.
 
+### Test E2E
+
+- Harness: `sf project deploy report` falso devolviendo una secuencia de estados (`InProgress` -> terminal); alias local para real.
+- Seed: secuencia de reports con componentes/tests crecientes y un fallo terminal que incluye un error de metadata (componente, tipo, mensaje) y un test fallido (clase, metodo, mensaje).
+- Asserta: el polling actualiza componentes y tests y se detiene en estado terminal; los errores de metadata se muestran con componente, tipo y mensaje; los tests fallidos con clase, metodo y mensaje; salir deja el job activo y el run reanudable; cada report raw se guarda.
+- Variantes: timeout, reintento de polling, refresco manual, terminal exitoso (Succeeded/SucceededPartial).
+- En CI: parcial (fake en CI; real en local).
+
 ## HU-012 - Cancelar Validacion Propia
 
 Prioridad: Media  
@@ -713,6 +802,14 @@ sf project deploy cancel \
 ### Mockup TUI
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Confirmacion De Cancelacion`.
+
+### Test E2E
+
+- Harness: `sf project deploy cancel` falso; alias local para real.
+- Seed: run con `jobId` propio en progreso; cola de la sandbox con al menos un job ajeno (otro `jobId`, otro usuario).
+- Asserta: solo se ofrece cancelar el job del run actual; tras confirmar se ejecuta `sf project deploy cancel` con el `jobId` propio y el run pasa a `Canceled`; un job ajeno no muestra accion; un cancel fallido muestra error y no marca el run.
+- Variantes: cancelacion fallida; el usuario no confirma (no se ejecuta el cancel).
+- En CI: parcial (fake en CI; real contra alias en local).
 
 ## HU-013 - Guardar Historico Local Y Reanudar Runs
 
@@ -788,6 +885,14 @@ type RunRecord struct {
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Historial De Runs`.
 
+### Test E2E
+
+- Harness: filesystem temporal (`.deploydeck/runs/`) + repo git temporal + `sf project deploy report` falso, sin org.
+- Seed: run guardado en `CherryPickConflict` con `CHERRY_PICK_HEAD` presente; otro run en `CherryPickConflict` pero con el repo ya limpio (resuelto o abortado por fuera, sin `CHERRY_PICK_HEAD`); run con `jobId`; run sin job; mas de `keepLast` runs, alguno mas viejo que `keepDays`, para ejercitar la retencion.
+- Asserta: al lanzar validacion se crea el registro; el historial lista los runs; un run con `jobId` reanuda por `deploy report`; un run en conflicto ofrece volver a la pantalla de conflicto con su contexto (ticket, pick N de M); si el estado real cambio (resuelto/abortado por fuera) se resincroniza; se aplica retencion `keepLast`/`keepDays` y `runs prune`.
+- Variantes: run sin job muestra hasta que paso llego el flujo.
+- En CI: si (sin org).
+
 ## HU-014 - Preparar Push Y PR
 
 Prioridad: Media  
@@ -850,6 +955,14 @@ url compare (fallback sin gh): https://github.com/<org>/<repo>/compare/<target>.
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Push Y PR`.
 
+### Test E2E
+
+- Harness: repo git temporal con remoto bare local + `gh` falso, sin org real.
+- Seed: rama deploy validada; push contra el remoto bare local; para derivar el compare, `origin` con URL estilo GitHub en SSH (`git@github.com:org/repo.git`) y HTTPS; `gh` en tres estados: disponible y autenticado, disponible pero sin autenticar, y ausente.
+- Asserta: push a `origin` de la rama con upstream (`git push -u`); muestra base, compare y titulo (`<ticket> - Promote changes to <target>`); con `gh` autenticado y confirmacion explicita se ejecuta `gh pr create --base <target> --head <deploy>` y se registra la URL en `PRUrl` del run; sin accion explicita del usuario no se crea ningun PR; con `gh` ausente o sin autenticar se muestra la URL de compare `https://github.com/<org>/<repo>/compare/<target>...<deploy>` normalizada tanto desde origin SSH como HTTPS y el flujo continua sin error; un fallo de PR muestra los datos para hacerlo manual.
+- Variantes: validacion fallida -> no ofrece push como accion principal.
+- En CI: si (`gh` falso; remoto bare local).
+
 ## HU-015 - Quick Deploy Opcional
 
 Prioridad: Baja  
@@ -893,6 +1006,14 @@ sf project deploy quick \
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Quick Deploy Opcional`.
 
+### Test E2E
+
+- Harness: runs fixture (`.deploydeck/runs/`) con validaciones exitosas + `sf project deploy quick` falso; alias local para real.
+- Seed: validacion exitosa elegible (< 10 dias, tests requeridos ejecutados), una no elegible por antiguedad (> 10 dias) y una no elegible por test level (exitosa pero sin ejecutar los tests requeridos).
+- Asserta: la elegible muestra el comando con su `--job-id`; ninguna no elegible (por antiguedad o por test level) lo ofrece; produccion no ejecuta sin config explicita; sin confirmacion fuerte no despliega; con ejecucion habilitada y confirmacion fuerte sobre un destino permitido se ejecuta `sf project deploy quick` con el `--job-id` correcto y la accion queda registrada en el run.
+- Variantes: elegibilidad por antiguedad y por test level.
+- En CI: parcial (fake en CI; real via alias en local; fase Futuro).
+
 ## HU-016 - Re-Promocionar Ticket Entre Ambientes
 
 Prioridad: Alta  
@@ -926,6 +1047,14 @@ Garantizar consistencia entre ambientes: el mismo ticket viaja por `INT -> UAT -
 
 Ver `docs/MOCKUPS_TUI.md`, pantalla `Historial De Runs`.
 
+### Test E2E
+
+- Harness: repo git temporal + runs fixture, sin org.
+- Seed: run previo exitoso del ticket hacia el ambiente anterior; un run previo del mismo ticket con validacion fallida (no elegible); nuevo origen con SHAs equivalentes (distinto SHA, mismo patch-id) y un commit ausente.
+- Asserta: se ofrece reutilizar los N commits precargados y editables; se mapean los SHAs por patch-id; el commit ausente se avisa explicitamente; el nuevo run registra `SourceRunID`.
+- Variantes: seleccion precargada editada antes de continuar; run previo con validacion fallida no ofrece precarga; ticket sin run previo cae al flujo manual sin precarga.
+- En CI: si.
+
 ## HU-017 - Limpieza De Ramas Y Runs
 
 Prioridad: Media  
@@ -955,6 +1084,14 @@ Evitar la acumulacion de ramas `deploy/*` obsoletas y devolver siempre al usuari
 - Dado que existen ramas `deploy/*` huerfanas, cuando se abre la limpieza, entonces se listan con su antiguedad y estado de push.
 - Dado que una rama tiene commits sin push, entonces no se borra sin confirmacion fuerte.
 
+### Test E2E
+
+- Harness: repo git temporal con remoto bare local + `.deploydeck/runs/`, sin org.
+- Seed: rama original del usuario; ramas `deploy/*` huerfanas con y sin push; runs antiguos fuera de retencion.
+- Asserta: al terminar/abortar se restaura la rama original; un PR mergeado o abandono borra la rama temporal tras confirmar, y si la rama se habia pusheado tambien se elimina su ref remota en el bare local; las huerfanas se listan con antiguedad y estado de push; una rama con commits sin push no se borra sin confirmacion fuerte; los runs fuera de `keepLast`/`keepDays` se eliminan y los recientes se conservan.
+- Variantes: abort a mitad de secuencia.
+- En CI: si.
+
 ## HU-018 - Modos Standalone: Delta Y Validacion Sueltas
 
 Prioridad: Media  
@@ -982,6 +1119,14 @@ Dar soporte real a las entradas "Generar delta package" y "Validar package contr
 - Dado un `package.xml` existente, cuando se usa el modo validacion, entonces se lanza y monitoriza igual que en el flujo completo.
 - Dado que los modos no estan implementados, entonces no aparecen en el menu.
 
+### Test E2E
+
+- Harness: repo git temporal (+ `sfdx-git-delta`) para el modo delta; `sf` falso / alias local para el modo validacion.
+- Seed: rama preparada a mano; `package.xml` existente.
+- Asserta: el modo delta genera `package.xml` bajo `.deploydeck/manifest/` y su resumen por tipo sin cherry-picks; el modo validacion captura el `jobId` y hace polling hasta estado terminal igual que el flujo completo; ambos crean run local en `.deploydeck/runs/`; las entradas del menu aparecen y quedan operativas al estar los modos implementados (ocultas mientras no lo esten).
+- Variantes: modo validacion con `package.xml` inexistente o invalido (error accionable, no lanza validacion); modo delta con delta vacio (reutiliza el aviso de HU-007/HU-008).
+- En CI: parcial (delta en CI; validacion con fake/alias).
+
 ## HU-019 - Pipeline De Release De DeployDeck
 
 Prioridad: Media  
@@ -999,18 +1144,34 @@ Cumplir "binarios distribuibles" de la Fase 5 con un proceso repetible: cada rel
 ### Tareas
 
 - CI en cada PR: build, `go vet`, tests.
-- Release con `goreleaser` (o equivalente) al etiquetar version semver.
-- Publicar binarios en GitHub Releases; evaluar Homebrew tap interno.
+- Release con `goreleaser` al etiquetar version semver: compilar binarios para macOS (amd64 + arm64), Linux y Windows.
+- Publicar binarios y checksums en GitHub Releases.
+- Distribucion via package manager (decision tomada): Homebrew tap propio para macOS/Linux (`brew install <org>/tap/deploydeck`) y Scoop bucket para Windows (`scoop install deploydeck`), ambos actualizados automaticamente por goreleaser en cada release.
+- Fallback universal para devs con Go: `go install <module>/cmd/deploydeck@latest`.
+- Descartados en el MVP: winget y chocolatey (mas friccion; reevaluar solo si el proyecto se hace publico).
 - Incluir version embebida en el binario (`deploydeck --version`).
 - Aviso de nueva version disponible al arrancar (chequeo no bloqueante).
 - Documentar instalacion y actualizacion en el README.
 
 ### Criterios De Aceptacion
 
-- Dado un PR, cuando se abre, entonces CI ejecuta build y tests.
-- Dado un tag semver, cuando se publica, entonces se generan binarios adjuntos a la release.
+- Dado un PR, cuando se abre, entonces CI ejecuta build, `go vet` y tests.
+- Dado un tag semver, cuando se publica, entonces se generan binarios adjuntos a la release y se actualizan la formula Homebrew y el manifiesto Scoop.
+- Dado un usuario macOS/Linux, cuando ejecuta `brew install`, entonces obtiene el binario; dado un usuario Windows, cuando ejecuta `scoop install`, entonces obtiene el binario.
 - Dado un binario instalado, cuando se ejecuta `--version`, entonces muestra la version de la release.
 - Dado que existe una version mas nueva, cuando arranca la TUI, entonces se avisa sin bloquear.
+
+Nota (decision pendiente): si el repo de DeployDeck es privado, las releases tambien lo son y `brew`/`scoop` requieren un token de GitHub por usuario; si es publico, la instalacion es sin friccion. La eleccion publico/privado condiciona la UX de instalacion.
+
+Infraestructura necesaria (una vez): dos repos auxiliares, `homebrew-tap` y `scoop-bucket`, mas un token con permiso de escritura sobre ellos expuesto al workflow de release.
+
+### Test E2E
+
+- Harness: el propio CI (GitHub Actions) + `goreleaser --snapshot` en dry-run + endpoint de GitHub Releases falso (JSON enlatado) para el chequeo de nueva version.
+- Seed: tag semver de prueba.
+- Asserta: en cada PR corre build + `go vet` + tests; `goreleaser check` valida la config y `goreleaser --snapshot` produce binarios para macOS/Linux/Windows y genera la formula Homebrew y el manifiesto Scoop en `dist/` (en snapshot no publica al tap/bucket); `deploydeck --version` coincide con la version inyectada por ldflags; con una version enlatada mas nueva, al arrancar la TUI se muestra el aviso.
+- Variantes: endpoint de releases caido o lento -> el arranque no se bloquea (chequeo con timeout y error ignorado).
+- En CI: si (es CI en si mismo; la release real solo se dispara al taggear).
 
 ## Orden De Implementacion Recomendado
 
@@ -1075,8 +1236,35 @@ Total orientativo del alcance de la epica (sin las dos historias de fase Futuro)
 
 - Codigo implementado.
 - Tests unitarios donde aplique.
+- Test e2e de la HU en verde, con el harness definido en su subseccion `Test E2E` (repo git temporal, `sf`/`gh` falso o alias local segun aplique).
 - Errores externos manejados.
 - Logs o raw output guardados si aplica.
 - Pantalla TUI implementada si corresponde.
 - Documentacion actualizada.
 - Validacion manual ejecutada en escenario representativo.
+
+## Indice De Tests E2E
+
+Regla del proyecto: cada HU nace con su test (ver la subseccion `Test E2E` de cada historia). Leyenda de harness: `temp` = repo git temporal; `sgd` = + `sfdx-git-delta` real; `sf-fake` = `exec` falso con JSON enlatado; `alias` = org real en local via `DEPLOYDECK_E2E_ORG`; `fs` = fixtures de filesystem; `gh-fake` = `gh` falso.
+
+| HU | Harness | Verifica (resumen) | CI |
+| --- | --- | --- | --- |
+| HU-001 | temp + sf-fake | prereqs y exit code del doctor | si |
+| HU-002 | temp | commits por ticket, equivalencia, topo-order | si |
+| HU-003 | temp | dependencias por fichero y bloqueos de seleccion | si |
+| HU-004 | fs + temp + sf-fake | resolucion de destino y sandbox | si |
+| HU-005 | temp | rama temporal parte de origin/target | si |
+| HU-006 | temp | picks == origen, conflicto, vacio, abort | si |
+| HU-007 | temp + sgd | package.xml y destructiveChanges correctos | si |
+| HU-008 | fs | conteo por tipo y metadata sensible | si |
+| HU-009 | sf-fake / alias | cola ordenada, job propio, permisos | parcial |
+| HU-010 | sf-fake / alias | jobId, destructive, tests, run persistido | parcial |
+| HU-011 | sf-fake / alias | polling a terminal, errores, reanudable | parcial |
+| HU-012 | sf-fake / alias | cancelar solo el job propio | parcial |
+| HU-013 | fs + temp + sf-fake | historico y reanudacion (git y job) | si |
+| HU-014 | temp + gh-fake | push y PR con y sin gh | si |
+| HU-015 | fs + sf-fake / alias | elegibilidad de quick deploy (futuro) | parcial |
+| HU-016 | temp + fs | re-promocion por patch-id y SourceRunID | si |
+| HU-017 | temp + fs | restaurar rama, limpiar huerfanas, retencion | si |
+| HU-018 | temp + sgd / sf-fake / alias | modos delta y validacion standalone (futuro) | parcial |
+| HU-019 | CI + goreleaser | build/test en PR y snapshot de release | si |

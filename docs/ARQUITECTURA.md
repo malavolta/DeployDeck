@@ -363,12 +363,29 @@ minVersions:
 - Verificacion post-pick: estado final igual y distinto al de la rama origen.
 - Generacion de rama temporal.
 
-### Tests Manuales
+### Tests E2E Local (Contra Org Real)
+
+Decision: el e2e contra una org Salesforce real se ejecuta en local, no en el pipeline de PRs. Reutiliza la sesion `sf` del desarrollador (login previo con `sf org login web`), sin JWT ni secrets.
+
+- Activacion opt-in por variable de entorno `DEPLOYDECK_E2E_ORG=<alias>`; si no esta definida, los tests e2e se saltan (`t.Skip`) y `go test ./...` sigue verde para quien no tenga org.
+- Precondicion: el alias debe estar autenticado (`sf org display --target-org <alias>`); si no, el test se salta con mensaje accionable.
+- El repo fixture es el propio repo Salesforce donde corre DeployDeck: el e2e scripta la prueba manual de la Definicion de Done.
+- No destructivo: la validacion es CheckOnly; aun asi, apuntar a un alias personal, no al sandbox compartido, para no contaminar la cola de deploys.
+
+Ejemplo de ejecucion:
+
+```bash
+DEPLOYDECK_E2E_ORG=INT_SANDBOX go test ./... -run E2E
+```
+
+Escenarios cubiertos:
 
 - Validacion contra sandbox INT.
 - Polling hasta resultado terminal.
 - Reanudacion de run existente.
 - Consulta de cola de deploys.
+
+Alcance en CI: unitarios y tests de integracion local (repos git efimeros, sin org) corren en cada PR. El e2e contra org real queda fuera del pipeline; si en el futuro se quisiera en CI, requeriria auth JWT (connected app + clave privada como secret) — ver HU-019.
 
 ## Decisiones Tecnicas Recomendadas
 
