@@ -173,8 +173,8 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 7.12 GREEN: implement empty-selection guard.
 - [x] 7.13 `[U]` RED: advanced-mode reorder shows conflict-risk warning; non-advanced reorder unavailable.
 - [x] 7.14 GREEN: implement advanced-mode reorder + warning.
-- [ ] 7.15 `[U]` RED: valid non-empty confirmed selection generates a preliminary `DeploymentPlan`.
-- [ ] 7.16 GREEN: implement `DeploymentPlan` generation on confirm.
+- [x] 7.15 `[U]` RED: valid non-empty confirmed selection generates a preliminary `DeploymentPlan`.
+- [x] 7.16 GREEN: implement `DeploymentPlan` generation on confirm.
 
 ## Phase 8: HU-004 `target-selection`
 
