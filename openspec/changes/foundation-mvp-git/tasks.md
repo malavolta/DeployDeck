@@ -86,12 +86,12 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 
 ## Phase 3: `internal/config`
 
-- [ ] 3.1 `[U]` RED: `Load(dir)` table-driven — defaults applied for omitted fields, fixture YAML via `t.TempDir()`.
-- [ ] 3.2 GREEN: `Config` struct (`branches`, `sandboxes`, `ticketPatterns`, `branchFormat`, `minVersions`, `runs`) + `Load(dir)` with defaults.
-- [ ] 3.3 `[U]` RED: `Validate()` table-driven — invalid `ticketPatterns` regex, sandbox missing alias, `branchFormat` containing a token outside the shared `{{ticket}}`/`{{target}}` allow-list all fail (same allow-list the Phase 9 renderer uses — not Go `text/template` parsing).
-- [ ] 3.4 GREEN: implement `Validate()` checking `branchFormat` tokens against the shared render allow-list.
-- [ ] 3.5 `[U]` RED: `SandboxFor(branch)` table-driven — exact match, `Release/*` glob match, no-match error.
-- [ ] 3.6 GREEN: implement `SandboxFor()`.
+- [x] 3.1 `[U]` RED: `Load(dir)` table-driven — defaults applied for omitted fields, fixture YAML via `t.TempDir()`.
+- [x] 3.2 GREEN: `Config` struct (`branches`, `sandboxes`, `ticketPatterns`, `branchFormat`, `minVersions`, `runs`) + `Load(dir)` with defaults.
+- [x] 3.3 `[U]` RED: `Validate()` table-driven — invalid `ticketPatterns` regex, sandbox missing alias, `branchFormat` containing a token outside the shared `{{ticket}}`/`{{target}}` allow-list all fail (same allow-list the Phase 9 renderer uses — not Go `text/template` parsing).
+- [x] 3.4 GREEN: implement `Validate()` checking `branchFormat` tokens against the shared render allow-list.
+- [x] 3.5 `[U]` RED: `SandboxFor(branch)` table-driven — exact match, `Release/*` glob match, no-match error.
+- [x] 3.6 GREEN: implement `SandboxFor()`.
 
 ## Phase 4: `internal/git` core
 
