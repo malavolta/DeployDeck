@@ -15,13 +15,25 @@ import (
 
 // fakeProber is a table-driven test double for prereq.ProcessProber. It
 // never touches a real OS process, keeping lock tests fast and
-// deterministic.
+// deterministic. When startTime is set it also satisfies the optional
+// start-time reader seam Lock.Acquire uses to stamp LockInfo.StartedAt from
+// the process start-time source rather than the acquisition wall clock; when
+// startTime is nil StartTime reports "unavailable" so Acquire falls back to
+// the wall clock (preserving the behavior of tests that only need Alive).
 type fakeProber struct {
-	alive func(pid int, startedAt time.Time) bool
+	alive     func(pid int, startedAt time.Time) bool
+	startTime func(pid int) (time.Time, error)
 }
 
 func (f fakeProber) Alive(pid int, startedAt time.Time) bool {
 	return f.alive(pid, startedAt)
+}
+
+func (f fakeProber) StartTime(pid int) (time.Time, error) {
+	if f.startTime == nil {
+		return time.Time{}, errors.New("fakeProber: no start-time configured")
+	}
+	return f.startTime(pid)
 }
 
 func writeLockFile(t *testing.T, path string, info prereq.LockInfo) {
@@ -241,6 +253,90 @@ func TestLock_StaleTakeoverRace_ExactlyOneWinner(t *testing.T) {
 	}
 	if got.PID != winnerPID {
 		t.Fatalf("expected the persisted lock to belong to the winner (pid %d), got pid %d", winnerPID, got.PID)
+	}
+}
+
+// TestLock_Acquire_StampsStartedAtFromProber asserts the persisted StartedAt
+// comes from the prober's process start-time source, NOT the Acquire wall
+// clock (H2). realStart is deliberately far from time.Now(): if Acquire
+// stamped StartedAt = now() (the bug), the equality assertion below fails.
+func TestLock_Acquire_StampsStartedAtFromProber(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lock")
+
+	realStart := time.Date(2020, 3, 4, 9, 8, 7, 0, time.UTC)
+	self := prereq.LockInfo{PID: 4242, PName: "deploydeck", Host: "test-host"}
+	prober := fakeProber{
+		alive: func(int, time.Time) bool { return false },
+		startTime: func(pid int) (time.Time, error) {
+			if pid != self.PID {
+				t.Fatalf("expected StartTime to be read for self pid %d, got %d", self.PID, pid)
+			}
+			return realStart, nil
+		},
+	}
+
+	lock := prereq.NewLock(path, self, prober)
+	if err := lock.Acquire(); err != nil {
+		t.Fatalf("expected acquire to succeed, got: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected a persisted lock file: %v", err)
+	}
+	var got prereq.LockInfo
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("persisted lock did not parse: %v (content: %s)", err, data)
+	}
+	if !got.StartedAt.Equal(realStart) {
+		t.Fatalf("expected persisted StartedAt to equal the prober-read start-time %v (H2: NOT the Acquire wall clock), got %v", realStart, got.StartedAt)
+	}
+}
+
+// TestLock_Acquire_LiveOwnerWithSlowStartupToLock_NotTakenOver reproduces the
+// end-to-end H2 failure: instance A's startup-to-lock latency is large
+// (CheckLock runs last, after slow git/sf checks), so if A stored the
+// acquisition wall clock its StartedAt would differ from its real OS
+// start-time by far more than the 2s tolerance, and a probing instance B
+// would read A as "dead" and wrongly take over. With StartedAt sourced from
+// the prober's start-time, B compares start-time vs start-time and refuses.
+func TestLock_Acquire_LiveOwnerWithSlowStartupToLock_NotTakenOver(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lock")
+
+	realStart := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+
+	selfA := prereq.LockInfo{PID: 111, PName: "deploydeck-a", Host: "test-host"}
+	proberA := fakeProber{
+		alive:     func(int, time.Time) bool { return false },
+		startTime: func(int) (time.Time, error) { return realStart, nil },
+	}
+	if err := prereq.NewLock(path, selfA, proberA).Acquire(); err != nil {
+		t.Fatalf("instance A failed to acquire: %v", err)
+	}
+
+	// Instance B: its prober models the REAL ps reading A's true start-time.
+	// B refuses only if the stored A.StartedAt matches realStart within
+	// tolerance.
+	selfB := prereq.LockInfo{PID: 222, PName: "deploydeck-b", Host: "test-host"}
+	proberB := fakeProber{
+		alive: func(pid int, stored time.Time) bool {
+			diff := stored.Sub(realStart)
+			if diff < 0 {
+				diff = -diff
+			}
+			return pid == 111 && diff <= 2*time.Second
+		},
+	}
+	err := prereq.NewLock(path, selfB, proberB).Acquire()
+
+	var held *prereq.ErrLockHeld
+	if !errors.As(err, &held) {
+		t.Fatalf("expected instance B to refuse a live owner (H2), got: %v", err)
+	}
+	if held.Owner.PID != 111 {
+		t.Fatalf("expected the refusal to name the live owner A (pid 111), got pid %d", held.Owner.PID)
 	}
 }
 

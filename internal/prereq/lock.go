@@ -42,6 +42,17 @@ type ProcessProber interface {
 	Alive(pid int, startedAt time.Time) bool
 }
 
+// StartTimeReader is an optional capability a ProcessProber may implement:
+// reporting a process's real OS start-time. Acquire uses it to stamp
+// LockInfo.StartedAt from the SAME source a later liveness probe compares
+// against (`ps -o lstart=`), so the PID-reuse guard compares start-time vs
+// start-time instead of start-time vs the acquisition wall clock. A prober
+// that does not implement it simply causes Acquire to fall back to the wall
+// clock.
+type StartTimeReader interface {
+	StartTime(pid int) (time.Time, error)
+}
+
 // ErrLockHeld is returned when another instance holds .deploydeck/lock.
 // SameHost distinguishes a live, probed same-host owner (definitive refusal)
 // from a different-host owner (conservative refusal — liveness cannot be
@@ -98,7 +109,7 @@ func (l *Lock) Path() string {
 func (l *Lock) Acquire() error {
 	self := l.self
 	if self.StartedAt.IsZero() {
-		self.StartedAt = l.now()
+		self.StartedAt = l.currentStartTime()
 	}
 	self.CreatedAt = l.now()
 
@@ -140,6 +151,25 @@ func (l *Lock) Acquire() error {
 		return &ErrLockHeld{Owner: lastOwner, SameHost: lastOwner.Host == self.Host}
 	}
 	return fmt.Errorf("prereq: could not acquire lock %s after %d attempts (contended stale takeover)", l.path, maxTakeoverAttempts)
+}
+
+// currentStartTime returns this process's real OS start-time as reported by
+// the prober's start-time source (the SAME `ps -o lstart=` a future
+// acquirer's liveness probe reads), so the persisted StartedAt is exactly
+// what that probe will compare against. This defeats the skew between when
+// this process actually started and when it finally acquires the lock —
+// CheckLock runs LAST, after slow git/sf checks, so the acquisition wall
+// clock can be many seconds past the true start-time and exceed the liveness
+// tolerance. Falls back to the wall clock only when the prober cannot report
+// a start-time (e.g. a cross-platform prober without the seam, or a test
+// double that does not implement it).
+func (l *Lock) currentStartTime() time.Time {
+	if reader, ok := l.prober.(StartTimeReader); ok {
+		if start, err := reader.StartTime(l.self.PID); err == nil && !start.IsZero() {
+			return start
+		}
+	}
+	return l.now()
 }
 
 // Release removes the lock file, but ONLY if its persisted PID still
