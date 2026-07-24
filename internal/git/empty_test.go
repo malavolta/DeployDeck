@@ -2,23 +2,26 @@ package git
 
 import "testing"
 
-// TestIsEmptyPickMessage pins the empty-pick signal parse: git's
-// "is now empty" advice marks an empty cherry-pick; a normal conflict or
-// success does not.
-func TestIsEmptyPickMessage(t *testing.T) {
+// TestIsEmptyPickState pins the repo-state empty-pick signal: a pick is empty
+// exactly when it is in progress with a clean tree and zero unmerged paths.
+// A completed pick, a conflicting pick, and (defensively) a stray unmerged
+// entry are all NOT empty — so the signal can never be spoofed by an echoed
+// commit subject nor co-occur with a real conflict.
+func TestIsEmptyPickState(t *testing.T) {
 	tests := []struct {
-		name   string
-		output string
-		want   bool
+		name  string
+		state RepoState
+		want  bool
 	}{
-		{name: "empty pick advice", output: "The previous cherry-pick is now empty, possibly due to conflict resolution.", want: true},
-		{name: "normal conflict", output: "CONFLICT (content): Merge conflict in a.cls", want: false},
-		{name: "success", output: "[UAT 1234abc] PROJ-1: add A", want: false},
+		{name: "in progress, clean, no unmerged -> empty", state: RepoState{InProgress: true, Clean: true}, want: true},
+		{name: "completed pick (not in progress) -> not empty", state: RepoState{InProgress: false, Clean: true}, want: false},
+		{name: "in progress with conflict -> not empty", state: RepoState{InProgress: true, Clean: false, Unmerged: []ConflictFile{{Path: "a.cls", Kind: ConflictText}}}, want: false},
+		{name: "in progress, clean flag, but unmerged present -> not empty", state: RepoState{InProgress: true, Clean: true, Unmerged: []ConflictFile{{Path: "a.cls", Kind: ConflictText}}}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isEmptyPickMessage(tt.output); got != tt.want {
-				t.Errorf("isEmptyPickMessage(%q) = %v, want %v", tt.output, got, tt.want)
+			if got := isEmptyPickState(tt.state); got != tt.want {
+				t.Errorf("isEmptyPickState(%+v) = %v, want %v", tt.state, got, tt.want)
 			}
 		})
 	}

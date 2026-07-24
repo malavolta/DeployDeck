@@ -8,14 +8,22 @@ import (
 )
 
 // rerereResolvedRe matches git's "Resolved '<path>' using previous
-// resolution." lines, emitted when rerere auto-resolves a conflict from a
-// recorded prior resolution.
-var rerereResolvedRe = regexp.MustCompile(`Resolved '(.+?)' using previous resolution\.`)
+// resolution." diagnostic, emitted when rerere auto-resolves a conflict from a
+// recorded prior resolution. The `(?m)^` anchor requires the message to begin
+// a line: git prints this diagnostic on its own line, whereas an applied
+// commit's echoed subject always carries a "[branch sha] " prefix — so a
+// commit titled "Resolved 'x' using previous resolution." can never
+// false-trigger a match. Callers additionally pass only git's STDERR (where
+// this diagnostic is emitted), not the stdout subject echo.
+var rerereResolvedRe = regexp.MustCompile(`(?m)^Resolved '(.+?)' using previous resolution\.`)
 
 // rerereResolvedPaths returns the unique paths git's rerere auto-resolved in
-// this command's output. When non-empty, those files were resolved from a
-// PRIOR resolution and must be presented to the user as auto-resolved and
-// require explicit confirmation before continuing (HU-006 AC9). Pure.
+// this command's STDERR output. When non-empty, those files were resolved from
+// a PRIOR resolution and must be presented to the user as auto-resolved and
+// require explicit confirmation before continuing (HU-006 AC9). The caller
+// passes git's stderr stream (not stdout, and not the commit-subject echo) so
+// an applied commit whose subject mirrors the diagnostic cannot false-flag a
+// path. Pure.
 func rerereResolvedPaths(output string) []string {
 	matches := rerereResolvedRe.FindAllStringSubmatch(output, -1)
 	if len(matches) == 0 {

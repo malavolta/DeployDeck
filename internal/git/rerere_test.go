@@ -29,6 +29,14 @@ func TestRerereResolvedPaths(t *testing.T) {
 			output: "CONFLICT (content): Merge conflict in a.cls\n",
 			want:   nil,
 		},
+		{
+			// An applied commit's echoed subject that mirrors git's rerere
+			// diagnostic is always prefixed by "[branch sha] ", so the line
+			// anchor keeps it from matching.
+			name:   "echoed commit subject is not a rerere line",
+			output: "[UAT 1234abc] Resolved 'evil.cls' using previous resolution.\n 1 file changed, 1 insertion(+)\n",
+			want:   nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

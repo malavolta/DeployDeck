@@ -189,12 +189,17 @@ func (s *Service) pickOutcome(ctx context.Context, root string, result exec.Comm
 	}
 
 	out := PickOutcome{State: state}
-	combined := string(result.Stdout) + "\n" + string(result.Stderr)
-	if isEmptyPickMessage(combined) {
+	// Empty-pick is decided from reconciled REPO STATE, never the echoed
+	// output (which a commit subject containing "is now empty" could spoof —
+	// see isEmptyPickState).
+	if isEmptyPickState(state) {
 		out.Empty = true
 		out.EmptyMessage = emptyPickExplanation
 	}
-	out.RerereResolved = rerereResolvedPaths(combined)
+	// rerere auto-resolution is a git diagnostic on STDERR; parse only that
+	// stream so an applied commit's echoed subject on stdout can never be
+	// mistaken for an auto-resolved path.
+	out.RerereResolved = rerereResolvedPaths(string(result.Stderr))
 	return out, nil
 }
 
