@@ -55,6 +55,92 @@ func CherryPickRevisions(commits []DiscoveredCommit, contiguous bool) []string {
 	return shas
 }
 
+// cherryPickRevs resolves the revision argument(s) for the initial pick,
+// guarding the range optimization against unselected commits. The pure
+// CherryPickRevisions would emit <first>^..<last> for any "contiguous"
+// selection, but that ancestry range includes EVERY commit between first and
+// last in the DAG — a mis-judged contiguity (or a gap in the caller's ordered
+// list) would silently promote an interleaved unselected commit. So for a
+// multi-commit contiguous selection this verifies, via `git rev-list`, that
+// the range contains EXACTLY the selected SHA set; only then is the range form
+// used. Otherwise (mismatch, or the range cannot be listed) it falls back to
+// the explicit ordered SHA list, which is unconditionally correct.
+func (s *Service) cherryPickRevs(ctx context.Context, root string, commits []DiscoveredCommit, contiguous bool) ([]string, error) {
+	// Empty, single, and non-contiguous selections never use the range form,
+	// so the pure builder is already safe for them.
+	if !contiguous || len(commits) < 2 {
+		return CherryPickRevisions(commits, contiguous), nil
+	}
+
+	rangeExpr := commits[0].SHA + "^.." + commits[len(commits)-1].SHA
+	inRange, err := s.revListSet(ctx, root, rangeExpr)
+	if err != nil {
+		// Cannot prove the range is safe (e.g. the first selected commit is a
+		// root commit with no parent) — use the always-correct explicit list.
+		return explicitSHAList(commits), nil
+	}
+	if sameStringSet(inRange, selectedSHASet(commits)) {
+		return []string{rangeExpr}, nil
+	}
+	// The range would drag in commits that are not selected — fall back to the
+	// explicit ordered SHA list so nothing unselected is ever promoted.
+	return explicitSHAList(commits), nil
+}
+
+// revListSet returns the set of commit SHAs in a rev-list range (e.g.
+// <A>^..<B>) via `git rev-list --reverse <range>`. Used to verify a contiguous
+// range contains exactly the selected commits before the range form is
+// trusted.
+func (s *Service) revListSet(ctx context.Context, root, rangeExpr string) (map[string]bool, error) {
+	req := newRequest(root, "rev-list", "--reverse", rangeExpr)
+	result, err := s.runner.Run(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("git: listing range %s in %s: %w", rangeExpr, root, err)
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("git: listing range %s in %s: %s", rangeExpr, root, strings.TrimSpace(string(result.Stderr)))
+	}
+	set := map[string]bool{}
+	for _, line := range strings.Split(string(result.Stdout), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			set[line] = true
+		}
+	}
+	return set, nil
+}
+
+// selectedSHASet is the set of the selected commits' SHAs.
+func selectedSHASet(commits []DiscoveredCommit) map[string]bool {
+	set := make(map[string]bool, len(commits))
+	for _, c := range commits {
+		set[c.SHA] = true
+	}
+	return set
+}
+
+// explicitSHAList is the selected commits' SHAs in order (the explicit,
+// unconditionally-correct cherry-pick form).
+func explicitSHAList(commits []DiscoveredCommit) []string {
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA
+	}
+	return shas
+}
+
+// sameStringSet reports whether two string sets are equal.
+func sameStringSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
 // IsContiguousSelection reports whether selected is an unbroken run of
 // fullOrdered (topological, earliest first): the selected commits occupy
 // consecutive positions with no unselected commit between the first and last
@@ -122,7 +208,10 @@ func (s *Service) CherryPick(ctx context.Context, dir string, commits []Discover
 		return PickOutcome{}, err
 	}
 
-	revs := CherryPickRevisions(commits, contiguous)
+	revs, err := s.cherryPickRevs(ctx, root, commits, contiguous)
+	if err != nil {
+		return PickOutcome{}, err
+	}
 	if len(revs) == 0 {
 		return PickOutcome{}, fmt.Errorf("git: cherry-pick requires at least one commit")
 	}
