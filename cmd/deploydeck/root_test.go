@@ -99,7 +99,7 @@ func TestNewRootCmd_Doctor_AllChecksPass_ExitsZero(t *testing.T) {
 	fr.When("git", []string{"status", "--porcelain"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("")})
 	fr.When("git", []string{"config", "--get", "commit.gpgsign"}, exec.CommandResult{ExitCode: 1})
 	fr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[{"name":"sfdx-git-delta","version":"5.35.0"}]}`)})
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"sfdx-git-delta","version":"5.35.0","children":[]}]`)})
 	fr.When("sf", []string{"org", "list", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	lockPath := t.TempDir() + "/lock"
@@ -127,7 +127,7 @@ func TestNewRootCmd_Doctor_BlockingCheck_ExitsNonZero(t *testing.T) {
 	fr := exec.NewFakeRunner() // no canned git responses: every git invocation "fails to start"
 	sfr := exec.NewFakeRunner()
 	sfr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	sfr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[]}`)})
+	sfr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[]`)})
 	sfr.When("sf", []string{"org", "list", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	deps := Deps{

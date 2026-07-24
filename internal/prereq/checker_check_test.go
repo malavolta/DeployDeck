@@ -25,7 +25,7 @@ func TestChecker_Check_AllPrerequisitesPass_AllCriticalChecksOK(t *testing.T) {
 
 	sfRunner := exec.NewFakeRunner()
 	sfRunner.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	sfRunner.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[{"name":"sfdx-git-delta","version":"5.35.0"}]}`)})
+	sfRunner.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"sfdx-git-delta","version":"5.35.0","children":[]}]`)})
 	sfRunner.When("sf", []string{"org", "list", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{"sandboxes":[{"alias":"uat","username":"a@b.com"}]}}`)})
 
 	lockPath := filepath.Join(t.TempDir(), "lock")
@@ -70,7 +70,7 @@ func TestChecker_Check_MissingGitBinary_BlocksWithFixCommand(t *testing.T) {
 
 	sfRunner := exec.NewFakeRunner()
 	sfRunner.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	sfRunner.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[{"name":"sfdx-git-delta","version":"5.35.0"}]}`)})
+	sfRunner.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"sfdx-git-delta","version":"5.35.0","children":[]}]`)})
 	sfRunner.When("sf", []string{"org", "list", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	checker := &prereq.Checker{

@@ -25,7 +25,7 @@ func TestChecker_CheckVersions_AllAboveMinimum_AllOK(t *testing.T) {
 	fr := exec.NewFakeRunner()
 	fr.When("git", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("git version 2.43.0\n")})
 	fr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[{"name":"sfdx-git-delta","version":"5.35.0"}]}`)})
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"sfdx-git-delta","version":"5.35.0","children":[]}]`)})
 
 	cfg := config.Config{MinVersions: map[string]string{"git": "2.40.0", "sf": "2.60.0", "sfdx-git-delta": "5.30.0"}}
 	checker := newFakeCheckerDeps(fr, cfg)
@@ -48,7 +48,7 @@ func TestChecker_CheckVersions_GitBelowMinimum_Blocks(t *testing.T) {
 	fr := exec.NewFakeRunner()
 	fr.When("git", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("git version 2.10.0\n")})
 	fr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[{"name":"sfdx-git-delta","version":"5.35.0"}]}`)})
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"sfdx-git-delta","version":"5.35.0","children":[]}]`)})
 
 	cfg := config.Config{MinVersions: map[string]string{"git": "2.40.0"}}
 	checker := newFakeCheckerDeps(fr, cfg)
@@ -74,7 +74,7 @@ func TestChecker_CheckVersions_DeltaPluginBelowMinimum_BlocksWithFixCommand(t *t
 	fr := exec.NewFakeRunner()
 	fr.When("git", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("git version 2.43.0\n")})
 	fr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[{"name":"sfdx-git-delta","version":"5.10.0"}]}`)})
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"sfdx-git-delta","version":"5.10.0","children":[]}]`)})
 
 	cfg := config.Config{MinVersions: map[string]string{"sfdx-git-delta": "5.30.0"}}
 	checker := newFakeCheckerDeps(fr, cfg)
@@ -96,11 +96,38 @@ func TestChecker_CheckVersions_DeltaPluginBelowMinimum_BlocksWithFixCommand(t *t
 	}
 }
 
+func TestChecker_CheckVersions_DeltaPluginNestedInChildren_StillDetected(t *testing.T) {
+	// Triangulation: sfdx-git-delta reported inside another plugin's
+	// "children" array (a real oclif shape) must still be found and
+	// version-checked, proving detection flattens nested plugins rather
+	// than only scanning the top level.
+	fr := exec.NewFakeRunner()
+	fr.When("git", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("git version 2.43.0\n")})
+	fr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[{"name":"@salesforce/plugin-org","version":"5.0.10","children":[{"name":"sfdx-git-delta","version":"5.35.0","children":[]}]}]`)})
+
+	cfg := config.Config{MinVersions: map[string]string{"sfdx-git-delta": "5.30.0"}}
+	checker := newFakeCheckerDeps(fr, cfg)
+
+	checks, err := checker.CheckVersions(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	deltaCheck := findCheck(t, checks, "sfdx-git-delta version")
+	if deltaCheck.Status != prereq.StatusOK {
+		t.Fatalf("expected nested sfdx-git-delta to be detected and OK, got %+v", deltaCheck)
+	}
+	if !strings.Contains(deltaCheck.Detail, "5.35.0") {
+		t.Fatalf("expected detail to show the nested plugin's version, got %q", deltaCheck.Detail)
+	}
+}
+
 func TestChecker_CheckVersions_DeltaPluginMissing_ShowsInstallFixCommand(t *testing.T) {
 	fr := exec.NewFakeRunner()
 	fr.When("git", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("git version 2.43.0\n")})
 	fr.When("sf", []string{"--version"}, exec.CommandResult{ExitCode: 0, Stdout: []byte("@salesforce/cli/2.63.6 darwin-arm64 node-v22.11.0\n")})
-	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":[]}`)})
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`[]`)})
 
 	checker := newFakeCheckerDeps(fr, config.Config{})
 

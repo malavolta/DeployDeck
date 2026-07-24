@@ -49,14 +49,18 @@ func TestClient_Version_DifferentVersion(t *testing.T) {
 	}
 }
 
-func TestClient_Plugins_ParsesJSONEnvelopeResult(t *testing.T) {
+func TestClient_Plugins_ParsesTopLevelArray(t *testing.T) {
+	// `sf plugins --json` returns a top-level JSON ARRAY of oclif plugin
+	// objects, NOT the `{"status":0,"result":...}` envelope other sf
+	// commands (e.g. `sf org list --json`) use. Verified against the real
+	// sf CLI (2.135.7).
 	fr := exec.NewFakeRunner()
 	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{
 		ExitCode: 0,
-		Stdout: []byte(`{"status":0,"result":[` +
-			`{"name":"sfdx-git-delta","version":"5.35.0"},` +
-			`{"name":"other-plugin","version":"1.0.0"}` +
-			`]}`),
+		Stdout: []byte(`[` +
+			`{"name":"@salesforce/cli","version":"2.135.7","children":[]},` +
+			`{"name":"other-plugin","version":"1.0.0","children":[]}` +
+			`]`),
 	})
 	client := salesforce.New(fr)
 
@@ -67,19 +71,53 @@ func TestClient_Plugins_ParsesJSONEnvelopeResult(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 plugins, got %d", len(got))
 	}
-	if got[0].Name != "sfdx-git-delta" || got[0].Version != "5.35.0" {
+	if got[0].Name != "@salesforce/cli" || got[0].Version != "2.135.7" {
 		t.Fatalf("unexpected first plugin: %+v", got[0])
 	}
 }
 
+func TestClient_Plugins_FlattensNestedChildren(t *testing.T) {
+	// Triangulation: a plugin nested inside another plugin's "children"
+	// array (how sfdx-git-delta can appear in real output) must still
+	// surface as a flat Plugin entry, proving Plugins() recursively
+	// flattens rather than only reading top-level entries.
+	fr := exec.NewFakeRunner()
+	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{
+		ExitCode: 0,
+		Stdout: []byte(`[` +
+			`{"name":"@salesforce/plugin-org","version":"5.0.10","children":[` +
+			`{"name":"sfdx-git-delta","version":"5.35.0","children":[]}` +
+			`]}` +
+			`]`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.Plugins(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected parent + flattened nested child, got %d: %+v", len(got), got)
+	}
+	found := false
+	for _, p := range got {
+		if p.Name == "sfdx-git-delta" && p.Version == "5.35.0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected nested sfdx-git-delta child to be flattened into results, got %+v", got)
+	}
+}
+
 func TestClient_Plugins_EmptyListWhenNonePresent(t *testing.T) {
-	// Triangulation: different setup (empty result array) must produce a
+	// Triangulation: different setup (empty top-level array) must produce a
 	// different, non-trivial outcome (0 items), proving the empty result
 	// comes from real parsing of an empty JSON array, not a fixed stub.
 	fr := exec.NewFakeRunner()
 	fr.When("sf", []string{"plugins", "--json"}, exec.CommandResult{
 		ExitCode: 0,
-		Stdout:   []byte(`{"status":0,"result":[]}`),
+		Stdout:   []byte(`[]`),
 	})
 	client := salesforce.New(fr)
 

@@ -780,3 +780,55 @@ integration flow on a real bare-remote clone. `go build ./...`, `go vet ./...`, 
 `go test -race ./...` all green; `go test -short ./...` skips the real-git integration. 12.1/12.2 run
 green; 12.3 (proposal Success-Criteria check-off) is left for the orchestrator's dedicated
 final-verification pass.
+
+---
+
+## Post-Integration Field Fix: `sf plugins --json` top-level-array bug (HU-001)
+
+**Discovered by**: running the real `deploydeck doctor` binary against the real `sf` CLI (2.135.7),
+outside the `FakeRunner` safety net. `internal/salesforce.Plugins()` decoded `sf plugins --json` via
+`decodeEnvelope` (the `{"status":0,"result":...}` wrapper `sf org list --json`/`sf --version` genuinely
+use), but `sf plugins --json` actually returns a **top-level JSON ARRAY** of oclif plugin objects. Every
+`FakeRunner` fixture for this call across the whole test suite (`internal/salesforce/client_test.go`,
+`internal/prereq/checker_versions_test.go`, `internal/prereq/checker_check_test.go`,
+`cmd/deploydeck/doctor_e2e_test.go`, `cmd/deploydeck/root_test.go`) had canned the WRONG (envelope) shape,
+so every test was green while `deploydeck doctor` wrongly reported `sfdx-git-delta` as a BLOCKING JSON
+parse error instead of correctly detecting presence/absence. `decodeEnvelope`/`Orgs()`/`Version()` were
+NOT touched — confirmed correct against the real CLI.
+
+### Remediation TDD Cycle Evidence
+
+| Item | Test File(s) | RED (reproduces defect) | GREEN (minimal fix) |
+|------|--------------|--------------------------|----------------------|
+| Wrong envelope shape for `sf plugins --json` | `internal/salesforce/client_test.go` (`TestClient_Plugins_ParsesTopLevelArray`, `TestClient_Plugins_FlattensNestedChildren`, `TestClient_Plugins_EmptyListWhenNonePresent`) | ✅ Fixtures rewritten to the real top-level-array shape first; ran RED against the unfixed `Plugins()` and captured the exact reported bug: `salesforce: parsing sf JSON envelope: json: cannot unmarshal array into Go value of type salesforce.envelope` | ✅ `internal/salesforce/plugins.go` rewritten: new `oclifPlugin{Name,Version,Children}` struct, `Plugins()` unmarshals `result.Stdout` as `[]oclifPlugin` directly (no envelope), then `flattenOclifPlugins` recursively flattens self+children into `[]Plugin` |
+| Same wrong shape in downstream fixtures | `internal/prereq/checker_versions_test.go` (+ new `TestChecker_CheckVersions_DeltaPluginNestedInChildren_StillDetected`), `internal/prereq/checker_check_test.go`, `cmd/deploydeck/doctor_e2e_test.go` (`pluginsJSON` helper), `cmd/deploydeck/root_test.go` | ✅ All 5 files' fixtures rewritten to array shape in the same RED pass; reran `go test ./internal/salesforce/... ./internal/prereq/... ./cmd/deploydeck/...` and confirmed every plugin-touching test failed with the same envelope-unmarshal error (or a derived blocking check) | ✅ Same `plugins.go` fix makes all of them GREEN; no other production code changed |
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/salesforce/... ./internal/prereq/... ./cmd/deploydeck/... -v` → all `PASS`/`ok`, including the new nested-children present/absent/below-min triangulation cases. |
+| Runtime harness command/scenario and exact result | Rebuilt the real binary (`go build -o /tmp/dd ./cmd/deploydeck`) and ran `dd doctor` in a real temp git repo (real origin remote, committed `deploydeck.yaml`) against the REAL `sf` CLI (2.135.7, `sfdx-git-delta` genuinely not installed). Before the fix: `[blocking] sfdx-git-delta plugin: could not list sf plugins: salesforce: parsing sf JSON envelope: json: cannot unmarshal array into Go value of type salesforce.envelope`. After the fix: `[blocking] sfdx-git-delta plugin: sfdx-git-delta plugin is not installed` with `fix: sf plugins install sfdx-git-delta` — a clean, correct presence check, not a parse error. |
+| Rollback boundary | Single commit touching `internal/salesforce/plugins.go` + the 5 test files listed above; reverting it alone restores the pre-fix (buggy-but-green-under-FakeRunner) state without touching any other Phase 1-11 code. |
+
+### Deviations from Design
+
+None — this is a bug fix aligning `Plugins()` with the REAL `sf` CLI's documented/observed output shape;
+`decodeEnvelope` and its two other callers (`Version()`, `Orgs()`) are unchanged and were independently
+re-verified against the real CLI to still be correct.
+
+### Issues Found
+
+1. **Root cause confirmed**: every `FakeRunner` fixture for `sf plugins --json` across the test suite used
+   the `{"status":0,"result":[...]}` envelope shape (matching `sf org list --json`/`sf --version`'s real
+   shape) instead of `sf plugins --json`'s actual top-level array shape — a fixture authoring mistake made
+   during the original Phase 5 TDD batch, invisible under `FakeRunner` since the fake never validated the
+   fixture against the real CLI's contract.
+2. No other blocking issues. `go build ./...`, `go vet ./...`, `gofmt -l .`, and `go test -race ./...` all
+   green after the fix.
+
+### Status
+
+Field fix complete under strict TDD. `sfdx-git-delta` plugin presence/absence/nested/below-minimum
+detection now correctly parses the real `sf plugins --json` top-level array shape end-to-end, verified
+both under `FakeRunner` and against the real `sf` CLI 2.135.7.

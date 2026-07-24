@@ -317,10 +317,13 @@ func newSFRunner(v doctorVariant) *exec.FakeRunner {
 }
 
 func pluginsJSON(deltaVersion string) string {
+	// `sf plugins --json` returns a top-level array of oclif plugin objects,
+	// NOT the `{"status":0,"result":...}` envelope `sf org list --json` and
+	// `sf --version` use.
 	if deltaVersion == "" {
-		return `{"status":0,"result":[]}`
+		return `[]`
 	}
-	return fmt.Sprintf(`{"status":0,"result":[{"name":"sfdx-git-delta","version":%q}]}`, deltaVersion)
+	return fmt.Sprintf(`[{"name":"sfdx-git-delta","version":%q,"children":[]}]`, deltaVersion)
 }
 
 func orgListJSON(aliases []string) string {
