@@ -219,8 +219,8 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.2 GREEN: implement `ConflictFile{Path,Kind}` classification (pure).
 - [x] 10.3 `[U]` RED: porcelain parsing uses `git status --porcelain -z` NUL-delimited output so paths containing spaces/unicode split safely (not the default space-delimited porcelain format, which breaks on such paths).
 - [x] 10.4 GREEN: implement `-z` NUL-delimited porcelain parsing in the `ConflictFile`/status builder.
-- [ ] 10.5 `[I]` RED: `RepoState{InProgress,CurrentSHA,Unmerged,SequencerRemaining}` assembled from `CHERRY_PICK_HEAD` + `.git/sequencer/todo` + `git status --porcelain -z`, during a real multi-commit cherry-pick sequence so `.git/sequencer/todo` is actually populated.
-- [ ] 10.6 GREEN: implement `git.Service.RepoState()`.
+- [x] 10.5 `[I]` RED: `RepoState{InProgress,CurrentSHA,Unmerged,SequencerRemaining}` assembled from `CHERRY_PICK_HEAD` + `.git/sequencer/todo` + `git status --porcelain -z`, during a real multi-commit cherry-pick sequence so `.git/sequencer/todo` is actually populated.
+- [x] 10.6 GREEN: implement `git.Service.RepoState()`.
 - [ ] 10.7 `[I]` RED (AC1): selected commits apply in order via ONE sequencer-driven invocation — `git cherry-pick <sha1>..<shaN>` for a contiguous topo-ancestry selection, or the explicit ordered SHA-list form `git cherry-pick <sha1> <sha2> ... <shaN>` for a non-contiguous selection — final content matches the source branch and `.git/sequencer/todo` ordering matches the user's selection.
 - [ ] 10.8 GREEN: implement `git.Service` range-vs-explicit-list form selection + a single sequencer-driven cherry-pick invocation (never a Go loop of single-sha picks).
 - [ ] 10.9 `[U]` RED (M2): `git.Service` cherry-pick and `--continue` invocations carry `-c commit.gpgsign=false` in `Args` (assert via `FakeRunner` captured `Args`) so promotion commits never invoke gpg with no tty.
@@ -237,8 +237,8 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [ ] 10.20 GREEN: implement `tea.Tick`-driven `RepoState` re-poll in `internal/app` (Model derives UI from repo, never execs).
 - [ ] 10.21 `[I]` RED (AC5): once the gate passes, `git cherry-pick --continue` runs non-interactively (`GIT_EDITOR=true`, no hang).
 - [ ] 10.22 GREEN: implement continue action wiring gate + `git.Service.ContinueCherryPick()`.
-- [ ] 10.23 `[I]` RED (AC6): `--continue`/`--abort` run outside DeployDeck during a multi-commit sequencer run is detected on reread (real `.git/sequencer/todo` remaining count) and resynchronizes.
-- [ ] 10.24 GREEN: implement reconciliation re-read on every `RepoState()` call (no cached state trusted).
+- [x] 10.23 `[I]` RED (AC6): `--continue`/`--abort` run outside DeployDeck during a multi-commit sequencer run is detected on reread (real `.git/sequencer/todo` remaining count) and resynchronizes.
+- [x] 10.24 GREEN: implement reconciliation re-read on every `RepoState()` call (no cached state trusted).
 - [ ] 10.25 `[I]` RED (AC7a): confirmed abort runs `git cherry-pick --abort`, marks the run aborted.
 - [ ] 10.26 GREEN: implement Abort action.
 - [ ] 10.27 `[I]` RED (AC7b): abort after partial picks offers temp-branch cleanup.
