@@ -1,9 +1,9 @@
 # Apply Progress: Foundation + MVP Git (HU-001..HU-006)
 
 **Mode**: Strict TDD
-**Batch scope so far**: Phases 1-6 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
-HU-001 `prereq-check`, HU-002 `commit-discovery`). Phases 7-12 (HU-003..HU-006, `internal/app` wiring,
-final verification) are NOT started.
+**Batch scope so far**: Phases 1-7 (Bootstrap, `internal/exec`, `internal/config`, `internal/git` core,
+HU-001 `prereq-check`, HU-002 `commit-discovery`, HU-003 `commit-selection`). Phases 8-12 (HU-004..HU-006,
+`internal/app` wiring, final verification) are NOT started.
 
 ## Completed Tasks (Phases 1-4)
 
@@ -98,9 +98,27 @@ out. Added `CommandRequest.Stdin []byte` (nil-safe, zero-value-compatible) wired
 `cmd.Stdin`, under its own RED (compile failure)/GREEN (real `cat`-echo integration test) cycle,
 confirmed against the full Phase 1-5 safety net before and after.
 
+## Completed Tasks (Phase 7: HU-003 `commit-selection`)
+
+- [x] 7.1 `[U]` RED: `CommitSelectionItem` row shows short SHA/message/author/date/flags.
+- [x] 7.2 GREEN: `internal/git/selection.go` — `CommitSelectionItem{DiscoveredCommit,Selected,Disabled,Reason,MultiTicketNotice,OtherTickets}` embedding `DiscoveredCommit` (which embeds `Commit`), promoting SHA/ShortSHA/Author/Date/Subject/Merge/Equivalence directly onto the row.
+- [x] 7.3 `[U]` RED: already-applied commit → `Disabled=true` + `Reason`; select attempt is a no-op.
+- [x] 7.4 GREEN: `alreadyAppliedReason(EquivalenceStatus)` renders a signal-specific Reason (identical SHA / git cherry / patch-id); `NewCommitSelectionItems` wires it.
+- [x] 7.5 `[U]` RED: merge commit → `Disabled=true` (cherry-pick `-m` unsupported in MVP).
+- [x] 7.6 GREEN: `ReasonMergeCommit` constant + merge-commit branch in `NewCommitSelectionItems`.
+- [x] 7.7 `[U]` RED: commit message referencing other tickets sets a multi-ticket notice.
+- [x] 7.8 GREEN: `OtherTicketMentions(subject, searchedTicket)` (pure, ticket-token regex) + `MultiTicketNotice`/`OtherTickets` wiring; `ToggleSelection` also added here (Disabled-aware no-op toggle, needed by 7.3's "select attempt is a no-op" AC).
+- [x] 7.9 `[I]` RED: real `git diff --name-only` — selected commit's file also touched by an unselected intermediate commit triggers a dependency warning.
+- [x] 7.10 GREEN: `internal/git/dependency_warning.go` — `Service.FilesTouchedByCommit` (real `git diff --name-only <sha>^ <sha>`), `DependencyWarning{File,SelectedSHA,UnselectedSHA}`, pure `ComputeDependencyWarnings` (EARLIER-unselected-commit-touches-same-file rule), and `Service.DependencyWarnings` composing both.
+- [x] 7.11 `[U]` RED: confirming with zero selected commits is blocked.
+- [x] 7.12 GREEN: `ErrEmptySelection` + `ValidateSelection(items)`.
+- [x] 7.13 `[U]` RED: advanced-mode reorder shows conflict-risk warning; non-advanced reorder unavailable.
+- [x] 7.14 GREEN: `ErrReorderRequiresAdvancedMode`, `ReorderConflictRiskWarning`, `ReorderSelection(items, from, to, advancedMode)`.
+- [x] 7.15 `[U]` RED: valid non-empty confirmed selection generates a preliminary `DeploymentPlan`.
+- [x] 7.16 GREEN: `internal/git/deployment_plan.go` — `DeploymentPlan{Ticket,SelectedCommits}` + `GenerateDeploymentPlan(ticket, items)` (reuses `ValidateSelection`).
+
 ## Remaining Tasks (NOT in this batch)
 
-- [ ] Phase 7: HU-003 `commit-selection` (7.1-7.16)
 - [ ] Phase 8: HU-004 `target-selection` (8.1-8.16)
 - [ ] Phase 9: HU-005 `promotion-branch` (9.1-9.15)
 - [ ] Phase 10: HU-006 `cherry-pick` (10.1-10.38)
@@ -255,20 +273,58 @@ decides.
 ## Workload / PR Boundary
 
 - Mode: single PR (`size:exception` GRANTED by maintainer per tasks.md Delivery Decision, recorded 2026-07-24)
-- Current work unit: Unit 2 of 4 suggested units — "HU-001..HU-005 (Phases 5-9)" — Phases 5-6 (`prereq-check`, `commit-discovery`) are now complete; Phases 7-9 remain for this unit
-- Boundary: starts from Phase 1-4's `internal/exec`/`internal/config`/`internal/git` core (all green, no HU-level behavior); ends with `internal/salesforce`, `internal/prereq`, `deploydeck doctor` (Phase 5) and `internal/git`'s discovery surface — `SearchCommits`, `CandidateBranches`, `SelectSingleSource`, `SuggestDefaultSource`, `CommitsInRange`, `ClassifyEquivalence`/`IsAncestor`/`Cherry`/`PatchID`, `Discover` (Phase 6) — fully wired and independently tested/green
-- Estimated review budget impact: 8 commits this batch (~2,140 changed lines: `internal/exec` Stdin extension, ticket/branch search, single-source enforcement + RF-002, topo order, merge-detection coverage, content-equivalence, diagnostics + discovery entry point, tasks.md marks); tracked against the session's explicit `review_budget_lines=40000` budget per the accepted `size:exception`
+- Current work unit: Unit 2 of 4 suggested units — "HU-001..HU-005 (Phases 5-9)" — Phases 5-7 (`prereq-check`, `commit-discovery`, `commit-selection`) are now complete; Phases 8-9 remain for this unit
+- Boundary: starts from Phase 1-4's `internal/exec`/`internal/config`/`internal/git` core (all green, no HU-level behavior); ends with `internal/salesforce`, `internal/prereq`, `deploydeck doctor` (Phase 5), `internal/git`'s discovery surface (Phase 6), and Phase 7's selection surface — `CommitSelectionItem`, `NewCommitSelectionItems`, `ToggleSelection`, `ValidateSelection`, `ReorderSelection`, `Service.DependencyWarnings`/`FilesTouchedByCommit`, `DeploymentPlan`/`GenerateDeploymentPlan` — fully wired and independently tested/green
+- Estimated review budget impact: 5 commits this batch (~1,880 changed lines: selection model + disable reasons, per-file dependency warnings, empty-selection guard + reorder, `DeploymentPlan` generation, consolidated HU-003 E2E test); tracked against the session's explicit `review_budget_lines=40000` budget per the accepted `size:exception`
+
+## TDD Cycle Evidence (Phase 7 — this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 7.1-7.8 | `internal/git/selection_test.go` (`TestNewCommitSelectionItems_TableDriven`, `TestToggleSelection_TableDriven`) | Unit (pure) | ✅ 91/91 (whole module, pre-Phase-7) | ✅ Written (`undefined: git.CommitSelectionItem`/`NewCommitSelectionItems`) | ✅ Passed | ✅ 4 table cases (plain/already-applied/merge/multi-ticket) + 3 toggle cases | ➖ None needed |
+| 7.9-7.10 | `internal/git/dependency_warning_test.go` (`TestService_DependencyWarnings_Integration_RealDiff`, `TestComputeDependencyWarnings_TableDriven`) | Integration (`newTempRepo`, real `git diff --name-only`) + Unit (pure) | ✅ (`internal/git` green pre-task) | ✅ Written (`svc.DependencyWarnings undefined`) | ✅ Passed | ✅ 4 pure table cases (overlap/no-overlap/later-unselected-not-flagged/both-selected-no-warning) + 1 real-git scenario | ➖ None needed |
+| 7.11-7.14 | `internal/git/selection_test.go` (`TestValidateSelection_TableDriven`, `TestReorderSelection_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.ErrEmptySelection`) | ✅ Passed | ✅ 3 empty-selection cases + 2 reorder cases (rejected/advanced) | ➖ None needed |
+| 7.15-7.16 | `internal/git/deployment_plan_test.go` (`TestGenerateDeploymentPlan_TableDriven`) | Unit (pure) | ✅ (green pre-task) | ✅ Written (`undefined: git.DeploymentPlan`) | ✅ Passed | ✅ 3 cases (full selection/partial selection/empty-blocked) | ➖ None needed |
+| HU-003 Test E2E (required deliverable) | `internal/git/selection_e2e_test.go` (`TestHU003_CommitSelection_E2E`) | Integration (`newTempRepo`, real git, full flow) | ✅ (green pre-task) | ➖ N/A — composes only already-GREEN production code; first real-git run itself is the empirical proof (topo order, equivalence classification, dependency detection all asserted against real output) | ✅ Passed on first run | ✅ 2 named sub-variants (empty-selection block, advanced-mode reorder) plus the primary scenario's 6 distinct assertions (merge disabled, already-applied disabled, multi-ticket notice, dependency warning, plan generation, order) | ➖ None needed |
+
+### Test Summary (Phase 7)
+
+- **Total new top-level test functions this batch**: 8 (`TestNewCommitSelectionItems_TableDriven`, `TestToggleSelection_TableDriven`, `TestService_DependencyWarnings_Integration_RealDiff`, `TestComputeDependencyWarnings_TableDriven`, `TestValidateSelection_TableDriven`, `TestReorderSelection_TableDriven`, `TestGenerateDeploymentPlan_TableDriven`, `TestHU003_CommitSelection_E2E`); 99 total top-level test functions passing in the whole module (`go test ./... -v`), up from 91 at the end of the Phase 6 batch, including all table-driven sub-cases.
+- **`go test -race ./...`**: all packages `ok`, no data races.
+- **`go test -short ./...`**: all packages `ok`; the new real-git integration tests (`TestService_DependencyWarnings_Integration_RealDiff`, `TestHU003_CommitSelection_E2E`) correctly skip via the shared `newTempRepo` harness's `testing.Short()` guard.
+- **Layers used**: Unit (selection model construction, disabled/reason logic, multi-ticket detection, toggle no-op, empty-selection guard, reorder gating, dependency-warning pure decision logic, DeploymentPlan generation), Integration (real `git diff --name-only` per-commit file listing, the full consolidated HU-003 E2E scenario) — all via the shared `newTempRepo`/`writeAndCommit`/`runGit` helpers, no new helpers needed.
+- **Approval tests** (refactoring): None — Phase 7 is exclusively new code composing HU-002's existing `Discover`/`DiscoveredCommit`/`Commit` surface; nothing existing was refactored.
+- **Pure functions/types created**: `CommitSelectionItem`, `NewCommitSelectionItems`, `OtherTicketMentions`, `ToggleSelection`, `ValidateSelection`, `ReorderSelection`, `ComputeDependencyWarnings`, `DependencyWarning`, `GenerateDeploymentPlan`, `DeploymentPlan`, `alreadyAppliedReason` (unexported).
+
+## Work Unit Evidence (Phase 7)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/git/... -run 'TestNewCommitSelectionItems_TableDriven|TestToggleSelection_TableDriven|TestService_DependencyWarnings_Integration_RealDiff|TestComputeDependencyWarnings_TableDriven|TestValidateSelection_TableDriven|TestReorderSelection_TableDriven|TestGenerateDeploymentPlan_TableDriven|TestHU003_CommitSelection_E2E' -v` → all PASS. |
+| Runtime harness command/scenario and exact result | `go test ./internal/git/... -run TestHU003_CommitSelection_E2E -v` → PASS: real temp git repo (`newTempRepo`) seeded with an interleaved other-ticket commit and a later same-file commit (dependency warning), a content-equivalent already-applied commit, a dual-ticket commit, and a merge commit; asserts `NewCommitSelectionItems` (composed with `Service.Discover`'s real output) correctly disables the merge and already-applied rows with reasons, flags the multi-ticket notice, and that `Service.DependencyWarnings` (real `git diff --name-only`) detects the shared-file dependency after the user deselects the earlier commit; also asserts the empty-selection block and the advanced-mode-only reorder + warning as named sub-variants. `-short` correctly skips it (shells out to real git). |
+| Rollback boundary | Revert commits `3ef86d2` (selection model + disable reasons), `759b82b` (per-file dependency warnings), `f04dca0` (empty-selection guard + reorder), `91d4dd2` (`DeploymentPlan` generation), `035a232` (consolidated HU-003 E2E test), plus this batch's `tasks.md`/`apply-progress.md` mark commit. Phases 1-6 (`internal/exec`, `internal/config`, `internal/git` HU-001/HU-002 surface, `internal/prereq`, `internal/salesforce`, `deploydeck doctor`) remain fully buildable/testable alone; nothing in Phase 8+ exists yet to depend on Phase 7. |
+
+## Deviations from Design (Phase 7)
+
+1. **`DeploymentPlan` lives in `internal/git`, not `internal/app`**: design.md's Decision prose says "`Model` holds `state`, `DeploymentPlan`, service deps", which could read as `DeploymentPlan` belonging to `internal/app`. But Phase 7 (HU-003) runs before `internal/app` exists (Phase 11), and `internal/git` must never depend on `internal/app` (the dependency runs the other way — `internal/app` composes `internal/git`, per the package-layout table). Placing `DeploymentPlan` in `internal/git`, alongside the other cross-HU business logic this design already puts there (`SelectSingleSource`, `SuggestDefaultSource`, `Service.CreatePromotionBranch` named in task 9.3), lets HU-003/004/005 build and extend the SAME value without a package cycle; `internal/app`'s `Model` (Phase 11) will simply hold a `git.DeploymentPlan` field. `DeploymentPlan` currently has only `Ticket`/`SelectedCommits` (HU-003's own fields); Phase 8/9/10 tasks add `TargetBranch`/`SandboxAlias`/`TestLevel`/`PromotionBranch`/delta-path fields to the SAME struct without breaking this phase's field-name-keyed literals.
+2. **`CommitSelectionItem` embeds `DiscoveredCommit` (not a bare `Commit` field named literally "Commit")**: docs/HISTORIAS.md's suggested model (`CommitSelectionItem{Commit,Selected,Disabled,Reason}`, written before HU-002 existed) has no way to know a commit is a merge or already-applied — that classification is `DiscoveredCommit`'s (`Merge bool`, `Equivalence EquivalenceStatus`), the exact HU-002 output HU-003 is instructed to build on. Embedding `DiscoveredCommit` (which itself embeds `Commit`) promotes every field HISTORIAS.md's model and design.md's `CommitSelectionItem{ Commit; Selected; Disabled; Reason }` contract both name (SHA/ShortSHA/Author/Date/Subject) up to the top level by Go's normal embedding rules, so callers read `item.ShortSHA`/`item.Subject`/etc. exactly as either doc implies, while `NewCommitSelectionItems` also has direct access to `Merge`/`Equivalence` to compute `Disabled`/`Reason` without a second lookup or duplicated fields.
+3. **Multi-ticket detection uses a package-local ticket-token regex, not `config.Config.TicketPatterns`**: `config.TicketPatterns` is scoped to ticket SEARCH (matching a repo's own ticket ID convention against a *known* ticket string, consumed by Phase 3's `Validate()`/future search wiring) and `internal/git` does not import `internal/config` anywhere in the existing Phase 4-6 code (no precedent to wire it in). HU-003's requirement is different in kind: given an ALREADY-discovered commit's Subject, find OTHER ticket-shaped tokens besides the one searched — a self-contained scan that doesn't need a per-repo pattern, since it only needs to recognize the same generic `KEY-123` shape the project's own fixtures/docs use throughout (HISTORIAS.md, HU-002's tests). Wiring `config.Config` into this one function for a single generic pattern was judged out of proportion for MVP; flagged here for confirmation if a future HU needs per-repo-customized ticket shapes for this specific notice.
+4. **Dependency-warning detection only looks EARLIER in topo order, not both directions**: HISTORIAS.md's Spanish wording ("commits intermedios no seleccionados... que tocan el mismo fichero") doesn't explicitly say "earlier"; design.md's Interfaces/Contracts section is similarly general ("per-file dependency warning from intermediate unselected commits touching same file"). The batch's explicit task instructions, however, state the exact mechanics: "if the user selects commit N but skips an earlier commit M that also modified a file N touches, warn." This is also the semantically correct direction: cherry-picking a later commit alone, when an EARLIER commit to the same file was skipped, is the case where the file's assumed prior state is missing from the target — a later unselected commit touching the same file does not create this specific risk (the selected commit doesn't depend on content that comes AFTER it). Implemented and tested exactly as instructed; documented here in case a future HU wants bidirectional detection.
+
+## Issues Found (Phase 7)
+
+1. No blocking issues. The consolidated `TestHU003_CommitSelection_E2E` scenario passed on its first real-git run with no adjustment needed to the seeded topo order, equivalence classification, or dependency detection — all empirically verified rather than assumed.
+2. All Phase 7 acceptance criteria (`specs/commit-selection/spec.md` under `openspec/changes/foundation-mvp-git/specs/commit-selection/spec.md`, and `docs/HISTORIAS.md` HU-003, including its consolidated `### Test E2E` scenario and the advanced-mode-reorder variant) are implemented and green.
 
 ## Status
 
-76/76 tasks in scope (Phases 1-6) complete (170 total tasks in `tasks.md`; 94 remain across Phases 7-12).
-Phase 6 (HU-002 `commit-discovery`) complete under strict TDD: ticket message/branch-name search,
-single-source-branch enforcement, RF-002 suggested default source, topological ordering (proven against
-a real seeded author-date inversion), merge-commit flagging, content-equivalence detection (`git cherry`
-+ `merge-base --is-ancestor`, with `patch-id --stable` available as a separately tested fallback
-primitive), and search diagnostics (deleted-branch warning, best-effort squash-merge courtesy warning,
-no-results alternatives) — all composed into `Service.Discover`, the single discovery entry point, and
-proved end-to-end via the consolidated HU-002 Test E2E scenario from `docs/HISTORIAS.md` plus its
-deleted-branch and no-results variants. `go build ./...`, `go vet ./...`, `go test -race ./...` all
-green; `go test -short ./...` correctly skips the real-git integration tests. Ready for next batch
-(Phase 7: HU-003 `commit-selection`).
+92/92 tasks in scope (Phases 1-7) complete (170 total tasks in `tasks.md`; 78 remain across Phases 8-12).
+Phase 7 (HU-003 `commit-selection`) complete under strict TDD: the `CommitSelectionItem` selection model
+built directly on HU-002's `DiscoveredCommit`/`Discover` output (disabled/reason for already-applied and
+merge commits, multi-ticket notice, Disabled-aware toggle), real per-file intermediate-commit dependency
+detection (`git diff --name-only` composed with a pure earlier-unselected-commit rule), the empty-selection
+guard, advanced-mode-gated reordering with its conflict-risk warning, and preliminary `DeploymentPlan`
+generation on confirm — all proved end-to-end via the consolidated HU-003 Test E2E scenario from
+`docs/HISTORIAS.md` plus its advanced-mode-reorder variant. `go build ./...`, `go vet ./...`,
+`go test -race ./...` all green; `go test -short ./...` correctly skips the real-git integration tests.
+Ready for next batch (Phase 8: HU-004 `target-selection`).
