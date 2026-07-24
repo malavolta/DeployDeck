@@ -23,11 +23,33 @@ func (s *Service) ListBranches(ctx context.Context, dir string) ([]Branch, error
 		return nil, err
 	}
 
-	local, err := s.branchNames(ctx, root, false)
+	return s.branchesByPattern(ctx, root, "")
+}
+
+// CandidateBranches returns local and remote-tracking branches whose name
+// contains ticket (HU-002: "Buscar ramas remotas y locales que contengan
+// el ticket"), via `git branch --list '*<ticket>*'` for each of local and
+// remote-tracking refs — the same underlying listing ListBranches uses,
+// scoped with a glob pattern.
+func (s *Service) CandidateBranches(ctx context.Context, dir, ticket string) ([]Branch, error) {
+	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
-	remote, err := s.branchNames(ctx, root, true)
+
+	return s.branchesByPattern(ctx, root, "*"+ticket+"*")
+}
+
+// branchesByPattern lists local and remote-tracking branches already
+// resolved to root, optionally scoped to a `git branch --list` glob
+// pattern ("" lists everything, matching prior ListBranches behavior).
+// Symbolic refs such as "origin/HEAD" are always excluded.
+func (s *Service) branchesByPattern(ctx context.Context, root, pattern string) ([]Branch, error) {
+	local, err := s.branchNames(ctx, root, false, pattern)
+	if err != nil {
+		return nil, err
+	}
+	remote, err := s.branchNames(ctx, root, true, pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -46,10 +68,13 @@ func (s *Service) ListBranches(ctx context.Context, dir string) ([]Branch, error
 	return branches, nil
 }
 
-func (s *Service) branchNames(ctx context.Context, root string, remote bool) ([]string, error) {
+func (s *Service) branchNames(ctx context.Context, root string, remote bool, pattern string) ([]string, error) {
 	args := []string{"branch", "--format=%(refname:short)"}
 	if remote {
 		args = append(args, "-r")
+	}
+	if pattern != "" {
+		args = append(args, "--list", pattern)
 	}
 
 	req := newRequest(root, args...)
