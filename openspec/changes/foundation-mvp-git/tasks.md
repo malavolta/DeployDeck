@@ -231,12 +231,12 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.14 GREEN: implement `git.Service` keep/delete action for `ModifyDelete` conflicts.
 - [x] 10.15 `[I]` RED: binary conflict resolution offers `git checkout --theirs`/`--ours` selection.
 - [x] 10.16 GREEN: implement `git.Service` theirs/ours action for `Binary` conflicts.
-- [ ] 10.17 `[U]` RED (AC3, continue-gate): unmerged/unstaged paths remain → disabled with pending detail; staged `<<<<<<<` → blocked naming the file; clean+no markers → enabled.
-- [ ] 10.18 GREEN: implement pure `continueGate(RepoState, stagedBlobs)` predicate.
+- [x] 10.17 `[U]` RED (AC3, continue-gate): unmerged/unstaged paths remain → disabled with pending detail; staged `<<<<<<<` → blocked naming the file; clean+no markers → enabled.
+- [x] 10.18 GREEN: implement pure `continueGate(RepoState, stagedBlobs)` predicate.
 - [ ] 10.19 `[T]` RED (AC4, live re-poll): external resolution (simulated outside the TUI step) is reflected automatically on next re-poll tick.
 - [ ] 10.20 GREEN: implement `tea.Tick`-driven `RepoState` re-poll in `internal/app` (Model derives UI from repo, never execs).
-- [ ] 10.21 `[I]` RED (AC5): once the gate passes, `git cherry-pick --continue` runs non-interactively (`GIT_EDITOR=true`, no hang).
-- [ ] 10.22 GREEN: implement continue action wiring gate + `git.Service.ContinueCherryPick()`.
+- [x] 10.21 `[I]` RED (AC5): once the gate passes, `git cherry-pick --continue` runs non-interactively (`GIT_EDITOR=true`, no hang).
+- [x] 10.22 GREEN: implement continue action wiring gate + `git.Service.ContinueCherryPick()`.
 - [x] 10.23 `[I]` RED (AC6): `--continue`/`--abort` run outside DeployDeck during a multi-commit sequencer run is detected on reread (real `.git/sequencer/todo` remaining count) and resynchronizes.
 - [x] 10.24 GREEN: implement reconciliation re-read on every `RepoState()` call (no cached state trusted).
 - [ ] 10.25 `[I]` RED (AC7a): confirmed abort runs `git cherry-pick --abort`, marks the run aborted.

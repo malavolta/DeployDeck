@@ -2,11 +2,17 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"deploydeck/internal/exec"
 )
+
+// ErrContinueBlocked is returned by ContinueCherryPick when the continue-gate
+// is not satisfied (unmerged paths remain, or a staged file still has
+// conflict markers). No `--continue` is issued in that case.
+var ErrContinueBlocked = errors.New("git: cannot continue cherry-pick: conflicts unresolved")
 
 // PickOutcome bundles the reconciled repository state after a cherry-pick
 // engine action with the transient signals derived from that action's own
@@ -129,15 +135,32 @@ func (s *Service) CherryPick(ctx context.Context, dir string, commits []Discover
 	return s.pickOutcome(ctx, root, result)
 }
 
-// ContinueCherryPick runs `git cherry-pick --continue` non-interactively.
-// The continue-gate (Phase 10 continue_gate.go) is enforced by the caller /
-// wired here so it never runs while conflicts remain; see ContinueCherryPick
-// in continue_gate wiring.
+// ContinueCherryPick runs `git cherry-pick --continue` non-interactively
+// (HU-006 AC5), but ONLY after the continue-gate passes (AC3): it re-reads
+// the repo state and staged conflict markers, and refuses with
+// ErrContinueBlocked (plus the pending detail) while anything is unresolved,
+// so `--continue` never opens an editor on a still-conflicted index or
+// commits a file with leftover markers.
 func (s *Service) ContinueCherryPick(ctx context.Context, dir string) (PickOutcome, error) {
 	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return PickOutcome{}, err
 	}
+
+	state, err := s.RepoState(ctx, root)
+	if err != nil {
+		return PickOutcome{}, err
+	}
+	markers, err := s.StagedConflictMarkers(ctx, root)
+	if err != nil {
+		return PickOutcome{}, err
+	}
+
+	gate := EvaluateContinueGate(state, markers)
+	if !gate.Enabled {
+		return PickOutcome{State: state}, fmt.Errorf("%w: %s", ErrContinueBlocked, strings.Join(gate.Pending, "; "))
+	}
+
 	return s.runSequencerStep(ctx, root, continueArgs())
 }
 
