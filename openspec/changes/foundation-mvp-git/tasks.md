@@ -233,8 +233,8 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.16 GREEN: implement `git.Service` theirs/ours action for `Binary` conflicts.
 - [x] 10.17 `[U]` RED (AC3, continue-gate): unmerged/unstaged paths remain → disabled with pending detail; staged `<<<<<<<` → blocked naming the file; clean+no markers → enabled.
 - [x] 10.18 GREEN: implement pure `continueGate(RepoState, stagedBlobs)` predicate.
-- [ ] 10.19 `[T]` RED (AC4, live re-poll): external resolution (simulated outside the TUI step) is reflected automatically on next re-poll tick.
-- [ ] 10.20 GREEN: implement `tea.Tick`-driven `RepoState` re-poll in `internal/app` (Model derives UI from repo, never execs).
+- [x] 10.19 `[T]` RED (AC4, live re-poll): external resolution (simulated outside the TUI step) is reflected automatically on next re-poll tick.
+- [x] 10.20 GREEN: implement `tea.Tick`-driven `RepoState` re-poll in `internal/app` (Model derives UI from repo, never execs).
 - [x] 10.21 `[I]` RED (AC5): once the gate passes, `git cherry-pick --continue` runs non-interactively (`GIT_EDITOR=true`, no hang).
 - [x] 10.22 GREEN: implement continue action wiring gate + `git.Service.ContinueCherryPick()`.
 - [x] 10.23 `[I]` RED (AC6): `--continue`/`--abort` run outside DeployDeck during a multi-commit sequencer run is detected on reread (real `.git/sequencer/todo` remaining count) and resynchronizes.
@@ -251,20 +251,20 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.34 GREEN: implement post-pick verification against the source branch.
 - [x] 10.35 `[U]` RED (AC11): given a failed-cherry-pick run state, delta-generation and Salesforce-validation are never invoked.
 - [x] 10.36 GREEN: implement failure short-circuit gating downstream steps.
-- [ ] 10.37 `[U]` RED (seam invariant): `internal/app` never imports `internal/exec`; `tea.ExecProcess` used only for interactive handoff ($EDITOR / manual conflict resolution), never for git/sf commands — automated `go list -deps` boundary test.
-- [ ] 10.38 GREEN: remove any direct `internal/exec` usage from `internal/app`; route all git/sf calls through `git.Service`/`salesforce.Client`.
+- [x] 10.37 `[U]` RED (seam invariant): `internal/app` never imports `internal/exec`; `tea.ExecProcess` used only for interactive handoff ($EDITOR / manual conflict resolution), never for git/sf commands — automated `go list -deps` boundary test.
+- [x] 10.38 GREEN: remove any direct `internal/exec` usage from `internal/app`; route all git/sf calls through `git.Service`/`salesforce.Client`.
 
 ## Phase 11: `internal/app` wiring (composition)
 
-- [ ] 11.1 Wire `Model`/`New(deps)` composing services from Phases 5–10 per the state-machine diagram (`PrereqCheck → ... → PickVerification`, `PickVerification → CommitSelection` on partial promotion).
-- [ ] 11.2 `[T]` RED: direct `Model.Update()` call drives `PrereqCheck → TicketInput` on OK prereqs.
-- [ ] 11.3 GREEN: implement that transition per design's state diagram.
-- [ ] 11.4 `[T]` RED: full-flow smoke test — `PrereqCheck → PickVerification` happy path on `newTempRepo` (Success Criteria: full TUI flow works on a temp repo).
-- [ ] 11.5 GREEN: complete remaining `Update`/`View` wiring found by 11.4.
-- [ ] 11.6 Extend the 10.37 dependency-boundary test to cover all of `internal/app`, not just cherry-pick.
+- [x] 11.1 Wire `Model`/`New(deps)` composing services from Phases 5–10 per the state-machine diagram (`PrereqCheck → ... → PickVerification`, `PickVerification → CommitSelection` on partial promotion).
+- [x] 11.2 `[T]` RED: direct `Model.Update()` call drives `PrereqCheck → TicketInput` on OK prereqs.
+- [x] 11.3 GREEN: implement that transition per design's state diagram.
+- [x] 11.4 `[T]` RED: full-flow smoke test — `PrereqCheck → PickVerification` happy path on `newTempRepo` (Success Criteria: full TUI flow works on a temp repo).
+- [x] 11.5 GREEN: complete remaining `Update`/`View` wiring found by 11.4.
+- [x] 11.6 Extend the 10.37 dependency-boundary test to cover all of `internal/app`, not just cherry-pick.
 
 ## Phase 12: Final verification
 
-- [ ] 12.1 Run `go test ./...` (unit + integration) green in CI.
-- [ ] 12.2 Run `go vet ./...` and `gofmt -l .` clean.
+- [x] 12.1 Run `go test ./...` (unit + integration) green in CI.
+- [x] 12.2 Run `go vet ./...` and `gofmt -l .` clean.
 - [ ] 12.3 Check off proposal.md Success Criteria: `doctor` non-zero on blockers; full TUI flow on temp repo; all six HUs' tests green, no real e2e org required.

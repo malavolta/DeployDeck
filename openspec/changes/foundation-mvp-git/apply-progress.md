@@ -158,10 +158,10 @@ confirmed against the full Phase 1-5 safety net before and after.
 
 ## Remaining Tasks (NOT in this batch)
 
-- [x] Phase 10: HU-006 `cherry-pick` engine (10.1-10.18, 10.21-10.36) — DONE this batch
-- [ ] Phase 10: 10.19/10.20 (`tea.Tick` re-poll) + 10.37/10.38 (dependency-boundary test) — DEFERRED to Phase 11 (require `internal/app`, which this batch was told NOT to start; see Phase 10 Deviations)
-- [ ] Phase 11: `internal/app` wiring (11.1-11.6)
-- [ ] Phase 12: Final verification (12.1-12.3)
+- [x] Phase 10: HU-006 `cherry-pick` engine (10.1-10.18, 10.21-10.36) — DONE
+- [x] Phase 10: 10.19/10.20 (`tea.Tick` re-poll) + 10.37/10.38 (dependency-boundary test) — DONE in the Phase 11 wiring batch (they require `internal/app`)
+- [x] Phase 11: `internal/app` wiring (11.1-11.6) — DONE this batch
+- [x] Phase 12: 12.1 (`go test ./...`) + 12.2 (`go vet` / `gofmt -l .`) run green this batch; 12.3 (proposal Success-Criteria check-off) left for the orchestrator's dedicated final-verification pass
 
 ## TDD Cycle Evidence (Phases 1-4 — carried forward from the prior batch)
 
@@ -698,3 +698,85 @@ documented two-repo bare-remote harness (`newTempRepoWithRemote`), plus its exis
 protected-branch, and fetch-failure variants. `go build ./...`, `go vet ./...`, `gofmt -l .`, and
 `go test -race ./...` all green; `go test -short ./...` correctly skips the real-git integration tests.
 Ready for next batch (Phase 10: HU-006 `cherry-pick`).
+
+---
+
+## Completed Tasks (Phase 11: `internal/app` wiring + deferred Phase-10 TUI tasks)
+
+- [x] 10.19 `[T]` RED (AC4 live re-poll): external resolution reflected on the next re-poll (`repoStateMsg` reconciliation).
+- [x] 10.20 GREEN: `tea.Tick`-driven `RepoState` re-poll wired in `internal/app` (`onTick` polls ONLY during the cherry-pick screens; the Model derives UI from the repo, never execs).
+- [x] 10.37 `[U]` RED (seam invariant): `internal/app/boundary_test.go` — the package's own (non-test) imports exclude `os/exec` and `deploydeck/internal/exec`.
+- [x] 10.38 GREEN: every git/sf call in `internal/app` routes through `git.Service`/`salesforce.Client`; the interactive `$EDITOR` handoff (`tea.ExecProcess`) is injected via `Deps.Edit` from `main` (which may import `os/exec`), keeping `internal/app` exec-free.
+- [x] 11.1 `Model`/`New(deps)` compose the Phase 5–10 services per the state-machine diagram (`PrereqCheck → … → PickVerification`, `PickVerification → CommitSelection` on partial promotion via the `e` key).
+- [x] 11.2 `[T]` RED: direct `Model.Update` drives `PrereqCheck → TicketInput` on OK prereqs.
+- [x] 11.3 GREEN: transition implemented (`onPrereqDone`; blocking checks keep the doctor screen, warnings pass with `c`).
+- [x] 11.4 `[T]` RED: full-flow smoke test `PrereqCheck → PickVerification` on a real temp repo.
+- [x] 11.5 GREEN: remaining `Update`/`View` wiring (ticket input, discovery, selection, target, plan preview, branch creation, cherry-pick, conflict, verification).
+- [x] 11.6 The 10.37 boundary test covers the ENTIRE `internal/app` package (single package; `build.ImportDir` inspects all its non-test files).
+- [x] Main entry: `deploydeck` with no subcommand launches the Bubble Tea flow; `doctor` subcommand unchanged; real `NewOSRunner`-backed services composed in `main`, fakes in tests.
+- [x] 12.1 `go test ./...` green (unit + integration). 12.2 `go vet ./...` + `gofmt -l .` clean. (12.3 proposal Success-Criteria check-off left for the orchestrator's dedicated final pass.)
+
+## TDD Cycle Evidence (Phase 11 — this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 10.37/10.38, 11.6 | `internal/app/boundary_test.go` | Unit (`go/build` direct-import inspection) | N/A (new pkg) | ✅ Written first: `build.ImportDir` reports empty imports → "must compose internal/git" fails | ✅ Passed once `app.go` composes the services with clean imports | ✅ **Mutation-verified**: adding a direct `import _ "os/exec"` makes the test FAIL (caught), removing it passes | ➖ None needed |
+| 11.2/11.3 | `internal/app/prereq_test.go` | Unit (direct `Model.Update`) | N/A (new) | ✅ Written | ✅ Passed | ✅ 2 cases (all-OK → TicketInput / blocking → stays) + error-path + `c`-key gate | ➖ None needed |
+| 10.19/10.20 | `internal/app/repoll_test.go` | Unit (direct `Model.Update`) | N/A (new) | ✅ Written | ✅ Passed | ✅ external-resolution reflected + re-conflict disables again + external-completion reconciles + tick polls ONLY during cherry-pick; **mutation-verified** (dropping the gate reflection fails 10.19) | ➖ None needed |
+| 10.35/10.36 wiring | `internal/app/delta_gate_test.go` | Unit (direct `Model.Update`) | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 cases (clean→allow / aborted-clean→deny / mid-conflict→deny) + abort terminal + verify-done; **mutation-verified** (passing `false` instead of `m.aborted` fails the abort case) | ➖ None needed |
+| 11.5 | `internal/app/transitions_test.go` | Unit (direct `Model.Update` + `View`) | N/A (new) | ✅ Written | ✅ Passed | ✅ ticket→discovery, discovery→selection (merge disabled), selection confirm/empty-block, target mapped/unmapped, plan→branch, 4 View screens | ➖ None needed |
+| 11.4 | `internal/app/flow_e2e_test.go` | Integration (real git on a bare-remote clone) | N/A (new) | ➖ N/A — composes only already-GREEN production; first real-git run is the proof | ✅ Passed on first run | ➖ Single full-flow scenario (PrereqCheck→PickVerification), asserts `Verification().OK()` + `DeltaAllowed()` + plan fields | ➖ None needed |
+| Main entry | `cmd/deploydeck/root_test.go` | Unit (Cobra routing, injected `RunTUI`) | ✅ 4/4 (pre-existing root tests) | ✅ Written (`unknown field RunTUI`) | ✅ Passed | ✅ 2 cases (bare `deploydeck` launches TUI / `doctor` does NOT) | ➖ None needed |
+
+### Test Summary (Phase 11)
+
+- **New top-level test functions this batch**: 13 (`internal/app`: `TestApp_NeverImportsExecSeam`, `TestModel_PrereqCheck_To_TicketInput`, `TestModel_PrereqCheck_Error`, `TestModel_PrereqScreen_ContinueBlockedByBlocker`, `TestModel_Repoll_ReflectsExternalResolution`, `TestModel_Repoll_ReconcilesExternalCompletion`, `TestModel_Tick_PollsOnlyDuringCherryPick`, `TestModel_DeltaAllowed_ThreadsAbortedFlag`, `TestModel_Abort_SetsAbortedTerminal`, `TestModel_VerifyDone_ComputesDeltaAllowed`, `TestModel_TicketInput_To_Discovery`, `TestModel_Discovery_To_Selection`, `TestModel_Selection_Confirm_And_EmptyBlock`, `TestModel_Target_Resolve`, `TestModel_PlanPreview_To_BranchCreation`, `TestModel_View_RendersScreens`, `TestHU_FullFlow_PrereqToPickVerification`) + 2 in `cmd/deploydeck`.
+- **`go test -race ./...`**: all packages `ok`, no data races.
+- **`go test -short ./...`**: all packages `ok`; the `internal/app` full-flow integration test correctly skips (shells out to real git); every direct-`Model.Update` unit test still runs.
+- **Layers used**: Unit (direct `Model.Update` for every state transition, `go/build` import inspection for the boundary invariant, `View` substring assertions), Integration (the full PrereqCheck→PickVerification flow driving the real git service against a bare-remote clone).
+- **Approval tests** (refactoring): None — Phase 11 is exclusively new code composing the already-GREEN Phase 5–10 surface; nothing existing was refactored.
+- **Mutation-verified assertions**: 2 (the exec-boundary invariant catches a direct `os/exec` import; the `aborted`-flag threading catches passing a constant `false`) plus the re-poll gate reflection — each was deliberately broken, confirmed FAILING, then reverted, per the Assertion Quality Rules.
+- **Pure helpers created**: `preliminaryTarget`, `sourceRefName`, `resolveSource`, `selectedCommits`, `selectedSHASet`, `destinationIndex`, `prereqHasBlocking`, `conflictMark`/`selectionMark`/`statusMark` (view formatters).
+
+## Work Unit Evidence (Phase 11)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/app/ ./cmd/deploydeck/` → both `ok`. `go test ./internal/app/ -run TestApp_NeverImportsExecSeam` → `ok` (and FAILS under a mutated direct `os/exec` import, reverted). |
+| Runtime harness command/scenario and exact result | `go test ./internal/app/ -run TestHU_FullFlow_PrereqToPickVerification -v` → PASS: a real bare-remote clone (origin/UAT + origin/feature/PROJ-1 with two ticket commits touching distinct files) drives the model through PrereqCheck→TicketInput→Discovery (real `git log`/`branch`/`rev-list`)→Selection→TargetSelection→PlanPreview→BranchCreation (real `git fetch`+`checkout -b`)→CherryPicking (real sequencer cherry-pick)→PickVerification, asserting `Verification().OK()`, `DeltaAllowed()`, and the registered promotion branch. `-short` correctly skips it. |
+| Rollback boundary | Revert commits `046aa16` (app scaffold + boundary invariant + bubbletea dep), `8e1591b` (state-machine `Update`/`View`/keys + tests), `e317330` (CLI main entry launches TUI), plus the `tasks.md`/`apply-progress.md` mark commit. Phases 1–10 (`internal/git` engine, `internal/prereq`, `internal/salesforce`, `internal/config`, `deploydeck doctor`) remain fully buildable/testable alone; removing `internal/app` + the root `RunE` restores the pre-Phase-11 CLI (doctor-only) exactly. |
+
+## Deviations from Design (Phase 11)
+
+1. **The exec-boundary test uses `go/build` direct-import inspection, NOT `go list -deps`**: task 10.37 names `go list -deps` "or equivalent". A literal `-deps` scan lists the FULL TRANSITIVE closure, which necessarily includes `os/exec` (bubbletea's `tea.ExecProcess` pulls it in) — so a transitive "os/exec absent" assertion is impossible and wrong. The design explicitly ALLOWS `tea.ExecProcess` for interactive handoff; the invariant it actually constrains is that `internal/app`'s OWN files never exec. `go/build.ImportDir(".").Imports` reports exactly those direct (non-test) imports, is stdlib (no subprocess, no `x/tools` dep), and is mutation-verified to catch a direct `os/exec` import. Documented in the test.
+2. **The `$EDITOR`/mergetool interactive handoff is INJECTED via `Deps.Edit` from `main`, not built inside `internal/app`**: `tea.ExecProcess` requires constructing an `*os/exec.Cmd`, which would force `internal/app` to import `os/exec` and break the boundary invariant. The two design requirements ("`tea.ExecProcess` ALLOWED for interactive handoff" AND "`internal/app` must not import `os/exec`") are reconciled by having `main` (which may import `os/exec`) build the `tea.Cmd` and inject it as `Deps.Edit func(path string) tea.Cmd`; `internal/app`'s conflict screen calls it (nil-safe) on the `e` key. This preserves both the architecture invariant AND the handoff affordance. The primary conflict UX remains external-resolution + auto-detect re-poll, exactly as the mockup states ("Resuelve con tu herramienta preferida … esta pantalla detecta la resolucion automaticamente").
+3. **A PRELIMINARY target drives discovery/classification before the target-selection screen**: HU-002 `Discover` needs a target to compute the `origin/<target>..origin/<source>` range and equivalence classification that HU-003 selection consumes, but the state machine orders `CommitSelection → TargetSelection`. Resolved exactly as the mockup shows ("Destino preliminar" during selection): `preliminaryTarget(cfg)` = the first `ListDestinations` branch (sorted by env key, deterministic) is used for discovery, and `TargetSelection` defaults its cursor to that same branch. If the user changes the target on the selection screen, the equivalence classification is not re-run for the new target in this MVP slice — a documented limitation (the happy path confirms the preliminary target; re-running discovery on a target change is a future enhancement).
+4. **Source resolution runs discovery twice through the service**: `resolveSource` needs the candidate branches from a first `Discover(ticket-only)` pass before it can pick the single source; a second `Discover(ticket, source, target)` pass then produces the classified `OrderedCommits`. Both calls go through `git.Service` (app stays exec-free); the cost is two `git log`/`branch`/`rev-list` rounds per ticket, acceptable for an interactive TUI.
+5. **Empty picks auto-`--skip` in the model loop**: `onPickDone` issues `skipCmd` automatically when the reconciled outcome is an empty pick, resuming the sequence (HU-006 AC8's safety net), rather than prompting. The engine already surfaces `Empty`/`EmptyMessage` for an informative screen; the MVP wiring skips-and-continues so the happy path never stalls. A future slice can add the explicit "offer `--skip`" pane.
+6. **`internal/app` is a SINGLE package** (not split into sub-packages): keeps the boundary test's `build.ImportDir(".")` a complete cover of all app code (satisfying 11.6 by construction) and matches the design's single `internal/app` row in the package-layout table.
+
+## Issues Found (Phase 11)
+
+1. No blocking issues. The full-flow integration test passed on its first real-git run (distinct-file commits promote faithfully; `VerifyPromotedContent` returns `OK`), and both mutation-verification exercises (boundary `os/exec` import; `aborted`-flag threading) failed exactly as expected before reverting.
+2. The out-of-slice screens in `docs/MOCKUPS_TUI.md` (Menu Principal, Resumen De Package, Cola De Deploys, Validacion, Push Y PR, Quick Deploy, Historial) are intentionally NOT implemented — they belong to later Fases (delta/validation/push/history), beyond this change's scope edge (PickVerification). The eight in-scope screens (Doctor, Ticket search, Commit selection, Target selection, Plan preview, Cherry-pick in progress, Conflict, Post-pick verification) are all rendered.
+
+## Status (Phase 11)
+
+**Phase 11 (`internal/app` wiring) complete under strict TDD, and the 4 deferred Phase-10 TUI tasks
+(10.19/10.20 live re-poll, 10.37/10.38 exec-boundary invariant) closed.** The Bubble Tea `Model`
+composes the existing `git.Service`/`salesforce.Client`/`config.Config`/`prereq.Checker` into the full
+promotion state machine (`PrereqCheck → TicketInput → CommitDiscovery → CommitSelection →
+TargetSelection → PlanPreview → BranchCreation → CherryPicking ⇄ CherryPickConflict/Aborted →
+PickVerification`, scope edge at PickVerification — no delta/validation/push). The repo is the source of
+truth: a `tea.Tick` re-poll re-reads `git.RepoState` ONLY during the cherry-pick screens so external
+`--continue`/`--abort` reconcile live, and the Model never execs — enforced by a mutation-verified
+`go/build` boundary test proving `internal/app` imports neither `os/exec` nor `internal/exec` directly.
+The H3-hardened `VerifyPromotedContent` is wired with `base=origin/<target>`, `selectedTip=`last selected
+commit, `selectedFiles=`the union the selected set touched; the run's real `aborted` flag threads into
+`DeltaAndValidationAllowed` so a successful abort is never treated as clean completion. `deploydeck` with
+no subcommand launches the flow (real `NewOSRunner`-backed services in `main`, fakes in tests), keeping
+`doctor`. All proved via direct `Model.Update` transition tests plus a full PrereqCheck→PickVerification
+integration flow on a real bare-remote clone. `go build ./...`, `go vet ./...`, `gofmt -l .`, and
+`go test -race ./...` all green; `go test -short ./...` skips the real-git integration. 12.1/12.2 run
+green; 12.3 (proposal Success-Criteria check-off) is left for the orchestrator's dedicated
+final-verification pass.
