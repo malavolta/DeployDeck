@@ -340,6 +340,48 @@ func TestLock_Acquire_LiveOwnerWithSlowStartupToLock_NotTakenOver(t *testing.T) 
 	}
 }
 
+// TestLock_Acquire_CorruptLock_ReturnsErrLockCorrupt asserts that a
+// persistently unparseable or zero-length lock surfaces as a distinct,
+// typed *ErrLockCorrupt (so CheckLock can render an actionable blocking
+// check) rather than the misleading generic "contended stale takeover"
+// error — and that the corrupt file is preserved, not silently deleted (the
+// safer choice: we cannot interpret it, so a human decides).
+func TestLock_Acquire_CorruptLock_ReturnsErrLockCorrupt(t *testing.T) {
+	tests := []struct {
+		name    string
+		content []byte
+	}{
+		{name: "garbage content", content: []byte("this is not json at all")},
+		{name: "zero length", content: []byte("")},
+		{name: "truncated json", content: []byte(`{"pid": 12`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "lock")
+			if err := os.WriteFile(path, tt.content, 0o644); err != nil {
+				t.Fatalf("seed corrupt lock: %v", err)
+			}
+
+			self := prereq.LockInfo{PID: 1234, PName: "deploydeck", Host: "test-host"}
+			prober := fakeProber{alive: func(int, time.Time) bool { return false }}
+			err := prereq.NewLock(path, self, prober).Acquire()
+
+			var corrupt *prereq.ErrLockCorrupt
+			if !errors.As(err, &corrupt) {
+				t.Fatalf("expected *prereq.ErrLockCorrupt for an unparseable lock, got %T: %v", err, err)
+			}
+			if corrupt.Path != path {
+				t.Fatalf("expected ErrLockCorrupt.Path == %q, got %q", path, corrupt.Path)
+			}
+			if _, statErr := os.Stat(path); statErr != nil {
+				t.Fatalf("expected the corrupt lock to be preserved (not auto-deleted), stat failed: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestLock_Acquire_NeverObservablePartiallyWritten(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "lock")

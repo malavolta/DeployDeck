@@ -72,6 +72,21 @@ func (e *ErrLockHeld) Error() string {
 	return fmt.Sprintf("prereq: another instance is active: %s (pid %d)", e.Owner.PName, e.Owner.PID)
 }
 
+// ErrLockCorrupt is returned when .deploydeck/lock exists but is unparseable
+// or zero-length: no owner can be identified from it. A normal Acquire always
+// publishes a COMPLETE record atomically (os.Link of a fully-written temp
+// file), so such a lock was never produced by a live DeployDeck instance's
+// normal path. We deliberately do NOT auto-remove it — deleting a file we
+// cannot interpret is the less safe choice — and instead surface it as a
+// distinct, actionable blocking check (see CheckLock) so a human decides.
+type ErrLockCorrupt struct {
+	Path string
+}
+
+func (e *ErrLockCorrupt) Error() string {
+	return fmt.Sprintf("prereq: lock file %s is corrupt or unreadable (no owner could be identified)", e.Path)
+}
+
 // Lock guards a single .deploydeck/lock file for single-instance enforcement
 // over one repository.
 type Lock struct {
@@ -114,6 +129,7 @@ func (l *Lock) Acquire() error {
 	self.CreatedAt = l.now()
 
 	var lastOwner LockInfo
+	var sawCorrupt bool
 	for attempt := 0; attempt < maxTakeoverAttempts; attempt++ {
 		ok, err := tryClaimLock(l.path, self)
 		if ok {
@@ -125,11 +141,23 @@ func (l *Lock) Acquire() error {
 
 		raw, owner, readErr := readLockInfoWithRetry(l.path)
 		if readErr != nil {
-			// The file vanished between our failed claim and this read
-			// (the holder released it, or another racer's takeover already
-			// completed) — just retry the claim from scratch.
+			if errors.Is(readErr, fs.ErrNotExist) {
+				// The file vanished between our failed claim and this read
+				// (the holder released it, or another racer's takeover
+				// already completed) — retry the claim from scratch.
+				sawCorrupt = false
+				continue
+			}
+			// The lock exists but is unparseable/zero-length: no owner can be
+			// identified. readLockInfoWithRetry already re-read once to absorb
+			// a transient reader/writer race; retry the whole claim a few more
+			// times in case it is still settling, but remember it so a
+			// PERSISTENTLY corrupt lock fails as a distinct, actionable
+			// ErrLockCorrupt rather than the misleading generic error below.
+			sawCorrupt = true
 			continue
 		}
+		sawCorrupt = false
 		lastOwner = owner
 
 		if owner.Host != self.Host {
@@ -149,6 +177,9 @@ func (l *Lock) Acquire() error {
 
 	if lastOwner.PID != 0 {
 		return &ErrLockHeld{Owner: lastOwner, SameHost: lastOwner.Host == self.Host}
+	}
+	if sawCorrupt {
+		return &ErrLockCorrupt{Path: l.path}
 	}
 	return fmt.Errorf("prereq: could not acquire lock %s after %d attempts (contended stale takeover)", l.path, maxTakeoverAttempts)
 }

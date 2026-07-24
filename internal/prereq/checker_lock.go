@@ -24,6 +24,15 @@ func (c *Checker) CheckLock(ctx context.Context) (PrereqCheck, error) {
 				FixCommand: fmt.Sprintf("wait for pid %d (%s) to exit, or remove %s once you have confirmed it is stale", held.Owner.PID, held.Owner.PName, c.Lock.Path()),
 			}, nil
 		}
+		var corrupt *ErrLockCorrupt
+		if errors.As(err, &corrupt) {
+			return PrereqCheck{
+				Name:       "instance lock",
+				Status:     StatusBlocking,
+				Detail:     fmt.Sprintf("the lock file %s is corrupt or unreadable, so no owning process can be identified", corrupt.Path),
+				FixCommand: fmt.Sprintf("rm %s  # remove the corrupt lock after confirming no deploydeck instance is running", corrupt.Path),
+			}, nil
+		}
 		return PrereqCheck{}, fmt.Errorf("prereq: acquiring lock: %w", err)
 	}
 
