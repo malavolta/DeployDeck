@@ -247,10 +247,10 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.30 GREEN: implement empty-pick detection + `--skip` action.
 - [x] 10.31 `[I]` RED (AC9): `git rerere` auto-resolves a repeat conflict — labeled auto-resolved-from-prior, requires explicit user confirmation before continue.
 - [x] 10.32 GREEN: implement rerere detection + confirmation-required flag; suggest enabling rerere when unset.
-- [ ] 10.33 `[I]` RED (AC10): after all picks, `git diff HEAD <source> -- <files>` on a touched file with remaining diff shows a per-file partial-promotion warning before any delta step.
-- [ ] 10.34 GREEN: implement post-pick verification against the source branch.
-- [ ] 10.35 `[U]` RED (AC11): given a failed-cherry-pick run state, delta-generation and Salesforce-validation are never invoked.
-- [ ] 10.36 GREEN: implement failure short-circuit gating downstream steps.
+- [x] 10.33 `[I]` RED (AC10): after all picks, `git diff HEAD <source> -- <files>` on a touched file with remaining diff shows a per-file partial-promotion warning before any delta step.
+- [x] 10.34 GREEN: implement post-pick verification against the source branch.
+- [x] 10.35 `[U]` RED (AC11): given a failed-cherry-pick run state, delta-generation and Salesforce-validation are never invoked.
+- [x] 10.36 GREEN: implement failure short-circuit gating downstream steps.
 - [ ] 10.37 `[U]` RED (seam invariant): `internal/app` never imports `internal/exec`; `tea.ExecProcess` used only for interactive handoff ($EDITOR / manual conflict resolution), never for git/sf commands — automated `go list -deps` boundary test.
 - [ ] 10.38 GREEN: remove any direct `internal/exec` usage from `internal/app`; route all git/sf calls through `git.Service`/`salesforce.Client`.
 
