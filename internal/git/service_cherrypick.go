@@ -194,6 +194,7 @@ func (s *Service) pickOutcome(ctx context.Context, root string, result exec.Comm
 		out.Empty = true
 		out.EmptyMessage = emptyPickExplanation
 	}
+	out.RerereResolved = rerereResolvedPaths(combined)
 	return out, nil
 }
 

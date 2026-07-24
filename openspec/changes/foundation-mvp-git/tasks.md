@@ -245,8 +245,8 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 10.28 GREEN: implement partial-sequence detection + cleanup offer.
 - [x] 10.29 `[I]` RED (AC8): content already applied under a different SHA → empty pick detected, `--skip` offered with an explanatory message (implemented regardless of merge/squash policy, DEC-001 is process context only).
 - [x] 10.30 GREEN: implement empty-pick detection + `--skip` action.
-- [ ] 10.31 `[I]` RED (AC9): `git rerere` auto-resolves a repeat conflict — labeled auto-resolved-from-prior, requires explicit user confirmation before continue.
-- [ ] 10.32 GREEN: implement rerere detection + confirmation-required flag; suggest enabling rerere when unset.
+- [x] 10.31 `[I]` RED (AC9): `git rerere` auto-resolves a repeat conflict — labeled auto-resolved-from-prior, requires explicit user confirmation before continue.
+- [x] 10.32 GREEN: implement rerere detection + confirmation-required flag; suggest enabling rerere when unset.
 - [ ] 10.33 `[I]` RED (AC10): after all picks, `git diff HEAD <source> -- <files>` on a touched file with remaining diff shows a per-file partial-promotion warning before any delta step.
 - [ ] 10.34 GREEN: implement post-pick verification against the source branch.
 - [ ] 10.35 `[U]` RED (AC11): given a failed-cherry-pick run state, delta-generation and Salesforce-validation are never invoked.
