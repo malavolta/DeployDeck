@@ -37,6 +37,9 @@ func (r *OSRunner) Run(ctx context.Context, req CommandRequest) (CommandResult, 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if req.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(req.Stdin)
+	}
 
 	startedAt := time.Now()
 	err := cmd.Run()

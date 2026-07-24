@@ -22,6 +22,14 @@ type CommandRequest struct {
 	Timeout    time.Duration
 	Env        []string
 	RedactArgs []string
+	// Stdin, when non-nil, is piped into the child process's standard
+	// input. This is needed for commands composed as a shell pipeline
+	// elsewhere (e.g. `git show <sha> | git patch-id --stable`), which
+	// internal/exec never runs via an actual shell: the caller runs the
+	// first command, captures its Stdout, and passes it as Stdin to the
+	// second CommandRequest. Nil (the zero value) preserves prior
+	// behavior exactly: no stdin wired to the child.
+	Stdin []byte
 }
 
 // CommandResult captures the outcome of a command that actually ran,
