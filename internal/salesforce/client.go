@@ -41,6 +41,14 @@ type Client interface {
 	// warn and continue without the queue view (non-blocking degrade); any
 	// other query failure is a generic, actionable error, never swallowed.
 	ListDeployQueue(ctx context.Context, targetOrg string) ([]DeployQueueEntry, error)
+	// CancelDeploy runs `sf project deploy cancel --job-id <id> --target-org
+	// <alias> --json` (HU-012): it cancels the CURRENT run's own async
+	// validation/deploy job to free the shared sandbox queue. jobID is always
+	// the run's own job (never another user's, never user-typed) and is passed
+	// as a discrete slice arg, never shell-interpolated. Success and failure
+	// both preserve Raw; error handling mirrors ValidateDeploy so the flow
+	// survives a CLI error without crashing.
+	CancelDeploy(ctx context.Context, jobID, targetOrg string) (CancelResult, error)
 }
 
 // VersionInfo is the parsed `sf --version` output.
