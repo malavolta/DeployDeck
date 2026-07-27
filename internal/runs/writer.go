@@ -56,6 +56,13 @@ type Record struct {
 	// Phase is the coarse flow stage: cherry-pick|git-conflict|validating|
 	// done|aborted.
 	Phase string `json:"phase,omitempty"`
+
+	// PRUrl is HU-014's additive growth field: the created PR's URL, set
+	// via MarkPRCreated after a successful `gh pr create`. `omitempty`,
+	// like every other growth field this package has added — a run.json
+	// written before PRUrl existed still Load()s cleanly with it
+	// zero-valued. NO SchemaVersion bump accompanies this growth either.
+	PRUrl string `json:"prUrl,omitempty"`
 }
 
 // Writer persists run records under baseDir/.deploydeck/runs/. baseDir is
@@ -224,6 +231,26 @@ func (w *Writer) MarkCanceled(runID string, cancelRaw []byte) error {
 	}
 
 	return nil
+}
+
+// MarkPRCreated records a successfully created PR's URL (HU-014): it loads
+// the run's record, sets PRUrl, and persists it with a fresh time.Now()
+// UpdatedAt — mirroring MarkCanceled's method shape (load -> mutate ->
+// save). Unlike MarkCanceled it writes no raw-response companion file:
+// gh pr create's raw output is shown to the user by the caller, never
+// persisted here. An unknown runID (no run.json, e.g. a run never created
+// via Create) is an explicit error, never a silent no-op.
+func (w *Writer) MarkPRCreated(runID, prURL string) error {
+	dir := w.runDir(runID)
+
+	rec, err := w.readRecord(dir)
+	if err != nil {
+		return err
+	}
+
+	rec.PRUrl = prURL
+	rec.UpdatedAt = time.Now()
+	return writeJSON(filepath.Join(dir, "run.json"), rec)
 }
 
 // readRecord loads run.json from a run's directory. A missing/unreadable

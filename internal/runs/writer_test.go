@@ -313,6 +313,117 @@ func TestWriter_MarkCanceled_UnknownRunIDErrors(t *testing.T) {
 	}
 }
 
+// --- HU-014: additive PRUrl + MarkPRCreated ---------------------------------
+
+// TestRecord_PRUrl_RoundTripsThroughWriteReload is task 3.1 (RED): a record
+// with PRUrl set round-trips unchanged through Save then Load
+// (run-persistence spec: "PRUrl round-trips through a full write/reload").
+func TestRecord_PRUrl_RoundTripsThroughWriteReload(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{RunID: "run-prurl", PRUrl: "https://github.com/org/repo/pull/1"}
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := w.Load(rec.RunID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.PRUrl != rec.PRUrl {
+		t.Fatalf("expected PRUrl to round-trip as %q, got %q", rec.PRUrl, got.PRUrl)
+	}
+}
+
+// TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroPRUrl is task 3.1
+// (RED): a run.json written before PRUrl existed still Loads cleanly with
+// PRUrl zero-valued, and with NO SchemaVersion bump (run-persistence spec:
+// "Prior-slice run.json still loads without PRUrl").
+func TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroPRUrl(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	runID := "TICKET-9-to-UAT-20260101000000"
+	dir := filepath.Join(base, ".deploydeck", "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seeding run dir: %v", err)
+	}
+	oldShape := `{"schemaVersion":1,"runId":"TICKET-9-to-UAT-20260101000000","ticket":"TICKET-9","target":"UAT","status":"Succeeded"}`
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(oldShape), 0o644); err != nil {
+		t.Fatalf("seeding old-shape run.json: %v", err)
+	}
+
+	rec, err := w.Load(runID)
+	if err != nil {
+		t.Fatalf("an old-shape run.json should still Load cleanly: %v", err)
+	}
+	if rec.SchemaVersion != runs.SchemaVersion1 {
+		t.Fatalf("expected SchemaVersion unchanged at %d, got %d", runs.SchemaVersion1, rec.SchemaVersion)
+	}
+	if rec.PRUrl != "" {
+		t.Fatalf("expected PRUrl zero-valued on an old-shape record, got %q", rec.PRUrl)
+	}
+}
+
+// TestWriter_MarkPRCreated_PersistsPRUrl is task 3.3 (RED): MarkPRCreated
+// persists the given PR URL to run.json, mirroring MarkCanceled's method
+// shape (load -> mutate -> save) (run-persistence spec: "MarkPRCreated
+// persists the PR URL").
+func TestWriter_MarkPRCreated_PersistsPRUrl(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{
+		RunID:     "TICKET-10-to-UAT-20260727120000",
+		Ticket:    "TICKET-10",
+		Target:    "UAT",
+		Status:    "Succeeded",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	dir, err := w.Create(rec, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error creating run: %v", err)
+	}
+
+	prURL := "https://github.com/org/repo/pull/99"
+	if err := w.MarkPRCreated(rec.RunID, prURL); err != nil {
+		t.Fatalf("unexpected error on MarkPRCreated: %v", err)
+	}
+
+	runData, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		t.Fatalf("expected run.json to exist: %v", err)
+	}
+	var gotRec runs.Record
+	if err := json.Unmarshal(runData, &gotRec); err != nil {
+		t.Fatalf("run.json is not valid JSON: %v", err)
+	}
+	if gotRec.PRUrl != prURL {
+		t.Fatalf("expected run.json PRUrl updated to %q, got %q", prURL, gotRec.PRUrl)
+	}
+	if !gotRec.UpdatedAt.After(rec.UpdatedAt) {
+		t.Fatalf("expected UpdatedAt to advance, got %v (original %v)", gotRec.UpdatedAt, rec.UpdatedAt)
+	}
+	if gotRec.RunID != rec.RunID || gotRec.Ticket != rec.Ticket {
+		t.Fatalf("expected identifying fields preserved, got %+v", gotRec)
+	}
+}
+
+// TestWriter_MarkPRCreated_UnknownRunIDErrors is task 3.3 (RED):
+// MarkPRCreated errors on an unknown runID rather than a silent no-op,
+// mirroring MarkCanceled's own unknown-runID behavior.
+func TestWriter_MarkPRCreated_UnknownRunIDErrors(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	err := w.MarkPRCreated("does-not-exist", "https://github.com/org/repo/pull/1")
+	if err == nil {
+		t.Fatal("expected an error for an unknown runID, got nil")
+	}
+}
+
 // --- HU-013: additive Record growth + List/Load/Save/Prune -----------------
 
 // mustSave is a small seeding helper for the tests below: it calls Save and

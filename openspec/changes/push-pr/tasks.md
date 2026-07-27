@@ -44,10 +44,10 @@ Chain strategy: size-exception
 - [x] 2.7 [U] RED+GREEN `SuggestedTitle`: `<ticket> - Promote changes to <target>` (AC4)
 
 ## Phase 3: `internal/runs` PRUrl Persistence
-- [ ] 3.1 [U] RED `writer_test.go`: `PRUrl` round-trips write/reload; prior `run.json` (no PRUrl) loads zero-valued (run-persistence delta)
-- [ ] 3.2 GREEN `writer.go`: `Record.PRUrl` `json:"prUrl,omitempty"`, no schema bump
-- [ ] 3.3 [U] RED `writer_test.go`: `MarkPRCreated(runID,prURL)` persists to `run.json`, mirrors `MarkCanceled`
-- [ ] 3.4 GREEN `writer.go`: implement `MarkPRCreated`
+- [x] 3.1 [U] RED `writer_test.go`: `PRUrl` round-trips write/reload; prior `run.json` (no PRUrl) loads zero-valued (run-persistence delta)
+- [x] 3.2 GREEN `writer.go`: `Record.PRUrl` `json:"prUrl,omitempty"`, no schema bump
+- [x] 3.3 [U] RED `writer_test.go`: `MarkPRCreated(runID,prURL)` persists to `run.json`, mirrors `MarkCanceled`
+- [x] 3.4 GREEN `writer.go`: implement `MarkPRCreated`
 
 ## Phase 4: `internal/prereq` gh Doctor Check
 - [ ] 4.1 [U] RED `checker_gh_test.go`: `CheckGH` absent/unauth/authed, always informative/non-blocking; existing checker tests stay green with `Checker.GH` nil (prereq-check delta)
