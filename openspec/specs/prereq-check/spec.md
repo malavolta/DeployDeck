@@ -97,7 +97,36 @@ The system SHALL detect repository Git hooks that could interfere with checkout 
 - WHEN the prerequisite check runs
 - THEN the hook is reported as an informative, non-blocking `PrereqCheck`
 
+### Requirement: `gh` CLI Availability And Authentication Check (Informative)
+
+The system SHALL report `gh` CLI availability and authentication status as an
+informative, non-blocking `PrereqCheck`, classifying it as absent,
+present-unauthenticated, or present-authenticated, and SHALL NEVER block the
+flow based on this check.
+
+#### Scenario: gh absent is reported informationally
+- GIVEN the `gh` binary is not installed
+- WHEN the prerequisite check runs
+- THEN an informative, non-blocking `PrereqCheck` reports `gh` as absent
+
+#### Scenario: gh present but unauthenticated is reported informationally
+- GIVEN `gh` is installed but not authenticated
+- WHEN the prerequisite check runs
+- THEN an informative, non-blocking `PrereqCheck` reports `gh` as
+  present-unauthenticated
+
+#### Scenario: gh present and authenticated is reported informationally
+- GIVEN `gh` is installed and authenticated
+- WHEN the prerequisite check runs
+- THEN an informative, non-blocking `PrereqCheck` reports `gh` as
+  present-authenticated
+
+#### Scenario: gh check never blocks the flow
+- GIVEN any `gh` availability/auth state, including absent
+- WHEN the prerequisite check runs
+- THEN the flow is not blocked by this check
+
 ## Design Notes
 
-- The informative, non-blocking `gh` CLI availability/authentication check is intentionally deferred to HU-014 (PR automation), since it only enables that future capability.
+- The informative, non-blocking `gh` CLI availability/authentication check is implemented by HU-014 (PR automation), as it enables the push-pr-preparation capability.
 - The lock implementation uses atomic file writes and stale-takeover detection via process start-time probing to ensure safe multi-instance coordination.
