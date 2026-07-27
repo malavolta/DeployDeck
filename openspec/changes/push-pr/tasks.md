@@ -75,11 +75,11 @@ Chain strategy: size-exception
 - [x] 7.3 GREEN: close any integration gaps until 7.1/7.2 pass; assert no PR without confirmation end-to-end
 
 ## Phase 8: Final Verification
-- [ ] 8.1 `go test -race ./...` all green
-- [ ] 8.2 `go vet ./...` clean
-- [ ] 8.3 `gofmt -l .` clean
-- [ ] 8.4 `boundary_test.go` passes
-- [ ] 8.5 Check off proposal.md Success Criteria
+- [x] 8.1 `go test -race ./...` all green
+- [x] 8.2 `go vet ./...` clean
+- [x] 8.3 `gofmt -l .` clean
+- [x] 8.4 `boundary_test.go` passes
+- [x] 8.5 Check off proposal.md Success Criteria
 
 ## Constraints (apply throughout)
 - `internal/app` never execs directly — `git.Service`/`github.Client` hold the seam

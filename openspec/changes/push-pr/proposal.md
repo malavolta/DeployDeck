@@ -74,8 +74,8 @@ New module + additive field — revert the branch to drop all code. Push is the 
 
 ## Success Criteria
 
-- [ ] Push offered only after a successful validation; not primary after failure.
-- [ ] Confirm runs `git push -u origin <branch>`; then base/compare/title shown.
-- [ ] gh authed + confirm creates the PR and records `PRUrl`; absent/unauth shows the origin-derived compare URL and the flow continues.
-- [ ] PR failure shows error + manual data without aborting.
-- [ ] Informative `gh` doctor check present; `internal/app` boundary test holds.
+- [x] Push offered only after a successful validation; not primary after failure.
+- [x] Confirm runs `git push -u origin <branch>`; then base/compare/title shown.
+- [x] gh authed + confirm creates the PR and records `PRUrl`; absent/unauth shows the origin-derived compare URL and the flow continues.
+- [x] PR failure shows error + manual data without aborting.
+- [x] Informative `gh` doctor check present; `internal/app` boundary test holds.
