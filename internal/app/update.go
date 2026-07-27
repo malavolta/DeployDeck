@@ -313,14 +313,24 @@ func (m Model) onCancelDone(msg cancelDoneMsg) (tea.Model, tea.Cmd) {
 // response), and a terminal status maps to its terminal screen and stops the
 // loop.
 func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
+	// The outstanding report has genuinely returned, so it is no longer in
+	// flight regardless of the current screen: clear the guard BEFORE the
+	// stale-message drop below. A report commonly lands while the user is on
+	// StateCancelConfirm (the in-flight poll returns while they decide whether to
+	// type CANCELAR). If the state guard returned first, pollInFlight would stay
+	// stuck true, and a later esc back to StateValidationPolling could never
+	// re-arm the loop — onPollTick and the manual `r` refresh both no-op while
+	// pollInFlight — permanently freezing live progress. Clearing it here is
+	// always correct (the report goroutine already returned, so it can never
+	// cause a double report) and cannot double-poll: the successor tick is only
+	// scheduled below, after the state guard, while still ValidationPolling.
+	m.pollInFlight = false
+
 	if m.state != StateValidationPolling {
-		// A late report after we already left polling is ignored.
+		// A late/stale report after we already left polling is dropped, but the
+		// in-flight guard was cleared above so esc-resume and manual `r` still work.
 		return m, nil
 	}
-
-	// The outstanding report has returned: clear the guard so the loop can
-	// schedule exactly one successor (and a manual refresh is allowed again).
-	m.pollInFlight = false
 
 	// Persist every raw report the poll produced — success OR a transient error
 	// that still returned output (a non-parseable non-zero-exit report keeps

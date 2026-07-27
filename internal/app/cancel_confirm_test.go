@@ -356,6 +356,87 @@ func TestModel_LateReportDoneMsg_AfterCancel_IsDropped(t *testing.T) {
 	}
 }
 
+// TestModel_ReportDoneMsg_DuringCancelConfirm_DoesNotFreezePolling is the MEDIUM
+// liveness regression guard: a report that lands while the user is on
+// StateCancelConfirm (the NORMAL case — the in-flight poll returns while the user
+// is deciding whether to type CANCELAR) is still DROPPED by the stale-message
+// guard, but it MUST clear pollInFlight — the report goroutine has genuinely
+// returned. If it stayed stuck true, a later esc back to StateValidationPolling
+// could never re-arm the loop (onPollTick no-ops while pollInFlight), permanently
+// freezing live progress. This test drives the full path and asserts the loop
+// actually resumes: the re-armed tick fires a fresh report instead of no-op'ing
+// on a wedged in-flight guard.
+func TestModel_ReportDoneMsg_DuringCancelConfirm_DoesNotFreezePolling(t *testing.T) {
+	m, _, _, _ := cancelPollingModel(t, cancelSuccess())
+	m.pollInFlight = true // a reportCmd is currently outstanding
+
+	// Enter the cancel-confirm modal; the in-flight report is still outstanding.
+	confirm, _ := m.Update(keyPress("c"))
+	cm := confirm.(Model)
+	if cm.State() != StateCancelConfirm {
+		t.Fatalf("c should enter StateCancelConfirm, got %v", cm.State())
+	}
+
+	// The outstanding report lands on the confirm screen: dropped (state stays
+	// CancelConfirm, no reschedule) BUT pollInFlight must be cleared.
+	dropped, cmd := cm.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "InProgress", Raw: `{"status":"InProgress"}`}})
+	dm := dropped.(Model)
+	if dm.State() != StateCancelConfirm {
+		t.Fatalf("a report during cancel-confirm must be dropped (stay on confirm), got %v", dm.State())
+	}
+	if cmd != nil {
+		t.Error("a dropped report must not reschedule polling from the confirm screen")
+	}
+	if dm.pollInFlight {
+		t.Fatal("the returned report must clear pollInFlight even when dropped, or the poll loop wedges (liveness bug)")
+	}
+
+	// esc back to polling re-arms the poll loop.
+	resumed, escCmd := dm.Update(keyPress("esc"))
+	rm := resumed.(Model)
+	if rm.State() != StateValidationPolling {
+		t.Fatalf("esc should return to ValidationPolling, got %v", rm.State())
+	}
+	if escCmd == nil {
+		t.Fatal("esc should re-arm the poll loop (pollTickCmd)")
+	}
+
+	// The scheduled tick must actually fire a fresh report — proving live
+	// progress resumed and is not frozen on a stuck in-flight guard.
+	ticked, tickCmd := rm.Update(pollTickMsg{})
+	tm := ticked.(Model)
+	if tickCmd == nil {
+		t.Fatal("the resumed tick must fire the next report (frozen poll loop otherwise)")
+	}
+	if !tm.pollInFlight {
+		t.Error("firing the resumed report should re-arm the in-flight guard")
+	}
+}
+
+// TestModel_CancelConfirm_EscAfterInFlightReport_ManualRefreshWorks proves the
+// manual-refresh promise also survives the drop: after a report lands during
+// cancel-confirm and the user escs back to polling, pressing `r` fires a fresh
+// report immediately. It would be a dead key if pollInFlight were left stuck true
+// by the dropped report.
+func TestModel_CancelConfirm_EscAfterInFlightReport_ManualRefreshWorks(t *testing.T) {
+	m, _, _, _ := cancelPollingModel(t, cancelSuccess())
+	m.pollInFlight = true
+
+	confirm, _ := m.Update(keyPress("c"))
+	dropped, _ := confirm.(Model).Update(reportDoneMsg{report: salesforce.DeployReport{Status: "InProgress", Raw: `{"status":"InProgress"}`}})
+	resumed, _ := dropped.(Model).Update(keyPress("esc"))
+	rm := resumed.(Model)
+
+	next, cmd := rm.Update(keyPress("r"))
+	nm := next.(Model)
+	if cmd == nil {
+		t.Fatal("manual refresh after esc should fire a report (dead key if pollInFlight is stuck true)")
+	}
+	if !nm.pollInFlight {
+		t.Error("manual refresh should arm the in-flight guard")
+	}
+}
+
 // --- view --------------------------------------------------------------------
 
 // TestModel_CancelConfirm_ViewShowsJobAndTypedPrompt is task 5.6: the confirm

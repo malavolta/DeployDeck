@@ -2,7 +2,8 @@
 
 **Change**: `deploy-queue`
 **Batches**: 1 (HU-009: Phases 1, 2, 7.1) — DONE, committed, green under `-race`;
-2 (HU-012: Phases 3-6, 7.2 + Phase 8 final verification) — DONE (this batch).
+2 (HU-012: Phases 3-6, 7.2 + Phase 8 final verification) — DONE;
+3 (Remediation: MEDIUM liveness bug in the HU-012 cancel flow) — DONE (this batch).
 **Mode**: Strict TDD (RED → GREEN per task)
 **Branch**: `deploy-queue`
 **Delivery**: single-pr, `size:exception` granted (whole change; no PRs/splits)
@@ -152,8 +153,70 @@ None. The only RED-beyond-compile was a self-inflicted wrong arg-count literal
 4. `3ed1de7` — `test(salesforce): threat-matrix arg-slice proof + best-effort cancel e2e`
 5. (docs) — Success Criteria + tasks `[x]` + merged apply-progress (this commit)
 
+## Batch 3 — Remediation: MEDIUM liveness bug in the HU-012 cancel flow
+
+**Found by**: adversarial review (change otherwise archive-ready). **Severity**: MEDIUM
+(broken liveness + broken esc/`r` promise; no data loss — the SF job stays resumable).
+
+### The bug
+
+`onReportDone` (`internal/app/update.go`) hit its stale-message state guard
+`if m.state != StateValidationPolling { return m, nil }` and returned BEFORE the
+line that clears `m.pollInFlight = false`. In the normal case an in-flight report
+lands while the user is on `StateCancelConfirm` (deciding whether to type
+CANCELAR); the guard dropped that report but left `pollInFlight` stuck `true`.
+Pressing `esc` back to `StateValidationPolling` then fired `pollTickCmd`, but
+`onPollTick` bails on `pollInFlight == true` → no report fired, no tick
+rescheduled → the live-progress loop was PERMANENTLY FROZEN. Manual refresh `r`
+was also dead (it too bails on `pollInFlight`). Only `q`/`c` still responded.
+
+### The fix
+
+Moved `m.pollInFlight = false` to BEFORE the state guard in `onReportDone`. By the
+time `reportDoneMsg` arrives the report goroutine has genuinely returned, so
+clearing the flag regardless of state is correct and cannot cause a double report.
+The state guard still drops the stale message, but `pollInFlight` is now cleared so
+esc-resume and `r` work again. The successor tick (`scheduleNextPoll`) stays AFTER
+the guard, fired only while still `StateValidationPolling` — so no double-poll is
+introduced (verified by the still-green `TestModel_ValidationPolling_PollsSequentially`).
+
+### TDD Cycle Evidence (Batch 3)
+
+| Task | RED | GREEN | REFACTOR |
+|---|---|---|---|
+| Remediation: cancel-confirm report drop must not freeze polling | Added `TestModel_ReportDoneMsg_DuringCancelConfirm_DoesNotFreezePolling` + `TestModel_CancelConfirm_EscAfterInFlightReport_ManualRefreshWorks` FIRST; `go test ./internal/app/ -run '...DoesNotFreezePolling|...ManualRefreshWorks'` → both FAIL (`pollInFlight` stuck true; manual refresh a dead key) — the freeze reproduced | Moved `m.pollInFlight = false` before the state guard in `onReportDone`; same command → both PASS | None — one-line move; sound-parts regression set (esc-return, sequential-poll/no-double-poll, late-report drop, `q`-invariant, typed-CANCELAR gate, own-job-only, onCancelDone guards) all still PASS; `gofmt` clean |
+
+### Files Changed (Batch 3)
+
+| File | Action | What Was Done |
+|------|--------|----------------|
+| `internal/app/update.go` | Modified | `onReportDone`: moved `m.pollInFlight = false` ahead of the `state != StateValidationPolling` stale guard so a report dropped while on `StateCancelConfirm` still clears the in-flight guard; the successor tick stays after the guard (no double-poll). Doc comment updated to explain the ordering. |
+| `internal/app/cancel_confirm_test.go` | Modified | Added the two RED-first liveness tests above (kept the existing `TestModel_CancelConfirm_EscReturnsToPolling` intact — added the in-flight-report variant rather than replacing it). |
+| `openspec/changes/deploy-queue/apply-progress.md` | Modified | This Batch 3 remediation section. |
+
+### Work Unit Evidence (Batch 3)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/app/ -run 'DoesNotFreezePolling|ManualRefreshWorks|EscReturnsToPolling|PollsSequentially|LateReportDoneMsg_AfterCancel|QLeavesJobActive|CorrectTextCancelsOwnJobOnly|OnCancelDone' -v` → all PASS (2 new liveness tests + 7 sound-parts regression tests, incl. the sequential/no-double-poll and `q`-invariant guards) |
+| Runtime harness command/scenario and exact result | N/A for a new runtime boundary — this is a pure `Model.Update` state-machine liveness fix (no new external command/subprocess). Full-suite runtime coverage exercised via `go test -race ./...` → all packages `ok`. |
+| Rollback boundary | Revert the single `m.pollInFlight = false` move in `internal/app/update.go` `onReportDone` (back after the state guard) and delete the two added tests in `cancel_confirm_test.go`. Nothing else in HU-009/HU-012 is touched; the typed-CANCELAR gate, own-job-only target, two-writer stale guards, `cancelPoll` teardown, and `q`-exit invariant are all unchanged. |
+
+### Full Suite Verification (Batch 3 — verbatim, as requested)
+
+```
+export PATH="/usr/local/go/bin:$PATH" && go build ./... && go vet ./... && gofmt -l . && go test -race ./...
+```
+
+Result: build OK; `go vet ./...` clean; `gofmt -l .` produced no output (clean);
+`go test -race ./...` → all packages `ok` (`cmd/deploydeck`, `internal/app`,
+`internal/config`, `internal/delta`, `internal/exec`, `internal/git`,
+`internal/prereq`, `internal/runs`, `internal/salesforce`).
+
 ## Status
 
 24/24 total change tasks complete (Phase 1: 2/2, Phase 2: 6/6, Phase 3: 2/2,
 Phase 4: 2/2, Phase 5: 6/6, Phase 6: 1/1, Phase 7: 2/2, Phase 8: 3/3). HU-009 and
-HU-012 are both fully implemented and verified end to end. Ready for `sdd-verify`.
+HU-012 are both fully implemented and verified end to end. Batch 3 remediates the
+MEDIUM cancel-flow liveness bug found by adversarial review (RED→GREEN, no
+regressions). Ready for `sdd-verify`.
