@@ -338,6 +338,9 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pollInFlight = true
 		return m, m.reportCmd()
 	case "q":
+		// Exit WITHOUT cancelling the Salesforce job: only tear down the local
+		// read-only report subprocess via the session context.
+		m.cancelPoll()
 		return m, tea.Quit
 	}
 	return m, nil

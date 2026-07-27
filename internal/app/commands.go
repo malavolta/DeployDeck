@@ -443,14 +443,16 @@ func (m Model) validateCmd() tea.Cmd {
 }
 
 // reportCmd polls HU-011's `sf project deploy report` ONCE through the shim,
-// under a per-call timeout so a single hung poll cannot stall the loop.
+// under a per-call timeout so a single hung poll cannot stall the loop. The
+// per-call context is derived from the cancelable polling SESSION context
+// (m.pollContext), so a user exit cancels an in-flight report subprocess.
 // Callers (onValidateDone / onPollTick) schedule the repetition.
 func (m Model) reportCmd() tea.Cmd {
 	sf := m.deps.SF
 	jobID := m.jobID
 	alias := m.plan.SandboxAlias
 	dir := m.deps.Dir
-	parent := m.ctx()
+	parent := m.pollContext()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, reportCallTimeout)
 		defer cancel()

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -586,6 +587,45 @@ func TestModel_ValidationPolling_UserExitLeavesJobActive(t *testing.T) {
 	}
 
 	// The run remains on disk (resumable): no cancel wiped it.
+	if _, err := os.Stat(filepath.Join(dir, ".deploydeck", "runs", "PROJ-1-to-UAT-poll", "run.json")); err != nil {
+		t.Errorf("run should stay persisted (resumable) after exit: %v", err)
+	}
+}
+
+// TestModel_ValidationPolling_UserExitCancelsInFlightReport (H3) proves user
+// exit cancels the polling session's context so an in-flight `sf project deploy
+// report` subprocess is torn down — WITHOUT touching the Salesforce job (report
+// is read-only; no `deploy cancel` is ever issued and the run stays resumable).
+func TestModel_ValidationPolling_UserExitCancelsInFlightReport(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+
+	// Enter ValidationPolling exactly as ValidationStart success does, so the
+	// cancelable poll context is armed by real code, not the test.
+	m := pollingModel(t, dir, clk)
+	entered, _ := m.Update(validateDoneMsg{result: salesforce.ValidateResult{JobID: "JOB1"}, runID: m.runID})
+	pm := entered.(Model)
+	if pm.State() != StateValidationPolling {
+		t.Fatalf("expected ValidationPolling, got %v", pm.State())
+	}
+	if pm.pollCtx == nil {
+		t.Fatal("entering polling should arm a cancelable poll context")
+	}
+
+	next, cmd := pm.Update(keyPress("q"))
+	if cmd == nil {
+		t.Fatal("q should quit the program")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("q should return tea.Quit, got %T", cmd())
+	}
+	if err := pm.pollCtx.Err(); err != context.Canceled {
+		t.Errorf("user exit should cancel the in-flight poll context, got %v", err)
+	}
+	_ = next
+
+	// The run stays persisted (resumable): cancelling the local read-only query
+	// never wiped the run and never cancelled the Salesforce job.
 	if _, err := os.Stat(filepath.Join(dir, ".deploydeck", "runs", "PROJ-1-to-UAT-poll", "run.json")); err != nil {
 		t.Errorf("run should stay persisted (resumable) after exit: %v", err)
 	}

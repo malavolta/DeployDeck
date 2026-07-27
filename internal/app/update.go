@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
+			// Cancel any in-flight poll so a read-only report subprocess is torn
+			// down on exit (no-op outside polling; never cancels the SF job).
+			m.cancelPoll()
 			return m, tea.Quit
 		}
 		return m.handleKey(msg)
@@ -224,6 +228,10 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 	m.validateErr = nil
 	m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 	m.state = StateValidationPolling
+	// Arm the cancelable polling session context; reportCmd derives each poll's
+	// per-call timeout from it, and any polling exit (terminal, timeout, quit)
+	// cancels it to tear down an in-flight read-only report subprocess.
+	m.pollCtx, m.pollCancel = context.WithCancel(context.Background())
 	// Fire the FIRST report only. The next poll is scheduled by onReportDone
 	// once this one returns (sequential polling, no free-running tick), so the
 	// loop never runs two reports concurrently.
@@ -271,6 +279,9 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 	m.report = msg.report
 
 	if salesforce.IsTerminal(msg.report.Status) {
+		// Leaving polling: cancel the session context so no read-only report
+		// subprocess lingers past the terminal screen.
+		m.cancelPoll()
 		m.state = terminalState(msg.report.Status)
 		return m, nil
 	}
@@ -278,11 +289,13 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 // scheduleNextPoll enforces the hard deadline, then arms the NEXT poll tick.
-// Past the deadline the run fails (timeout, StateFailed); otherwise a single
-// pollTickCmd is scheduled. This is the ONLY place a poll tick is armed, so
-// ticks can never accumulate independently of report completion.
+// Past the deadline the run fails (timeout, StateFailed) and the session
+// context is cancelled; otherwise a single pollTickCmd is scheduled. This is
+// the ONLY place a poll tick is armed, so ticks can never accumulate
+// independently of report completion.
 func (m Model) scheduleNextPoll() (tea.Model, tea.Cmd) {
 	if m.now().After(m.pollDeadline) {
+		m.cancelPoll()
 		m.timedOut = true
 		m.state = StateFailed
 		return m, nil
@@ -305,6 +318,7 @@ func (m Model) onPollTick() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.now().After(m.pollDeadline) {
+		m.cancelPoll()
 		m.timedOut = true
 		m.state = StateFailed
 		return m, nil

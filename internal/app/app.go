@@ -193,6 +193,15 @@ type Model struct {
 	// is a no-op, and the next poll is scheduled only once onReportDone lands —
 	// so a slow report can never let ticks pile up into concurrent subprocesses.
 	pollInFlight bool
+	// pollCtx / pollCancel bound the whole ValidationPolling session. Entering
+	// polling arms a cancelable context that every reportCmd derives its
+	// per-call timeout from; leaving polling (terminal, timeout, or user exit)
+	// cancels it, tearing down any in-flight read-only `sf project deploy
+	// report` subprocess. This NEVER touches the Salesforce job — report is
+	// read-only, so cancelling the local query leaves the async validation
+	// running and the persisted run resumable.
+	pollCtx    context.Context
+	pollCancel context.CancelFunc
 }
 
 // New builds the initial Model in StatePrereqCheck.
@@ -228,6 +237,26 @@ func (m Model) Init() tea.Cmd {
 // ctx returns the context used for service calls. A short-lived TUI uses the
 // background context; cancellation is handled by the process lifecycle.
 func (m Model) ctx() context.Context { return context.Background() }
+
+// pollContext returns the ValidationPolling session context reportCmd derives
+// its per-call timeout from. It falls back to Background before polling is
+// armed so the poll command is always safe to build.
+func (m Model) pollContext() context.Context {
+	if m.pollCtx != nil {
+		return m.pollCtx
+	}
+	return context.Background()
+}
+
+// cancelPoll cancels the polling session context (if armed), tearing down any
+// in-flight `sf project deploy report` subprocess. It is idempotent and a
+// no-op before polling starts. It NEVER issues a `deploy cancel`: report is
+// read-only, so the Salesforce job stays active and the run stays resumable.
+func (m Model) cancelPoll() {
+	if m.pollCancel != nil {
+		m.pollCancel()
+	}
+}
 
 // now returns the current time through the injected Deps.Now (nil → time.Now),
 // so HU-011's poll deadline is deterministic under test.
