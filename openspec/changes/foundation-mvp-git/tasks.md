@@ -268,3 +268,4 @@ if review proves unwieldy, but the sanctioned delivery for this change is one PR
 - [x] 12.1 Run `go test ./...` (unit + integration) green in CI.
 - [x] 12.2 Run `go vet ./...` and `gofmt -l .` clean.
 - [x] 12.3 Check off proposal.md Success Criteria: `doctor` non-zero on blockers; full TUI flow on temp repo; all six HUs' tests green, no real e2e org required.
+- [x] 12.4 Real-org e2e (opt-in, `DEPLOYDECK_E2E_ORG`): `internal/prereq/real_org_e2e_test.go` — `TestE2ERealOrg_Smoke` exercises `salesforce.Client.Version`/`Plugins`/`Orgs`+`FindByAlias` and `prereq.Checker.CheckAliases` against a real, developer-connected org via `exec.NewOSRunner()`. Skips (`t.Skip`) when `DEPLOYDECK_E2E_ORG` is unset so `go test ./...` stays green in CI; never runs in CI per `docs/ARQUITECTURA.md`. Added post-hoc at the maintainer's explicit request — originally deferred out of this slice's scope (see proposal.md/design.md and 12.3's "no real e2e org required").

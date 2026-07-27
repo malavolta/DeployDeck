@@ -6,7 +6,11 @@
 HU-001..HU-006 (`prereq-check`, `commit-discovery`, `commit-selection`, `target-selection`,
 `promotion-branch`, `cherry-pick`), plus `internal/app` TUI wiring and final verification. Includes the
 HU-001 lock and HU-006 cherry-pick adversarial-review remediations and the `sf plugins --json`
-field fix. Full `go test -race ./...` green, `go vet`/`gofmt` clean.
+field fix. Full `go test -race ./...` green, `go vet`/`gofmt` clean. Post-hoc addition (task 12.4): an
+opt-in real-org e2e smoke test was added and run green against the connected `AM-DEV-EDITION` org (see
+"Post-Hoc Addition: Real-Org E2E" below) at the maintainer's explicit request — this was originally
+documented in `docs/ARQUITECTURA.md` but deliberately scoped OUT of this slice (12.3: "no real e2e org
+required").
 
 ## Completed Tasks (Phases 1-4)
 
@@ -834,3 +838,80 @@ re-verified against the real CLI to still be correct.
 Field fix complete under strict TDD. `sfdx-git-delta` plugin presence/absence/nested/below-minimum
 detection now correctly parses the real `sf plugins --json` top-level array shape end-to-end, verified
 both under `FakeRunner` and against the real `sf` CLI 2.135.7.
+
+## Post-Hoc Addition: Real-Org E2E (task 12.4)
+
+**Context**: `docs/ARQUITECTURA.md` ("Tests E2E Local (Contra Org Real)") always specified an opt-in,
+`DEPLOYDECK_E2E_ORG`-gated, local-only e2e against a real Salesforce org, `t.Skip`ped when unset, never
+run in CI. Task 12.3 explicitly closed this slice WITHOUT it ("no real e2e org required"), matching
+`openspec/config.yaml`'s `testing.e2e.available: false`. The maintainer, having a connected test org,
+requested it be added and run as an acceptance criterion for this change. This is an ADDITION, not a
+correction of a prior deviation — 12.3 was correctly scoped at the time.
+
+**What was added**: `internal/prereq/real_org_e2e_test.go` (`TestE2ERealOrg_Smoke`), using the REAL
+`exec.NewOSRunner()` (real `sf`), never `FakeRunner`. Four sub-assertions, matching the slice's actual
+read-only Salesforce surface:
+
+1. `salesforce.Client.Version(ctx)` parses the real `sf --version` plain-text banner.
+2. `salesforce.Client.Plugins(ctx)` parses the real `sf plugins --json` TOP-LEVEL ARRAY — the exact shape
+   a `FakeRunner` fixture cannot validate, and the exact shape the `sf plugins --json` field bug (above)
+   lived in.
+3. `salesforce.Client.Orgs(ctx)` parses the real `sf org list --json` five-category envelope, and
+   `OrgList.FindByAlias(alias)` resolves the connected alias.
+4. `prereq.Checker.CheckAliases(ctx)`, composing the real `salesforce.Client`, reports the connected
+   alias as `StatusOK` (not blocking) — i.e. no unauthenticated-sandbox warning for a genuinely connected
+   org.
+
+**Gate**: `alias := os.Getenv("DEPLOYDECK_E2E_ORG"); if alias == "" { t.Skip(...) }` — first line of the
+test, so `go test ./...` with the var unset (CI, any contributor without an org) SKIPs it and stays
+green. No build tag; the env-var gate is the sole activation mechanism per `docs/ARQUITECTURA.md`.
+
+**Real-org fact adjustment**: `sf org list --json` classifies the connected `AM-DEV-EDITION` org (a
+Developer Edition org, not a scratch/sandbox org) under `nonScratchOrgs`/`other`, NOT `sandboxes`.
+`OrgList.FindByAlias` already scans all five categories by design (HU-001 5.21/8.9's own AC), so the
+assertions were written against that real classification rather than assuming a `sandboxes` bucket — this
+still proves real alias resolution against the live org, per the task's explicit adjust-don't-weaken
+instruction.
+
+**Non-destructive**: only read-only `sf` calls (`--version`, `plugins --json`, `org list --json`). No
+deploy, no validate, no login, no org mutation.
+
+### Verbatim Runs
+
+**1. Skip when unset** (`go test -run TestE2ERealOrg ./... -v`):
+
+```
+=== RUN   TestE2ERealOrg_Smoke
+    real_org_e2e_test.go:48: set DEPLOYDECK_E2E_ORG=<alias> to run the real-org e2e (local only)
+--- SKIP: TestE2ERealOrg_Smoke (0.00s)
+PASS
+ok  	deploydeck/internal/prereq	1.440s
+```
+
+**2. Real-org run** (`DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test -run TestE2ERealOrg ./... -v -count=1`):
+
+```
+=== RUN   TestE2ERealOrg_Smoke
+=== RUN   TestE2ERealOrg_Smoke/Version_parses_real_sf_--version
+=== RUN   TestE2ERealOrg_Smoke/Plugins_parses_real_sf_plugins_--json_top-level_array
+=== RUN   TestE2ERealOrg_Smoke/Orgs_parses_real_sf_org_list_--json_and_FindByAlias_resolves_the_connected_alias
+=== RUN   TestE2ERealOrg_Smoke/prereq_CheckAliases_resolves_the_connected_alias_as_OK,_not_blocking
+--- PASS: TestE2ERealOrg_Smoke (3.63s)
+    --- PASS: TestE2ERealOrg_Smoke/Version_parses_real_sf_--version (0.30s)
+    --- PASS: TestE2ERealOrg_Smoke/Plugins_parses_real_sf_plugins_--json_top-level_array (0.76s)
+    --- PASS: TestE2ERealOrg_Smoke/Orgs_parses_real_sf_org_list_--json_and_FindByAlias_resolves_the_connected_alias (1.27s)
+    --- PASS: TestE2ERealOrg_Smoke/prereq_CheckAliases_resolves_the_connected_alias_as_OK,_not_blocking (1.29s)
+PASS
+ok  	deploydeck/internal/prereq	4.287s
+```
+
+**3. Full regression, var unset** (`go test ./... && gofmt -l .`): all packages `ok`, `gofmt -l .` printed
+nothing (clean) — proving CI (which never sets `DEPLOYDECK_E2E_ORG`) is unaffected.
+
+### Work Unit Evidence (task 12.4)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test -run TestE2ERealOrg ./internal/prereq/... -v -count=1` → `PASS`, 4/4 subtests, `ok deploydeck/internal/prereq 4.287s`. |
+| Runtime harness command/scenario and exact result | The test itself IS the runtime harness — real `sf` CLI 2.135.7 against the live, developer-connected `AM-DEV-EDITION` org (Version/Plugins/Orgs/CheckAliases), see verbatim output above. |
+| Rollback boundary | Single new file `internal/prereq/real_org_e2e_test.go` plus this apply-progress note and one `tasks.md` line (12.4); reverting the file alone removes the real-org e2e with zero impact on any of the 170 prior tasks or CI (the file is inert without `DEPLOYDECK_E2E_ORG` set). |
