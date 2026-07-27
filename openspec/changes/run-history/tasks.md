@@ -95,10 +95,10 @@ Chain strategy: pending
 
 ## Phase 6: `deploydeck runs prune` CLI (run-retention)
 
-- [ ] 6.1 `[U]` RED: fixture runs dir w/ >`keepLast` runs, some >`keepDays`, prune removes only outside-both. (run-retention: Running the command prunes only outside-window runs)
-- [ ] 6.2 `[U]` GREEN: implement `newRunsCmd` (`cmd/deploydeck/main.go`) → `runs prune` composing `config.Load`+`runs.NewWriter(dir).Prune`, registered via `root.AddCommand`.
-- [ ] 6.3 `[I]` RED: real temp `.deploydeck/runs/` fixture, invoke `RunE` end-to-end, assert exact dirs removed/kept.
-- [ ] 6.4 `[I]` GREEN: surface non-zero exit on `Prune` error, mirroring `newDoctorCmd`.
+- [x] 6.1 `[U]` RED: fixture runs dir w/ >`keepLast` runs, some >`keepDays`, prune removes only outside-both. (run-retention: Running the command prunes only outside-window runs)
+- [x] 6.2 `[U]` GREEN: implement `newRunsCmd` (`cmd/deploydeck/main.go`) → `runs prune` composing `config.Load`+`runs.NewWriter(dir).Prune`, registered via `root.AddCommand`.
+- [x] 6.3 `[I]` RED: real temp `.deploydeck/runs/` fixture, invoke `RunE` end-to-end, assert exact dirs removed/kept.
+- [x] 6.4 `[I]` GREEN: surface non-zero exit on `Prune` error, mirroring `newDoctorCmd`.
 
 ## Phase 7: Final verification
 

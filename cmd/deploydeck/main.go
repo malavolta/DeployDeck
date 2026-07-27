@@ -11,6 +11,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -59,8 +60,70 @@ func newRootCmd(deps Deps) *cobra.Command {
 	}
 
 	root.AddCommand(newDoctorCmd(deps))
+	root.AddCommand(newRunsCmd())
 
 	return root
+}
+
+// newRunsCmd builds the `runs` command group managing the local run history
+// under .deploydeck/runs/. It needs nothing from Deps — its single subcommand
+// composes config.Load + runs.NewWriter directly from the resolved cwd.
+func newRunsCmd() *cobra.Command {
+	runsCmd := &cobra.Command{
+		Use:          "runs",
+		Short:        "Manage the local run history under .deploydeck/runs/",
+		SilenceUsage: true,
+	}
+	runsCmd.AddCommand(newRunsPruneCmd())
+	return runsCmd
+}
+
+// newRunsPruneCmd builds the `runs prune` subcommand (HU-013 run-retention:
+// "aplicar politica de retencion configurable ... con comando deploydeck runs
+// prune"). It resolves the working directory, loads the configured
+// keepLast/keepDays bounds, and prunes only the runs outside BOTH conditions,
+// printing what was removed. A load/prune failure returns a non-zero exit,
+// mirroring newDoctorCmd's error path.
+func newRunsPruneCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:          "prune",
+		Short:        "Prune local runs outside the configured retention window",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("runs prune: resolving working directory: %w", err)
+			}
+			return runPrune(cmd.OutOrStdout(), dir)
+		},
+	}
+}
+
+// runPrune loads dir's retention config and prunes the local run history under
+// dir/.deploydeck/runs/, writing a summary of what was removed to w. It is the
+// testable core of `deploydeck runs prune`: RunE only supplies the resolved
+// working directory. Prune touches ONLY per-run directories enumerated by the
+// writer — never arbitrary paths (runs package's threat-matrix guarantee).
+func runPrune(w io.Writer, dir string) error {
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return fmt.Errorf("runs prune: loading %s: %w", config.FileName, err)
+	}
+
+	removed, err := runs.NewWriter(dir).Prune(cfg.Runs.KeepLast, cfg.Runs.KeepDays, time.Now())
+	if err != nil {
+		return fmt.Errorf("runs prune: %w", err)
+	}
+
+	if len(removed) == 0 {
+		fmt.Fprintln(w, "runs prune: nothing to prune (all runs are within the retention window)")
+		return nil
+	}
+	fmt.Fprintf(w, "runs prune: removed %d run(s):\n", len(removed))
+	for _, id := range removed {
+		fmt.Fprintf(w, "  %s\n", id)
+	}
+	return nil
 }
 
 // errDoctorBlocked is returned by the doctor RunE when at least one
