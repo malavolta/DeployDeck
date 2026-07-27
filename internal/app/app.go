@@ -187,6 +187,12 @@ type Model struct {
 	reportErr    error     // last transient report error, surfaced while polling
 	pollDeadline time.Time // hard poll timeout, from injected Now + PollTimeout
 	timedOut     bool      // true when StateFailed was reached via the deadline
+	// pollInFlight is true while a reportCmd is outstanding. It serializes the
+	// poll loop so at most ONE `sf project deploy report` runs at a time: a
+	// tick (or manual refresh) that arrives before the current report returns
+	// is a no-op, and the next poll is scheduled only once onReportDone lands —
+	// so a slow report can never let ticks pile up into concurrent subprocesses.
+	pollInFlight bool
 }
 
 // New builds the initial Model in StatePrereqCheck.

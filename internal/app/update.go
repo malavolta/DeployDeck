@@ -224,45 +224,84 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 	m.validateErr = nil
 	m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 	m.state = StateValidationPolling
-	return m, tea.Batch(m.reportCmd(), pollTickCmd(m.pollIntervalSeconds()))
+	// Fire the FIRST report only. The next poll is scheduled by onReportDone
+	// once this one returns (sequential polling, no free-running tick), so the
+	// loop never runs two reports concurrently.
+	m.pollInFlight = true
+	return m, m.reportCmd()
 }
 
-// onReportDone processes one HU-011 poll. A transient error keeps the state so
-// the next tick retries within the deadline. A successful report is persisted
-// (every raw report saved, never overwritten) and its live progress adopted;
-// a terminal status maps to its terminal screen and stops polling.
+// onReportDone processes one HU-011 poll. The outstanding report has returned,
+// so the in-flight guard is cleared and — for a non-terminal result or a
+// transient error, still within the deadline — the NEXT poll is scheduled here
+// (never by a free-running tick), keeping polling strictly sequential. Every
+// raw report is persisted (success OR errored poll: the spec saves each raw
+// response), and a terminal status maps to its terminal screen and stops the
+// loop.
 func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 	if m.state != StateValidationPolling {
 		// A late report after we already left polling is ignored.
 		return m, nil
 	}
+
+	// The outstanding report has returned: clear the guard so the loop can
+	// schedule exactly one successor (and a manual refresh is allowed again).
+	m.pollInFlight = false
+
+	// Persist every raw report the poll produced — success OR a transient error
+	// that still returned output (a non-parseable non-zero-exit report keeps
+	// its Raw) — so the run retains a full trail (spec: "each raw report
+	// saved"). Preserve the last known status so an errored, status-less poll
+	// never clobbers run.json's status. Best-effort: a write hiccup must not
+	// sink the live poll; the job keeps running and the next poll re-persists.
+	if m.deps.Runs != nil && m.runID != "" && msg.report.Raw != "" {
+		status := msg.report.Status
+		if status == "" {
+			status = m.report.Status
+		}
+		_ = m.deps.Runs.AppendReport(m.runID, status, []byte(msg.report.Raw))
+	}
+
 	if msg.err != nil {
+		// Transient error: retry on the next poll, still within the deadline.
 		m.reportErr = msg.err
-		return m, nil
+		return m.scheduleNextPoll()
 	}
 	m.reportErr = nil
 	m.report = msg.report
-
-	// Persist every raw report (best-effort: a write hiccup must not sink the
-	// live poll; the job keeps running and the next poll re-persists).
-	if m.deps.Runs != nil && m.runID != "" {
-		_ = m.deps.Runs.AppendReport(m.runID, msg.report.Status, []byte(msg.report.Raw))
-	}
 
 	if salesforce.IsTerminal(msg.report.Status) {
 		m.state = terminalState(msg.report.Status)
 		return m, nil
 	}
-	return m, nil
+	return m.scheduleNextPoll()
 }
 
-// onPollTick reschedules the HU-011 poll ONLY while ValidationPolling. On each
-// tick it first enforces the hard deadline (Now()>pollDeadline → StateFailed,
-// timeout), otherwise fires the next report and re-arms the tick. Any other
-// state stops the loop (nil), so no background polling leaks past a terminal
-// state or a user exit.
+// scheduleNextPoll enforces the hard deadline, then arms the NEXT poll tick.
+// Past the deadline the run fails (timeout, StateFailed); otherwise a single
+// pollTickCmd is scheduled. This is the ONLY place a poll tick is armed, so
+// ticks can never accumulate independently of report completion.
+func (m Model) scheduleNextPoll() (tea.Model, tea.Cmd) {
+	if m.now().After(m.pollDeadline) {
+		m.timedOut = true
+		m.state = StateFailed
+		return m, nil
+	}
+	return m, pollTickCmd(m.pollIntervalSeconds())
+}
+
+// onPollTick fires the NEXT report ONLY while ValidationPolling, no report is
+// already in flight, and the hard deadline has not passed. It never re-arms
+// another tick: rescheduling happens in onReportDone after the report returns,
+// so ticks cannot pile up. Any other state — or an already-in-flight report
+// (e.g. a manual refresh just fired one) — stops here (nil), leaking no
+// background polling past a terminal state or a user exit.
 func (m Model) onPollTick() (tea.Model, tea.Cmd) {
 	if m.state != StateValidationPolling {
+		return m, nil
+	}
+	if m.pollInFlight {
+		// A report is still outstanding; onReportDone will reschedule the loop.
 		return m, nil
 	}
 	if m.now().After(m.pollDeadline) {
@@ -270,5 +309,6 @@ func (m Model) onPollTick() (tea.Model, tea.Cmd) {
 		m.state = StateFailed
 		return m, nil
 	}
-	return m, tea.Batch(m.reportCmd(), pollTickCmd(m.pollIntervalSeconds()))
+	m.pollInFlight = true
+	return m, m.reportCmd()
 }

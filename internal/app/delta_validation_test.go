@@ -402,28 +402,112 @@ func TestModel_ValidationPolling_HardTimeout(t *testing.T) {
 }
 
 // TestModel_ValidationPolling_TransientErrorRetries is task 7.11 (retry): a
-// transient report error keeps the flow in ValidationPolling and the next tick
-// (still within the deadline) retries.
+// transient report error keeps the flow in ValidationPolling and — under the
+// sequential-poll model — schedules the next poll itself (the loop is driven by
+// report completion, not a free-running tick), so the retry runs within the
+// deadline.
 func TestModel_ValidationPolling_TransientErrorRetries(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1000, 0)}
 	m := pollingModel(t, t.TempDir(), clk)
+	m.pollInFlight = true
 
 	next, cmd := m.Update(reportDoneMsg{err: errStub})
 	nm := next.(Model)
 	if nm.State() != StateValidationPolling {
 		t.Fatalf("a transient error must not end polling, got %v", nm.State())
 	}
-	if cmd != nil {
-		t.Error("a transient error waits for the next tick rather than firing immediately")
+	if cmd == nil {
+		t.Error("a transient error (within the deadline) should schedule the next poll")
+	}
+	if nm.pollInFlight {
+		t.Error("a transient error should clear the in-flight guard so the retry can run")
 	}
 
-	// The next tick (within the deadline) retries.
+	// The scheduled tick (within the deadline) fires the retry.
 	next2, cmd2 := nm.Update(pollTickMsg{})
 	if next2.(Model).State() != StateValidationPolling {
 		t.Fatalf("retry tick should stay polling, got %v", next2.(Model).State())
 	}
 	if cmd2 == nil {
 		t.Error("a within-deadline retry tick should re-arm the poll")
+	}
+}
+
+// TestModel_ValidationPolling_PollsSequentially (H2) proves the poll loop never
+// lets a slow report overlap with the next tick: at most ONE ReportDeploy is
+// ever in flight. A tick (or a manual refresh) that arrives while a report is
+// still running fires nothing; the next poll is scheduled only AFTER the
+// current report returns — so ticks can never pile up into concurrent sf
+// subprocesses hammering the org.
+func TestModel_ValidationPolling_PollsSequentially(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+
+	t.Run("an in-flight report blocks a concurrent tick and manual refresh", func(t *testing.T) {
+		m := pollingModel(t, t.TempDir(), clk)
+		m.pollInFlight = true // a reportCmd is currently executing
+
+		next, cmd := m.Update(pollTickMsg{})
+		if next.(Model).State() != StateValidationPolling {
+			t.Fatalf("an in-flight tick should stay polling, got %v", next.(Model).State())
+		}
+		if cmd != nil {
+			t.Error("a tick while a report is in flight must not fire a concurrent report")
+		}
+
+		next2, cmd2 := m.Update(keyPress("r"))
+		if next2.(Model).State() != StateValidationPolling {
+			t.Fatalf("an in-flight manual refresh should stay polling, got %v", next2.(Model).State())
+		}
+		if cmd2 != nil {
+			t.Error("manual refresh while a report is in flight must not stack a second report")
+		}
+	})
+
+	t.Run("the next poll is scheduled only after the prior report completes", func(t *testing.T) {
+		m := pollingModel(t, t.TempDir(), clk)
+		m.pollInFlight = true
+
+		next, cmd := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "InProgress", Raw: `{"status":"InProgress"}`}})
+		nm := next.(Model)
+		if nm.State() != StateValidationPolling {
+			t.Fatalf("a non-terminal report should keep polling, got %v", nm.State())
+		}
+		if cmd == nil {
+			t.Fatal("a completed non-terminal report should schedule the next poll")
+		}
+		if nm.pollInFlight {
+			t.Error("a completed report should clear the in-flight guard")
+		}
+
+		// Guard cleared: a tick now fires exactly one next report and re-arms it.
+		next2, cmd2 := nm.Update(pollTickMsg{})
+		if cmd2 == nil {
+			t.Error("a tick after the prior report completed should fire the next report")
+		}
+		if !next2.(Model).pollInFlight {
+			t.Error("firing the next report should re-arm the in-flight guard")
+		}
+	})
+}
+
+// TestModel_ValidationPolling_PersistsRawOnTransientError (H3) proves an
+// errored poll that still returned raw output persists it too — the spec saves
+// EVERY raw report relevant to the run, not only the successful polls. (A
+// non-parseable non-zero-exit report still carries Raw, per the salesforce fix.)
+func TestModel_ValidationPolling_PersistsRawOnTransientError(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	m := pollingModel(t, dir, clk)
+	m.pollInFlight = true
+
+	_, _ = m.Update(reportDoneMsg{
+		report: salesforce.DeployReport{Raw: `{"status":1,"message":"No job found"}`},
+		err:    errStub,
+	})
+
+	runDir := filepath.Join(dir, ".deploydeck", "runs", "PROJ-1-to-UAT-poll")
+	if _, err := os.Stat(filepath.Join(runDir, "report-001.json")); err != nil {
+		t.Errorf("a transient error's raw output should still be persisted: %v", err)
 	}
 }
 

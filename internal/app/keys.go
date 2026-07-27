@@ -323,13 +323,19 @@ func (m Model) keyValidationStart(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // keyValidationPolling handles the live-progress screen. `r` refreshes
-// manually (an immediate extra poll); `q` exits WITHOUT issuing any
-// cancel/abort — the Salesforce job stays active and the persisted run stays
-// resumable (validation-progress spec: "user exit leaves the job active and
-// resumable").
+// manually (an immediate extra poll) — but ONLY when no report is already in
+// flight, so a manual refresh can never stack a second concurrent poll on top
+// of the running loop. `q` exits WITHOUT issuing any cancel/abort — the
+// Salesforce job stays active and the persisted run stays resumable
+// (validation-progress spec: "user exit leaves the job active and resumable").
 func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "r":
+		if m.pollInFlight {
+			// A poll is already outstanding — don't stack a second report.
+			return m, nil
+		}
+		m.pollInFlight = true
 		return m, m.reportCmd()
 	case "q":
 		return m, tea.Quit
