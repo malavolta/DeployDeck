@@ -82,6 +82,14 @@ const (
 	// `sf project deploy report`, bounded by a hard deadline, retrying
 	// transient errors and persisting every raw report.
 	StateValidationPolling
+	// StateCancelConfirm is HU-012's typed-confirmation cancel screen, reached
+	// ONLY from StateValidationPolling via the distinct `c` key (never `q`,
+	// whose exit-leaves-job-active invariant is unchanged). It gates the
+	// destructive `sf project deploy cancel` behind the user typing the exact
+	// literal CANCELAR; confirming fires cancelCmd for the CURRENT run's own
+	// job only. On success the run moves to StateCanceled and is persisted; on
+	// failure the user stays here with the error shown and the run unmarked.
+	StateCancelConfirm
 	// StateSucceeded is the terminal success screen ({Succeeded,
 	// SucceededPartial} both fold here).
 	StateSucceeded
@@ -185,6 +193,10 @@ type Model struct {
 	queue    []salesforce.DeployQueueEntry // parsed active DeployRequest queue
 	queueErr error                         // generic (non-permission) query failure, surfaced on QueueReview
 	identity string                        // own-job identity: Orgs()->FindByAlias(alias).Username
+
+	// CancelConfirm (HU-012)
+	cancelInput string // typed confirmation buffer; cancel fires only when == "CANCELAR"
+	cancelErr   error  // failed-cancel error, surfaced on StateCancelConfirm (run left unmarked)
 
 	// Validation (HU-010/011)
 	jobID        string

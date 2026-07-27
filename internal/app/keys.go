@@ -33,6 +33,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyValidationStart(msg)
 	case StateValidationPolling:
 		return m.keyValidationPolling(msg)
+	case StateCancelConfirm:
+		return m.keyCancelConfirm(msg)
 	case StateAborted, StateError, StateSucceeded, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, tea.Quit
@@ -359,6 +361,20 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.pollInFlight = true
 		return m, m.reportCmd()
+	case "c":
+		// Enter the HU-012 typed-confirmation cancel flow. This is a SEPARATE,
+		// explicit action from `q` (exit): `q` leaves the job active/resumable
+		// and cancels nothing; `c` opens the CANCELAR confirmation before any
+		// destructive `sf project deploy cancel` is issued (validation-progress
+		// spec: distinct cancel entry key; the `q` invariant is unchanged). The
+		// poll loop naturally quiesces while off ValidationPolling — onPollTick
+		// and onReportDone both no-op for any non-polling state — so a late
+		// report can't clobber the confirm/cancel path.
+		m.cancelInput = ""
+		m.cancelErr = nil
+		m.notice = ""
+		m.state = StateCancelConfirm
+		return m, nil
 	case "q":
 		// Exit WITHOUT cancelling the Salesforce job: only tear down the local
 		// read-only report subprocess via the session context.
@@ -366,4 +382,45 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// cancelConfirmWord is the exact, case-sensitive literal the user must type to
+// confirm a destructive cancel (design.md "Cancel gate": no normalization —
+// deliberate friction for a shared-queue action). Mockup docs/MOCKUPS_TUI.md
+// "Confirmacion De Cancelacion".
+const cancelConfirmWord = "CANCELAR"
+
+// keyCancelConfirm handles HU-012's typed-confirmation cancel screen, reusing
+// the keyTicket typed-input idiom to build m.cancelInput. `enter` fires the
+// cancel ONLY when the typed text exactly equals CANCELAR (case-sensitive);
+// any other text stays with a notice and never cancels. `backspace` edits the
+// buffer; `esc` backs out to ValidationPolling (clearing the buffer) and
+// re-arms the poll loop so live progress resumes.
+func (m Model) keyCancelConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.cancelInput != cancelConfirmWord {
+			m.notice = "escribe CANCELAR exactamente para confirmar la cancelacion"
+			return m, nil
+		}
+		m.notice = ""
+		return m, m.cancelCmd()
+	case "esc":
+		m.cancelInput = ""
+		m.notice = ""
+		m.state = StateValidationPolling
+		// Resume the (idempotent, guarded) poll loop; onPollTick fires the next
+		// report only when no poll is in flight and the deadline holds.
+		return m, pollTickCmd(m.pollIntervalSeconds())
+	case "backspace":
+		if n := len(m.cancelInput); n > 0 {
+			m.cancelInput = m.cancelInput[:n-1]
+		}
+		return m, nil
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.cancelInput += string(msg.Runes)
+		}
+		return m, nil
+	}
 }

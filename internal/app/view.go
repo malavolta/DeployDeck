@@ -46,6 +46,8 @@ func (m Model) View() string {
 		return m.viewValidationStart()
 	case StateValidationPolling:
 		return m.viewValidationPolling()
+	case StateCancelConfirm:
+		return m.viewCancelConfirm()
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
@@ -445,6 +447,33 @@ func (m Model) viewValidationPolling() string {
 		b.WriteString("\n  (error transitorio, reintentando: " + m.reportErr.Error() + ")\n")
 	}
 	b.WriteString(footer("r refrescar   q salir (deja el job activo)"))
+	return b.String()
+}
+
+// viewCancelConfirm renders HU-012's typed-confirmation cancel screen (mockup
+// docs/MOCKUPS_TUI.md "Confirmacion De Cancelacion"): it shows the current
+// run's OWN job id/org/status and echoes the CANCELAR prompt with what the user
+// has typed so far. Confirm only fires when the typed text exactly equals
+// CANCELAR (keyCancelConfirm). A cancel failure is surfaced here (non-terminal,
+// the run stays unmarked) so the user can retry or back out.
+func (m Model) viewCancelConfirm() string {
+	var b strings.Builder
+	b.WriteString(header("Cancelar Validacion"))
+	b.WriteString("\n  Vas a cancelar tu job:\n\n")
+	b.WriteString(fmt.Sprintf("  Job Id: %s\n", m.jobID))
+	b.WriteString(fmt.Sprintf("  Org:    %s\n", m.plan.SandboxAlias))
+	b.WriteString(fmt.Sprintf("  Estado: %s\n", m.report.Status))
+	b.WriteString("\n  Esta accion no afecta jobs de otros usuarios.\n")
+	b.WriteString("\n  Escribe CANCELAR para confirmar:\n")
+	b.WriteString("  " + m.cancelInput + "_\n")
+	if m.cancelErr != nil {
+		b.WriteString("\n  [XX] La cancelacion fallo (el run NO se marca como cancelado):\n")
+		b.WriteString("  " + m.cancelErr.Error() + "\n")
+	}
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("Enter confirmar   Esc volver"))
 	return b.String()
 }
 

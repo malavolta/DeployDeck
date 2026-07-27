@@ -133,6 +133,15 @@ type queueDoneMsg struct {
 	err      error
 }
 
+// cancelDoneMsg carries the HU-012 cancel outcome: the raw cancel response
+// (persisted verbatim as cancel.json on success) or an error. onCancelDone
+// marks the run Canceled + persists on success, or surfaces the error WITHOUT
+// marking the run on failure (validation-cancel spec).
+type cancelDoneMsg struct {
+	result salesforce.CancelResult
+	err    error
+}
+
 // --- Command constructors (every one routes through a service) ---
 
 // runPrereqCmd runs the HU-001 checker. When no checker is injected (tests
@@ -481,6 +490,23 @@ func (m Model) queueCmd() tea.Cmd {
 
 		entries, err := sf.ListDeployQueue(ctx, alias)
 		return queueDoneMsg{entries: entries, identity: identity, err: err}
+	}
+}
+
+// cancelCmd runs HU-012's `sf project deploy cancel` through the Salesforce
+// shim for the CURRENT run's own job ONLY. It targets m.jobID — NEVER
+// m.cancelInput (which is just the typed CANCELAR confirmation literal) and
+// never another user's job — so a cancel can only ever hit the run's own
+// validation. The alias is the plan's configured SandboxAlias. Persistence
+// (MarkCanceled) and the terminal transition happen in onCancelDone.
+func (m Model) cancelCmd() tea.Cmd {
+	sf := m.deps.SF
+	jobID := m.jobID
+	alias := m.plan.SandboxAlias
+	ctx := m.ctx()
+	return func() tea.Msg {
+		result, err := sf.CancelDeploy(ctx, jobID, alias)
+		return cancelDoneMsg{result: result, err: err}
 	}
 }
 

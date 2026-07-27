@@ -54,6 +54,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onQueueDone(msg)
 	case validateDoneMsg:
 		return m.onValidateDone(msg)
+	case cancelDoneMsg:
+		return m.onCancelDone(msg)
 	case reportDoneMsg:
 		return m.onReportDone(msg)
 	case pollTickMsg:
@@ -268,6 +270,39 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 	// loop never runs two reports concurrently.
 	m.pollInFlight = true
 	return m, m.reportCmd()
+}
+
+// onCancelDone lands the HU-012 cancel outcome. It is GUARDED to act only while
+// StateCancelConfirm (symmetric to onReportDone's polling guard): a late or
+// duplicate cancelDoneMsg arriving after we already left the confirm screen
+// (e.g. already terminal StateCanceled) is dropped, so it can never re-mark or
+// clobber the terminal state. On success it tears down any in-flight read-only
+// report subprocess (cancelPoll), persists the cancel via MarkCanceled
+// (cancel.json + run.json Status=Canceled — best-effort, mirroring the polling
+// persistence: a write hiccup must not undo an already-succeeded SF cancel), and
+// moves to the terminal StateCanceled. On failure it surfaces the error and
+// stays on StateCancelConfirm with the run NOT marked (validation-cancel spec:
+// "a failed cancel leaves the run untouched").
+func (m Model) onCancelDone(msg cancelDoneMsg) (tea.Model, tea.Cmd) {
+	if m.state != StateCancelConfirm {
+		// A late/duplicate cancel after we already left the confirm screen is
+		// ignored — it must never re-mark the run or clobber the terminal state.
+		return m, nil
+	}
+	if msg.err != nil {
+		m.cancelErr = msg.err
+		m.state = StateCancelConfirm
+		return m, nil
+	}
+	m.cancelErr = nil
+	// Leaving the polling session for the terminal cancel screen: cancel the
+	// session context so no read-only report subprocess lingers.
+	m.cancelPoll()
+	if m.deps.Runs != nil && m.runID != "" {
+		_ = m.deps.Runs.MarkCanceled(m.runID, []byte(msg.result.Raw))
+	}
+	m.state = StateCanceled
+	return m, nil
 }
 
 // onReportDone processes one HU-011 poll. The outstanding report has returned,
