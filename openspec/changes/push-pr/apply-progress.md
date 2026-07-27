@@ -180,3 +180,56 @@ None. All 37 tasks across Phases 1-8 are complete.
 
 37/37 tasks complete (Phases 1-8, all 8 phases). All 5 proposal Success Criteria checked off.
 Ready for verify.
+
+## Remediation: LOW-severity bug — resumed run pushed with empty PromotionBranch
+
+**Found by**: adversarial review, post-archive-ready.
+**Severity**: LOW (fails safely — `git push -u origin ""` errors on an invalid refspec,
+no accidental push/PR — but push is unusable for any run resumed via HU-013).
+
+### Root cause
+
+`resumeInto` (`internal/app/update.go`) rehydrated `Ticket`/`Target`/`Alias`/
+`SelectedCommits` from the persisted `runs.Record` on both resume branches (cherry-pick-
+conflict resume and jobId re-attach resume), but never set `m.plan.PromotionBranch`. That
+field was set ONLY in `onBranchCreated` via `git.RegisterPromotionBranch`, which a resumed
+run never revisits. A run resumed via history that later reached `StateSucceeded` and
+entered push (`p`) therefore called `git.Push(ctx, dir, "")`.
+
+### Fix
+
+`resumeInto` now reconstructs `PromotionBranch` on BOTH resume branches via
+`git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)` — the exact same
+reconstruction `viewRunHistory` already uses to display the branch for a selected run
+(`internal/app/view.go:672`). This is a minimal, additive fix requiring no schema change
+to `runs.Record` and no new dependency; `Deps.Config` is already available on `Model` at
+`resumeInto` call time.
+
+### TDD Cycle Evidence (this remediation)
+
+| Task | RED (test written first, confirmed failing) | GREEN (implementation, confirmed passing) | REFACTOR |
+|---|---|---|---|
+| Fix resumed-run push branch | `TestResumeInto_RehydratesPromotionBranchForPush` (`internal/app/resume_test.go`) — 2 subtests: conflict-phase resume and jobId-reattach resume, the latter carried through to a simulated `StateSucceeded` → `p` → confirmed push, asserting `git.Push` receives the reconstructed branch, not `""`. Confirmed RED: `plan.PromotionBranch = "", want "deploy/PROJ-1-to-UAT"` on both subtests. | `internal/app/update.go` `resumeInto`: added `m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)` in both `case` branches. `go test -run TestResumeInto_RehydratesPromotionBranchForPush -v` → PASS (both subtests). | None needed — mirrors `viewRunHistory`'s existing reconstruction exactly. |
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test ./internal/app/ -run 'Resume\|PushPreparation\|Boundary' -v` → PASS, all subtests including `TestModel_PushPreparation_NoPRWithoutExplicitConfirm` (no-PR-without-confirmation invariant), `TestModel_PushPreparation_ConfirmRunsPush`/`PushFailureContinues` (push-only-from-success + push-failure UX), `TestApp_BoundaryStillHolds_WithGHWired` (boundary), and all pre-existing `TestResume*`/`TestOnResumeDetect*` tests |
+| Runtime harness command/scenario and exact result | `TestResumeInto_RehydratesPromotionBranchForPush`'s second subtest is itself the runtime-shaped harness: real `Model.Update` state transitions (resume → `StateSucceeded` → `p` → `StatePushPreparation` → `p` confirm → `pushCmd()`) driven against `git.New(execpkg.FakeRunner)` canned for the EXACT reconstructed branch (`git push -u origin deploy/PROJ-1-to-UAT`) — proves the fix end-to-end through the real push command path, not just the field assignment |
+| Rollback boundary | `git checkout -- internal/app/update.go`; `git diff internal/app/resume_test.go` shows one isolated added test function (`TestResumeInto_RehydratesPromotionBranchForPush`) appended before the "Required integration deliverables" section — revert by removing that function only |
+
+### Final Verification (remediation)
+
+```
+export PATH="/usr/local/go/bin:$PATH" && go build ./... && go vet ./... && gofmt -l . && go test -race ./...
+```
+
+Result: all packages `ok` under `-race` (cmd/deploydeck, internal/app, internal/config,
+internal/delta, internal/exec, internal/git, internal/github, internal/prereq, internal/runs,
+internal/salesforce). `gofmt -l .` produced no output (clean). No `go vet` findings.
+
+### Commit
+
+- `fix(app): rehydrate promotion branch on resume so resumed runs can push`
+  (`internal/app/update.go` + `internal/app/resume_test.go`)

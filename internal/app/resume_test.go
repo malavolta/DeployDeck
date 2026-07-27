@@ -285,6 +285,81 @@ func TestResumeInto_RoutesConflictAndPolling(t *testing.T) {
 	})
 }
 
+// TestResumeInto_RehydratesPromotionBranchForPush is the RED test for a
+// resume/push interaction bug: resumeInto rehydrates Ticket/Target/Alias/
+// SelectedCommits but historically left plan.PromotionBranch empty — it was
+// set ONLY in onBranchCreated, which a resume never revisits. A run resumed
+// via history (either resume branch) that later reaches StateSucceeded and
+// enters push would then run `git push -u origin ""` (an invalid refspec).
+// resumeInto must reconstruct PromotionBranch on BOTH resume branches,
+// mirroring viewRunHistory's git.RenderBranchName(cfg.BranchFormat, ...) call,
+// so a resumed run that succeeds can push a non-empty, correct branch.
+func TestResumeInto_RehydratesPromotionBranchForPush(t *testing.T) {
+	wantBranch := "deploy/PROJ-1-to-UAT" // config.DefaultBranchFormat rendered
+
+	t.Run("conflict-phase resume rehydrates PromotionBranch", func(t *testing.T) {
+		m := New(Deps{Dir: t.TempDir(), Config: validationConfig()})
+		m.repoState = git.RepoState{InProgress: true, CurrentSHA: "sha-B", SequencerRemaining: 2}
+		rec := runs.Record{
+			RunID: "run-1", Ticket: "PROJ-1", Target: "UAT", Alias: "UAT_SBX",
+			Commits: []string{"sha-A", "sha-B", "sha-C"}, PickTotal: 3, Phase: "git-conflict",
+		}
+		next, _ := m.resumeInto(rec)
+		nm := next.(Model)
+		if nm.plan.PromotionBranch != wantBranch {
+			t.Fatalf("plan.PromotionBranch = %q, want %q (resumeInto must reconstruct it like viewRunHistory does)", nm.plan.PromotionBranch, wantBranch)
+		}
+	})
+
+	t.Run("jobId re-attach resume rehydrates PromotionBranch, and a later push uses it", func(t *testing.T) {
+		clk := &fakeClock{t: time.Unix(1000, 0)}
+		m := New(Deps{Dir: t.TempDir(), Config: validationConfig(), SF: reportSF(t, "JOB1", "UAT_SBX", "InProgress"), Now: clk.now})
+		m.repoState = git.RepoState{Clean: true}
+		rec := runs.Record{RunID: "run-2", Ticket: "PROJ-1", Target: "UAT", Alias: "UAT_SBX", JobID: "JOB1", Status: "InProgress", Phase: "validating"}
+
+		next, _ := m.resumeInto(rec)
+		nm := next.(Model)
+		if nm.plan.PromotionBranch != wantBranch {
+			t.Fatalf("plan.PromotionBranch = %q, want %q (resumeInto must reconstruct it like viewRunHistory does)", nm.plan.PromotionBranch, wantBranch)
+		}
+
+		// Simulate the resumed run reaching StateSucceeded (as onReportDone/
+		// onValidateDone would after a successful deploy) and entering push
+		// preparation.
+		nm.state = StateSucceeded
+		next2, _ := nm.Update(keyPress("p"))
+		nm2 := next2.(Model)
+		if nm2.State() != StatePushPreparation {
+			t.Fatalf("p on Succeeded should enter StatePushPreparation, got %v", nm2.State())
+		}
+
+		// Wire a Git service canned for the EXACT reconstructed branch — proves
+		// pushCmd/git.Push receives the correct, non-empty refspec, not "".
+		fr := execpkg.NewFakeRunner()
+		fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
+		fr.When("git", []string{"push", "-u", "origin", wantBranch}, execpkg.CommandResult{ExitCode: 0})
+		nm2.deps.Git = git.New(fr)
+		nm2.deps.Dir = "/repo"
+
+		next3, cmd := nm2.Update(keyPress("p"))
+		nm3 := next3.(Model)
+		if nm3.pushPhase != pushPushing {
+			t.Fatalf("confirming push should move to pushPushing, got %v", nm3.pushPhase)
+		}
+		if cmd == nil {
+			t.Fatal("confirming push should return the push command")
+		}
+		pushMsg := cmd()
+		pd, ok := pushMsg.(pushDoneMsg)
+		if !ok || pd.err != nil {
+			t.Fatalf("push should succeed against the reconstructed branch, got %#v", pushMsg)
+		}
+		if !calledWith(fr, "git", "push", "-u", "origin", wantBranch) {
+			t.Fatalf("git.Push should run against the reconstructed branch %q; calls: %v", wantBranch, fr.Calls)
+		}
+	})
+}
+
 // --- Required integration deliverables --------------------------------------
 
 // TestResume_RealInProgressCherryPick_RoutesToConflict is the story's headline

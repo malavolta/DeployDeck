@@ -180,6 +180,13 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 		m.plan.Ticket = rec.Ticket
 		m.plan.TargetBranch = rec.Target
 		m.plan.SandboxAlias = rec.Alias
+		// Reconstruct PromotionBranch the same way viewRunHistory displays it
+		// (git.RenderBranchName over the config's BranchFormat). onBranchCreated
+		// is the ONLY other writer of this field and is never revisited on
+		// resume, so without this a resumed run that later reaches
+		// StateSucceeded and pushes would run `git push -u origin ""` — an
+		// invalid refspec (bug: HU-014 push after an HU-013 resume).
+		m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)
 		// Rehydrate the selected set from the persisted SHAs so the resumed run
 		// keeps its "pick N of M" (onPickDone recomputes from len) and still runs
 		// post-pick verification over the selection (verifyCmd short-circuits to a
@@ -196,6 +203,9 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 		m.plan.Ticket = rec.Ticket
 		m.plan.TargetBranch = rec.Target
 		m.plan.SandboxAlias = rec.Alias
+		// Same reconstruction as the conflict-resume branch above — needed here
+		// too so a jobId-reattached run that reaches StateSucceeded can push.
+		m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)
 		m.validateErr = nil
 		m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 		m.state = StateValidationPolling
