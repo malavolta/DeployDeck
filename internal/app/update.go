@@ -63,6 +63,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onReportDone(msg)
 	case pollTickMsg:
 		return m.onPollTick()
+	case pushDoneMsg:
+		return m.onPushDone(msg)
+	case prepDoneMsg:
+		return m.onPrepDone(msg)
+	case prCreatedMsg:
+		return m.onPrCreated(msg)
 	}
 	return m, nil
 }
@@ -620,6 +626,58 @@ func (m Model) scheduleNextPoll() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, pollTickCmd(m.pollIntervalSeconds())
+}
+
+// onPushDone lands the HU-014 push outcome. A push failure keeps the user on
+// the push-confirm screen with the error shown (pushErr) — the flow never
+// crashes into a terminal error state (push-failure UX: retry/quit). A
+// successful push fires preparePRCmd (RemoteURL + gh AuthStatus); the phase
+// stays pushPushing until that prep lands in onPrepDone.
+func (m Model) onPushDone(msg pushDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.pushErr = msg.err
+		m.pushPhase = pushConfirm
+		return m, nil
+	}
+	m.pushErr = nil
+	return m, m.preparePRCmd()
+}
+
+// onPrepDone lands the HU-014 PR-preparation data (gh detection + compare URL)
+// and settles the screen on pushReady, where the view shows base/compare/title
+// and branches on authState (authed → offer PR; absent/unauthenticated → show
+// the compare URL, or the raw origin + manual data when it could not be
+// derived).
+func (m Model) onPrepDone(msg prepDoneMsg) (tea.Model, tea.Cmd) {
+	m.authState = msg.auth
+	m.originURL = msg.originURL
+	m.compareURL = msg.compareURL
+	m.compareErr = msg.compareErr
+	m.remoteErr = msg.remoteErr
+	m.pushPhase = pushReady
+	return m, nil
+}
+
+// onPrCreated lands the HU-014 `gh pr create` outcome. A failure surfaces the
+// error (prErr) beside the manual base/compare/title data and the flow
+// continues on pushReady (spec: "PR creation failure does not abort the
+// flow"). On success it records the URL on the run via MarkPRCreated
+// (best-effort, mirroring every other Runs call site — a write hiccup must not
+// sink the just-created PR) and shows the URL.
+func (m Model) onPrCreated(msg prCreatedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.prErr = msg.err
+		m.prURL = ""
+		m.pushPhase = pushReady
+		return m, nil
+	}
+	m.prErr = nil
+	m.prURL = msg.url
+	m.pushPhase = pushReady
+	if m.deps.Runs != nil && m.runID != "" {
+		_ = m.deps.Runs.MarkPRCreated(m.runID, msg.url)
+	}
+	return m, nil
 }
 
 // onPollTick fires the NEXT report ONLY while ValidationPolling, no report is

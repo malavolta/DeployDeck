@@ -7,6 +7,7 @@ import (
 
 	"deploydeck/internal/config"
 	"deploydeck/internal/git"
+	"deploydeck/internal/github"
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
@@ -53,6 +54,8 @@ func (m Model) View() string {
 		return m.viewCancelConfirm()
 	case StateRunHistory:
 		return m.viewRunHistory()
+	case StatePushPreparation:
+		return m.viewPushPreparation()
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
@@ -500,7 +503,109 @@ func (m Model) viewValidationResult() string {
 	if m.timedOut {
 		b.WriteString("\n  [XX] Timeout: la validacion no alcanzo un estado terminal a tiempo (timed out).\n")
 	}
-	b.WriteString(footer("Enter/q salir"))
+	// Only a successful validation offers push (HU-014 AC1/AC2): Failed and
+	// Canceled stay quit-only.
+	if m.state == StateSucceeded {
+		b.WriteString(footer("p preparar push   Enter/q salir"))
+	} else {
+		b.WriteString(footer("Enter/q salir"))
+	}
+	return b.String()
+}
+
+// viewPushPreparation renders HU-014's push + PR-preparation screen (mockup
+// docs/MOCKUPS_TUI.md "Push Y PR"): the local/target branches and job id, the
+// push command, and — once the push completes — the PR data and gh branch. It
+// renders by pushPhase so the two side-effect confirmations (push, PR) are
+// always shown before they run.
+func (m Model) viewPushPreparation() string {
+	var b strings.Builder
+	b.WriteString(header("Push Y PR"))
+	b.WriteString("\n  Validacion exitosa\n\n")
+	b.WriteString(fmt.Sprintf("  Branch local:  %s\n", m.plan.PromotionBranch))
+	b.WriteString(fmt.Sprintf("  Target branch: %s\n", m.plan.TargetBranch))
+	if m.jobID != "" {
+		b.WriteString(fmt.Sprintf("  Job Id:        %s\n", m.jobID))
+	}
+	b.WriteString("\n  Comando:\n")
+	b.WriteString("  git push -u origin " + m.plan.PromotionBranch + "\n")
+
+	switch m.pushPhase {
+	case pushConfirm:
+		if m.pushErr != nil {
+			b.WriteString("\n  [XX] El push fallo (el flujo sigue vivo):\n")
+			b.WriteString("  " + m.pushErr.Error() + "\n")
+		}
+		b.WriteString(footer("p ejecutar push   q salir"))
+	case pushPushing:
+		b.WriteString("\n  Ejecutando push...\n")
+		b.WriteString(footer("q salir"))
+	case pushReady, pushPRConfirm, pushPRCreating:
+		b.WriteString(m.viewPRData())
+	default:
+		b.WriteString(footer("q salir"))
+	}
+	return b.String()
+}
+
+// viewPRData renders the post-push PR block: the suggested base/compare/title
+// (always shown after a successful push, HU-014 AC4) and the gh branch —
+// authed offers `gh pr create` behind an explicit confirm; absent/
+// unauthenticated shows the compare URL derived from origin (or the raw origin
+// + manual data when the origin form is unrecognized).
+func (m Model) viewPRData() string {
+	var b strings.Builder
+	title := github.SuggestedTitle(m.plan.Ticket, m.plan.TargetBranch)
+
+	b.WriteString("\n  PR sugerido:\n")
+	b.WriteString("  base:    " + m.plan.TargetBranch + "\n")
+	b.WriteString("  compare: " + m.plan.PromotionBranch + "\n")
+	b.WriteString("  title:   " + title + "\n")
+
+	ghCmd := fmt.Sprintf("gh pr create --base %s --head %s --title %q", m.plan.TargetBranch, m.plan.PromotionBranch, title)
+
+	if m.authState == github.AuthAuthenticated {
+		b.WriteString("\n  gh detectado y autenticado. Comando de PR:\n")
+		b.WriteString("  " + ghCmd + "\n")
+		switch {
+		case m.prURL != "":
+			b.WriteString("\n  [OK] PR creado:\n")
+			b.WriteString("  " + m.prURL + "\n")
+			b.WriteString(footer("q salir"))
+		case m.pushPhase == pushPRConfirm:
+			b.WriteString("\n  Confirmar creacion del PR con gh?\n")
+			b.WriteString(footer("y confirmar crear PR   n cancelar   q salir"))
+		case m.pushPhase == pushPRCreating:
+			b.WriteString("\n  Creando PR...\n")
+			b.WriteString(footer("q salir"))
+		default: // pushReady
+			if m.prErr != nil {
+				b.WriteString("\n  [XX] La creacion del PR fallo (crea el PR manualmente con los datos de arriba):\n")
+				b.WriteString("  " + m.prErr.Error() + "\n")
+			}
+			b.WriteString(footer("g crear PR con gh   q salir"))
+		}
+		return b.String()
+	}
+
+	// Compare-URL fallback: gh absent or present-unauthenticated.
+	if m.authState == github.AuthUnauthenticated {
+		b.WriteString("\n  gh detectado pero sin autenticar. Abre el PR en el navegador:\n")
+	} else {
+		b.WriteString("\n  gh no disponible. Abre el PR en el navegador:\n")
+	}
+	if m.compareURL != "" {
+		b.WriteString("  " + m.compareURL + "\n")
+	} else {
+		if m.originURL != "" {
+			b.WriteString("  origin: " + m.originURL + "\n")
+		}
+		if m.remoteErr != nil {
+			b.WriteString("  (no se pudo leer origin: " + m.remoteErr.Error() + ")\n")
+		}
+		b.WriteString("  Crea el PR manualmente con base/compare/title de arriba.\n")
+	}
+	b.WriteString(footer("q salir"))
 	return b.String()
 }
 

@@ -22,6 +22,7 @@ import (
 	"deploydeck/internal/config"
 	"deploydeck/internal/delta"
 	"deploydeck/internal/git"
+	"deploydeck/internal/github"
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
@@ -107,6 +108,39 @@ const (
 	// declines to the normal ticket-input flow. There is deliberately NO
 	// literal StateSuspended — resume routes straight into the live states.
 	StateRunHistory
+	// StatePushPreparation is HU-014's post-success push + PR-preparation
+	// screen (mockup docs/MOCKUPS_TUI.md "Push Y PR"). It is reachable ONLY
+	// from StateSucceeded (which folds Succeeded+SucceededPartial) via the
+	// distinct `p` key — never from Failed/Canceled/Aborted/Error, so push is
+	// offered only after a successful validation. Its own sub-flow (pushPhase)
+	// gates git push and gh PR creation behind explicit confirmations; it
+	// composes the injected git.Service + github.Client and, like every other
+	// screen, never execs directly (boundary_test.go holds).
+	StatePushPreparation
+)
+
+// pushPhase is StatePushPreparation's sub-state machine (HU-014). It gates the
+// two external side effects — `git push -u` and `gh pr create` — behind
+// explicit confirmations so neither ever runs implicitly.
+type pushPhase int
+
+const (
+	// pushConfirm shows the push command and waits for the explicit `p`
+	// confirm before running git.Push (spec: "show the push command before
+	// running it").
+	pushConfirm pushPhase = iota
+	// pushPushing is the in-flight window between the confirmed push and its
+	// result (and the subsequent RemoteURL+AuthStatus prep).
+	pushPushing
+	// pushReady is the post-push screen: base/compare/suggested-title plus the
+	// gh branch (authed → offer PR; absent/unauthenticated → compare URL).
+	pushReady
+	// pushPRConfirm is the authed-only explicit-confirm gate revealed by `g`;
+	// only an explicit confirm key here fires gh pr create (spec invariant:
+	// "no PR is created without explicit confirmation").
+	pushPRConfirm
+	// pushPRCreating is the in-flight window while gh pr create runs.
+	pushPRCreating
 )
 
 // Deps carries the services and configuration the TUI composes. main() wires
@@ -119,6 +153,12 @@ type Deps struct {
 	// sandbox-auth warning and HU-010/011 validate + report calls. May be nil
 	// (the warning is then skipped; delta/validation deps are wired by main).
 	SF salesforce.Client
+	// GH is the gh CLI client backing HU-014's StatePushPreparation: gh
+	// auth-status detection and `gh pr create`. main() wires
+	// github.New(runner); a nil GH degrades the push-preparation screen to the
+	// compare-URL fallback (no PR offered), and — like every other dep —
+	// internal/app reaches gh ONLY through this interface, never execing.
+	GH github.Client
 	// Delta generates HU-007 delta packages via `sf sgd source delta`. main()
 	// wires delta.New(runner); nil disables delta generation.
 	Delta *delta.Service
@@ -198,6 +238,25 @@ type Model struct {
 	runs       []runs.Record
 	runsCursor int
 	runDetail  bool
+
+	// PushPreparation (HU-014): the sub-flow driving push + PR preparation
+	// from the success screen. pushPhase is the sub-state machine; pushErr
+	// holds a failed push's error (surfaced on pushConfirm, flow survives).
+	// authState is the gh detection result; originURL is `origin`'s raw URL
+	// (from git.RemoteURL); compareURL is the derived compare link (empty when
+	// authed or when the origin form is unrecognized); compareErr/remoteErr
+	// record the graceful-degradation causes. prURL is the created PR's URL
+	// (also recorded on the run via MarkPRCreated); prErr is a failed
+	// `gh pr create`'s error, shown with the manual base/compare/title data.
+	pushPhase  pushPhase
+	pushErr    error
+	authState  github.AuthState
+	originURL  string
+	compareURL string
+	compareErr error
+	remoteErr  error
+	prURL      string
+	prErr      error
 
 	// PickVerification
 	verification git.PickVerification

@@ -54,17 +54,17 @@ Chain strategy: size-exception
 - [x] 4.2 GREEN: `checker.go` add `Checker.GH` (nil-guarded); `checker_gh.go` `CheckGH`; wire into `checker_check.go` `Check()`
 
 ## Phase 5: `internal/app` StatePushPreparation
-- [ ] 5.1 [T] RED `keys_test.go`: `keySucceeded` — `p`→`StatePushPreparation`; `q`/`enter`/`esc` quit; Failed/Canceled/Aborted/Error stay quit-only (AC1/AC2)
-- [ ] 5.2 GREEN: `keys.go` splits `StateSucceeded` out of the shared quit-only case; `app.go` adds `StatePushPreparation`, `Deps.GH`, push-flow fields
-- [ ] 5.3 [T] RED `commands_test.go`/`update_test.go`: confirm→`pushCmd`→`git.Push(dir,branch)`; push success→`preparePRCmd` (`RemoteURL`+`AuthStatus`)→base/compare/`SuggestedTitle` shown (AC3/AC4)
-- [ ] 5.4 GREEN: `commands.go` `pushCmd`,`preparePRCmd`; `update.go` `onPushDone`,`onPrepDone`; `view.go` `viewPushPreparation` + success footer offers `p`
-- [ ] 5.5 [T] RED: gh AUTHED offers PR data but `createPRCmd` fires ONLY after a second explicit confirm key — invariant test: no `gh pr create` without explicit confirmation (AC5, spec invariant)
-- [ ] 5.6 GREEN: `keys.go` `keyPushPreparation` confirm gate; `commands.go` `createPRCmd`
-- [ ] 5.7 [T] RED: PR success→`Runs.MarkPRCreated` called + URL shown; PR failure→error+manual base/compare/title, flow continues (AC5/AC7)
-- [ ] 5.8 GREEN: `update.go` `onPrCreated` success/failure branches
-- [ ] 5.9 [T] RED: gh ABSENT/UNAUTHED→shows `CompareURL` from `RemoteURL`, no PR offered, no gh call attempted (AC6)
-- [ ] 5.10 GREEN: wire ABSENT/UNAUTHED branch in `onPrepDone`
-- [ ] 5.11 Re-run `boundary_test.go` (`TestApp_NeverImportsExecSeam`) — confirm still green with `Deps.GH` wired
+- [x] 5.1 [T] RED `keys_test.go`: `keySucceeded` — `p`→`StatePushPreparation`; `q`/`enter`/`esc` quit; Failed/Canceled/Aborted/Error stay quit-only (AC1/AC2)
+- [x] 5.2 GREEN: `keys.go` splits `StateSucceeded` out of the shared quit-only case; `app.go` adds `StatePushPreparation`, `Deps.GH`, push-flow fields
+- [x] 5.3 [T] RED `commands_test.go`/`update_test.go`: confirm→`pushCmd`→`git.Push(dir,branch)`; push success→`preparePRCmd` (`RemoteURL`+`AuthStatus`)→base/compare/`SuggestedTitle` shown (AC3/AC4)
+- [x] 5.4 GREEN: `commands.go` `pushCmd`,`preparePRCmd`; `update.go` `onPushDone`,`onPrepDone`; `view.go` `viewPushPreparation` + success footer offers `p`
+- [x] 5.5 [T] RED: gh AUTHED offers PR data but `createPRCmd` fires ONLY after a second explicit confirm key — invariant test: no `gh pr create` without explicit confirmation (AC5, spec invariant)
+- [x] 5.6 GREEN: `keys.go` `keyPushPreparation` confirm gate; `commands.go` `createPRCmd`
+- [x] 5.7 [T] RED: PR success→`Runs.MarkPRCreated` called + URL shown; PR failure→error+manual base/compare/title, flow continues (AC5/AC7)
+- [x] 5.8 GREEN: `update.go` `onPrCreated` success/failure branches
+- [x] 5.9 [T] RED: gh ABSENT/UNAUTHED→shows `CompareURL` from `RemoteURL`, no PR offered, no gh call attempted (AC6)
+- [x] 5.10 GREEN: wire ABSENT/UNAUTHED branch in `onPrepDone`
+- [x] 5.11 Re-run `boundary_test.go` (`TestApp_NeverImportsExecSeam`) — confirm still green with `Deps.GH` wired
 
 ## Phase 6: Wiring
 - [ ] 6.1 GREEN `cmd/deploydeck/main.go`: construct `github.New(runner)`, wire `Deps.GH` + `Checker.GH` (mechanical DI, no RED)

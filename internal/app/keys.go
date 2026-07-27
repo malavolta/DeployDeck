@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"deploydeck/internal/git"
+	"deploydeck/internal/github"
 )
 
 // handleKey routes a key press to the current-state handler.
@@ -37,8 +38,88 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyCancelConfirm(msg)
 	case StateRunHistory:
 		return m.keyRunHistory(msg)
-	case StateAborted, StateError, StateSucceeded, StateFailed, StateCanceled:
+	case StateSucceeded:
+		return m.keySucceeded(msg)
+	case StatePushPreparation:
+		return m.keyPushPreparation(msg)
+	case StateAborted, StateError, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+// keySucceeded handles the terminal SUCCESS screen (HU-014). Unlike the other
+// terminal states (Failed/Canceled/Aborted/Error), which stay quit-only,
+// success offers a distinct `p` key that enters StatePushPreparation to push
+// the validated deploy branch and prepare PR data (spec: "push offered only
+// after a successful validation"). q/enter/esc still quit.
+func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "p":
+		m.pushErr = nil
+		m.prErr = nil
+		m.prURL = ""
+		m.pushPhase = pushConfirm
+		m.state = StatePushPreparation
+		return m, nil
+	case "q", "enter", "esc":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// keyPushPreparation handles HU-014's push + PR-preparation sub-flow (mockup
+// docs/MOCKUPS_TUI.md "Push Y PR"), routing by pushPhase. The two external
+// side effects are each gated behind an explicit confirmation: `p` on
+// pushConfirm runs `git push -u origin <branch>` (spec: "show the push command
+// before running it"); on the authed screen `g` reveals the PR confirm gate
+// and only an explicit `y` there fires `gh pr create` (spec invariant: "no PR
+// is created without explicit confirmation"). The compare-fallback path
+// (gh absent/unauthenticated) never offers PR creation. `q` always quits.
+func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.pushPhase {
+	case pushConfirm:
+		switch msg.String() {
+		case "p":
+			m.pushErr = nil
+			m.pushPhase = pushPushing
+			return m, m.pushCmd()
+		case "q", "esc":
+			return m, tea.Quit
+		}
+	case pushReady:
+		switch msg.String() {
+		case "g":
+			// Reveal the explicit PR confirm gate — ONLY when gh is
+			// authenticated and no PR was already created. On the
+			// compare-fallback path (absent/unauthenticated) `g` is inert, so
+			// gh pr create is unreachable there.
+			if m.prURL == "" && m.authState == github.AuthAuthenticated {
+				m.prErr = nil
+				m.pushPhase = pushPRConfirm
+			}
+			return m, nil
+		case "q", "esc":
+			return m, tea.Quit
+		}
+	case pushPRConfirm:
+		switch msg.String() {
+		case "y":
+			// The single, explicit confirmation that fires gh pr create.
+			m.pushPhase = pushPRCreating
+			return m, m.createPRCmd()
+		case "n", "esc":
+			m.pushPhase = pushReady
+			return m, nil
+		case "q":
+			return m, tea.Quit
+		}
+	case pushPushing, pushPRCreating:
+		// A side effect is in flight: ignore everything but quit so a second
+		// push / PR can never be triggered while one is outstanding.
+		if msg.String() == "q" {
 			return m, tea.Quit
 		}
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -10,6 +11,7 @@ import (
 
 	"deploydeck/internal/delta"
 	"deploydeck/internal/git"
+	"deploydeck/internal/github"
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
@@ -159,6 +161,36 @@ type resumeDetectMsg struct {
 type cancelDoneMsg struct {
 	result salesforce.CancelResult
 	err    error
+}
+
+// pushDoneMsg carries the HU-014 push outcome: nil on a successful
+// `git push -u origin <branch>`, or the error (which keeps the user on the
+// push-confirm screen, flow alive).
+type pushDoneMsg struct {
+	err error
+}
+
+// prepDoneMsg carries the HU-014 post-push PR-preparation outcome: the gh
+// detection result (auth) plus the `origin` URL and the compare URL derived
+// from it. remoteErr records a failed `git remote get-url`; compareErr records
+// an unrecognized origin form (both degrade gracefully to the raw origin +
+// manual data). The base/compare/suggested-title themselves are derived from
+// the plan in the view, so they need no fields here.
+type prepDoneMsg struct {
+	auth       github.AuthState
+	originURL  string
+	compareURL string
+	compareErr error
+	remoteErr  error
+}
+
+// prCreatedMsg carries the HU-014 `gh pr create` outcome: the created PR's URL
+// (recorded on the run via MarkPRCreated) and Raw on success, or an error that
+// surfaces alongside the manual base/compare/title data (flow continues).
+type prCreatedMsg struct {
+	url string
+	raw string
+	err error
 }
 
 // --- Command constructors (every one routes through a service) ---
@@ -612,4 +644,76 @@ func (m Model) reportCmd() tea.Cmd {
 // interval (a different, slower cadence than the cherry-pick tickCmd).
 func pollTickCmd(seconds int) tea.Cmd {
 	return tea.Tick(time.Duration(seconds)*time.Second, func(time.Time) tea.Msg { return pollTickMsg{} })
+}
+
+// pushCmd runs HU-014's `git push -u origin <PromotionBranch>` through the git
+// service (never an app-level exec). It is fired only after the explicit `p`
+// confirm on the push-preparation screen (spec: "show the push command before
+// running it").
+func (m Model) pushCmd() tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	branch := m.plan.PromotionBranch
+	ctx := m.ctx()
+	return func() tea.Msg {
+		return pushDoneMsg{err: g.Push(ctx, dir, branch)}
+	}
+}
+
+// preparePRCmd composes the HU-014 post-push PR-preparation data: ONE
+// `gh auth status` (through the github.Client — AuthAbsent when no client is
+// wired) plus `git remote get-url origin` (through the git service), from
+// which it derives the compare URL. A failed RemoteURL degrades to remoteErr;
+// an unrecognized origin form degrades to compareErr — both surface the raw
+// origin + manual data rather than a malformed link. internal/app never execs:
+// gh and git are reached only through the injected clients.
+func (m Model) preparePRCmd() tea.Cmd {
+	g := m.deps.Git
+	gh := m.deps.GH
+	dir := m.deps.Dir
+	base := m.plan.TargetBranch
+	head := m.plan.PromotionBranch
+	ctx := m.ctx()
+	return func() tea.Msg {
+		auth := github.AuthAbsent
+		if gh != nil {
+			auth = gh.AuthStatus(ctx)
+		}
+		msg := prepDoneMsg{auth: auth}
+
+		originURL, rerr := g.RemoteURL(ctx, dir, "origin")
+		if rerr != nil {
+			msg.remoteErr = rerr
+			return msg
+		}
+		msg.originURL = originURL
+
+		if compareURL, cerr := github.CompareURL(originURL, base, head); cerr != nil {
+			msg.compareErr = cerr
+		} else {
+			msg.compareURL = compareURL
+		}
+		return msg
+	}
+}
+
+// createPRCmd runs HU-014's `gh pr create` through the github.Client. It is
+// fired ONLY after the explicit `y` confirmation on the authed path
+// (keyPushPreparation's pushPRConfirm gate) — never implicitly, and never on
+// the compare-fallback path. Raw is preserved on both success and failure so a
+// failed creation can still show gh's output. A nil GH client returns an error
+// rather than panicking (the flow degrades to manual data).
+func (m Model) createPRCmd() tea.Cmd {
+	gh := m.deps.GH
+	base := m.plan.TargetBranch
+	head := m.plan.PromotionBranch
+	title := github.SuggestedTitle(m.plan.Ticket, m.plan.TargetBranch)
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if gh == nil {
+			return prCreatedMsg{err: errors.New("app: no gh client configured")}
+		}
+		url, raw, err := gh.CreatePR(ctx, base, head, title)
+		return prCreatedMsg{url: url, raw: raw, err: err}
+	}
 }
