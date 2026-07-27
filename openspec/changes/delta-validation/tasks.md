@@ -76,10 +76,10 @@ Chain strategy: size-exception
 
 ## Phase 6: HU-011 `salesforce.ReportDeploy` (validation-progress, CLI half)
 
-- [ ] 6.1 [U] RED `internal/salesforce/report_test.go`: composes `sf project deploy report --job-id <id> --target-org <alias> --json`; parses `ComponentFailures` (`fullName,componentType,problem`) + `TestFailures` (`name,methodName,message`)
-- [ ] 6.2 [U] GREEN: implement `ReportDeploy` in `report.go`, add to `Client`
-- [ ] 6.3 [U] RED: `IsTerminal` table — `{Succeeded,SucceededPartial,Failed,Canceled}`=true, else false
-- [ ] 6.4 [U] GREEN: implement `IsTerminal`
+- [x] 6.1 [U] RED `internal/salesforce/report_test.go`: composes `sf project deploy report --job-id <id> --target-org <alias> --json`; parses `ComponentFailures` (`fullName,componentType,problem`) + `TestFailures` (`name,methodName,message`)
+- [x] 6.2 [U] GREEN: implement `ReportDeploy` in `report.go`, add to `Client`
+- [x] 6.3 [U] RED: `IsTerminal` table — `{Succeeded,SucceededPartial,Failed,Canceled}`=true, else false
+- [x] 6.4 [U] GREEN: implement `IsTerminal`
 
 ## Phase 7: `internal/app` wiring (state machine, both HU-007..011 UI halves)
 

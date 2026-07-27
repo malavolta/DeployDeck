@@ -28,6 +28,11 @@ type Client interface {
 	// (HU-010): async CheckOnly validation of a delta package, returning
 	// the jobId to poll via ReportDeploy.
 	ValidateDeploy(ctx context.Context, req ValidateRequest) (ValidateResult, error)
+	// ReportDeploy runs `sf project deploy report --json` once (HU-011):
+	// a single poll of an async job's current status/progress/failures.
+	// Callers (internal/app's ValidationPolling state) drive the repeated
+	// polling themselves; this is never a blocking loop.
+	ReportDeploy(ctx context.Context, jobID, targetOrg, dir string) (DeployReport, error)
 }
 
 // VersionInfo is the parsed `sf --version` output.
