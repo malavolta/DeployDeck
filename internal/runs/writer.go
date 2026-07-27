@@ -63,6 +63,14 @@ type Record struct {
 	// written before PRUrl existed still Load()s cleanly with it
 	// zero-valued. NO SchemaVersion bump accompanies this growth either.
 	PRUrl string `json:"prUrl,omitempty"`
+
+	// SourceRunID is HU-016's additive growth field: the prior run's ID
+	// when this run is a re-promotion, set at NEW-run creation time (unlike
+	// PRUrl, which is only known post-hoc). `omitempty`, like every other
+	// growth field this package has added — a run.json written before
+	// SourceRunID existed still Load()s cleanly with it zero-valued. NO
+	// SchemaVersion bump accompanies this growth either.
+	SourceRunID string `json:"sourceRunId,omitempty"`
 }
 
 // Writer persists run records under baseDir/.deploydeck/runs/. baseDir is

@@ -192,10 +192,19 @@ func countSelected(items []git.CommitSelectionItem) int {
 	return n
 }
 
-// selectionWarnings assembles the per-file dependency warnings and
-// multi-ticket notices shown on the selection screen.
+// selectionWarnings assembles the re-promote missing-commit warning, the
+// per-file dependency warnings, and multi-ticket notices shown on the
+// selection screen. The re-promote warning is prepended so a prior-run
+// commit with no patch-id equivalent in the new range is never silently
+// omitted (re-promotion spec: "Missing Commit Warned Explicitly").
 func (m Model) selectionWarnings() []string {
 	var out []string
+	if len(m.rePromoteMissing) > 0 {
+		out = append(out, fmt.Sprintf(
+			"re-promote: %d commit(s) from the prior run have no equivalent in the new range: %s",
+			len(m.rePromoteMissing), strings.Join(m.rePromoteMissing, ", "),
+		))
+	}
 	for _, w := range m.depWarnings {
 		out = append(out, fmt.Sprintf("%s tiene 1 commit intermedio no seleccionado (%s)", w.File, w.UnselectedSHA))
 	}

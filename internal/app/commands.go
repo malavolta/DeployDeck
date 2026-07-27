@@ -72,6 +72,20 @@ type branchCreatedMsg struct {
 	err error
 }
 
+// rePromoteSeededMsg carries the HU-016 patch-id remap outcome computed by
+// rePromoteRemapCmd: Matched holds the prior run's commits mapped to their
+// new-range equivalents (re-promotion spec: "Patch-ID Remap Of Prior
+// Commits"), Unmatched preserves the original prior SHAs with no equivalent
+// in the new range (never dropped — "Missing Commit Warned Explicitly"). err
+// is set only for a hard remap failure (the range itself could not be
+// listed) — a per-SHA lookup failure never reaches here as an error, since
+// git.Service.RemapCommitsByPatchID itself degrades those to Unmatched.
+type rePromoteSeededMsg struct {
+	Matched   []git.DiscoveredCommit
+	Unmatched []string
+	err       error
+}
+
 // pickDoneMsg is the reconciled outcome of a cherry-pick engine action
 // (initial pick, --continue, or --skip).
 type pickDoneMsg struct {
@@ -246,6 +260,28 @@ func (m Model) discoverCmd() tea.Cmd {
 			return discoverDoneMsg{err: err}
 		}
 		return discoverDoneMsg{result: full, source: source}
+	}
+}
+
+// rePromoteRemapCmd runs the HU-016 patch-id remap through the git service:
+// mapping priorSHAs (the prior run's Commits) to their equivalents in
+// origin/<target>..origin/<source> — the SAME composed range ordinary
+// discovery resolves — via git.Service.RemapCommitsByPatchID (re-promotion
+// spec: "Re-Promotion Source Is The Prior Run's Environment Branch" +
+// "Patch-ID Remap Of Prior Commits"). A hard remap error (the range itself
+// could not be listed) surfaces on rePromoteSeededMsg.err and is handled by
+// onRePromoteSeeded exactly like every other command's failure path
+// (StateError).
+func (m Model) rePromoteRemapCmd(priorSHAs []string, target, source string) tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	ctx := m.ctx()
+	return func() tea.Msg {
+		result, err := g.RemapCommitsByPatchID(ctx, dir, priorSHAs, target, source)
+		if err != nil {
+			return rePromoteSeededMsg{err: err}
+		}
+		return rePromoteSeededMsg{Matched: result.Matched, Unmatched: result.Unmatched}
 	}
 }
 

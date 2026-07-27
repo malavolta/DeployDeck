@@ -71,6 +71,67 @@ func TestSuggestDefaultSource_TableDriven(t *testing.T) {
 	}
 }
 
+// TestNextEnvironmentBranch_TableDriven is task 2.1 (RED): forward mirror of
+// TestSuggestDefaultSource_TableDriven — given the prior environment,
+// NextEnvironmentBranch suggests the NEXT stage in the pipeline as the
+// plain configured branch name (never origin/-prefixed), or ok=false at the
+// last stage / outside the fixed pipeline order / an unconfigured branch
+// (commit-discovery spec: "Next environment is suggested as default
+// target" + "No next environment falls back to manual target choice").
+func TestNextEnvironmentBranch_TableDriven(t *testing.T) {
+	cfg := envConfig()
+
+	tests := []struct {
+		name          string
+		currentTarget string
+		wantBranch    string
+		wantOK        bool
+	}{
+		{
+			name:          "INT has UAT as its next environment",
+			currentTarget: "INT",
+			wantBranch:    "UAT",
+			wantOK:        true,
+		},
+		{
+			name:          "UAT has prod (main) as its next environment",
+			currentTarget: "UAT",
+			wantBranch:    "main",
+			wantOK:        true,
+		},
+		{
+			name:          "prod is the last pipeline stage, no next environment",
+			currentTarget: "main",
+			wantBranch:    "",
+			wantOK:        false,
+		},
+		{
+			name:          "a Release/* glob target falls outside the fixed pipeline order",
+			currentTarget: "Release/x",
+			wantBranch:    "",
+			wantOK:        false,
+		},
+		{
+			name:          "an unconfigured branch has no next environment",
+			currentTarget: "feature/PROJ-1",
+			wantBranch:    "",
+			wantOK:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := git.NextEnvironmentBranch(cfg, tt.currentTarget)
+			if ok != tt.wantOK {
+				t.Fatalf("NextEnvironmentBranch() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if got != tt.wantBranch {
+				t.Fatalf("NextEnvironmentBranch() = %q, want %q (must be the plain branch name, never origin/-prefixed)", got, tt.wantBranch)
+			}
+		})
+	}
+}
+
 // TestSuggestDefaultSource_OverrideStillEnforcesSingleSource proves the
 // RF-002 suggestion never bypasses single-source enforcement: the user can
 // override it with any other candidate, and SelectSingleSource still

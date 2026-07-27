@@ -53,6 +53,44 @@ func SuggestDefaultSource(candidates []Branch, cfg config.Config, target string)
 	return Branch{Name: previousBranch}, true
 }
 
+// NextEnvironmentBranch returns the NEXT environment in the fixed
+// environmentPipelineOrder after currentTarget's environment, as the
+// suggested default target for a re-promotion (HU-016): a forward mirror of
+// SuggestDefaultSource's backward lookup, reusing the same
+// environmentPipelineOrder/environmentKeyForBranch machinery. Unlike
+// SuggestDefaultSource, there is no candidate list to resolve against here
+// — the pipeline's next stage is a fixed, known branch name straight out of
+// cfg.Branches, so the return value is always the PLAIN configured branch
+// name (e.g. "UAT"), never origin/-prefixed. ok is false when
+// currentTarget does not match a configured environment branch (e.g. a
+// Release/* glob target or an unconfigured branch), or when currentTarget
+// is already the LAST pipeline stage (no next environment to suggest) — the
+// caller falls back to a manual target choice.
+func NextEnvironmentBranch(cfg config.Config, currentTarget string) (branch string, ok bool) {
+	currentEnv, ok := environmentKeyForBranch(cfg, currentTarget)
+	if !ok {
+		return "", false
+	}
+
+	idx := -1
+	for i, env := range environmentPipelineOrder {
+		if env == currentEnv {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 || idx+1 >= len(environmentPipelineOrder) {
+		return "", false
+	}
+
+	nextBranch := cfg.Branches[environmentPipelineOrder[idx+1]]
+	if nextBranch == "" {
+		return "", false
+	}
+
+	return nextBranch, true
+}
+
 // environmentKeyForBranch reverse-looks-up which configured environment
 // key (e.g. "uat") maps to branch (e.g. "UAT"), if any.
 func environmentKeyForBranch(cfg config.Config, branch string) (string, bool) {

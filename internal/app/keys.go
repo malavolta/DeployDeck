@@ -5,6 +5,7 @@ import (
 
 	"deploydeck/internal/git"
 	"deploydeck/internal/github"
+	"deploydeck/internal/runs"
 )
 
 // handleKey routes a key press to the current-state handler.
@@ -154,6 +155,13 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.notice = ""
+		// Reset any re-promote state left over from an abandoned r flow
+		// (HU-016 review remediation, Findings 2/3): this is the single
+		// choke point every non-re-promote run passes through, so a stale
+		// sourceRunID/rePromoteMissing must never bleed onto an unrelated
+		// normal run.
+		m.sourceRunID = ""
+		m.rePromoteMissing = nil
 		m.prelim = preliminaryTarget(m.deps.Config)
 		m.state = StateCommitDiscovery
 		return m, m.discoverCmd()
@@ -496,12 +504,37 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// resumeInto is a no-op for a terminal run, leaving the user on history.
 		return m.resumeInto(m.runs[m.runsCursor])
+	case "r":
+		// HU-016: re-promote the selected row's ticket into the next
+		// environment. Distinct from Enter's resume — never alters it (an
+		// out-of-range cursor or an ineligible row's status is a strict
+		// no-op, mirroring the Enter guard above).
+		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+			return m, nil
+		}
+		rec := m.runs[m.runsCursor]
+		if !isRePromoteEligible(rec) {
+			return m, nil
+		}
+		return m.startRePromoteInto(rec)
 	case "q", "esc":
 		// Decline the offer: proceed to the normal flow rather than resuming.
 		m.state = StateTicketInput
 		return m, nil
 	}
 	return m, nil
+}
+
+// isRePromoteEligible reports whether rec's prior run status allows starting
+// a re-promotion (re-promotion spec: "Re-Promote Eligibility Gate") — only a
+// terminal-success run (Succeeded or SucceededPartial) offers reuse; every
+// other status (Failed, Canceled, or any non-success terminal status) offers
+// no re-promotion. A terminal-success run with ZERO Commits has nothing to
+// remap (review remediation, Finding 4a), so it is treated as ineligible
+// too — pressing r on such a row is a strict no-op, exactly like an
+// ineligible-status row.
+func isRePromoteEligible(rec runs.Record) bool {
+	return (rec.Status == "Succeeded" || rec.Status == "SucceededPartial") && len(rec.Commits) > 0
 }
 
 // cancelConfirmWord is the exact, case-sensitive literal the user must type to

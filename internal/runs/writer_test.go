@@ -366,6 +366,59 @@ func TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroPRUrl(t *testing.T) {
 	}
 }
 
+// TestRecord_SourceRunID_RoundTripsThroughWriteReload is task 1.1 (RED): a
+// record with SourceRunID set round-trips unchanged through Save then Load
+// (run-persistence spec: "SourceRunID round-trips through a full
+// write/reload").
+func TestRecord_SourceRunID_RoundTripsThroughWriteReload(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{RunID: "run-x", SourceRunID: "prior-run-id"}
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := w.Load(rec.RunID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.SourceRunID != rec.SourceRunID {
+		t.Fatalf("expected SourceRunID to round-trip as %q, got %q", rec.SourceRunID, got.SourceRunID)
+	}
+}
+
+// TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroSourceRunID is task 1.2
+// (RED): a run.json written before SourceRunID existed still Loads cleanly
+// with SourceRunID zero-valued, and with NO SchemaVersion bump
+// (run-persistence spec: "Prior-slice run.json still loads without
+// SourceRunID").
+func TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroSourceRunID(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	runID := "TICKET-11-to-UAT-20260101000000"
+	dir := filepath.Join(base, ".deploydeck", "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seeding run dir: %v", err)
+	}
+	oldShape := `{"schemaVersion":1,"runId":"TICKET-11-to-UAT-20260101000000","ticket":"TICKET-11","target":"UAT","status":"Succeeded"}`
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(oldShape), 0o644); err != nil {
+		t.Fatalf("seeding old-shape run.json: %v", err)
+	}
+
+	rec, err := w.Load(runID)
+	if err != nil {
+		t.Fatalf("an old-shape run.json should still Load cleanly: %v", err)
+	}
+	if rec.SchemaVersion != runs.SchemaVersion1 {
+		t.Fatalf("expected SchemaVersion unchanged at %d, got %d", runs.SchemaVersion1, rec.SchemaVersion)
+	}
+	if rec.SourceRunID != "" {
+		t.Fatalf("expected SourceRunID zero-valued on an old-shape record, got %q", rec.SourceRunID)
+	}
+}
+
 // TestWriter_MarkPRCreated_PersistsPRUrl is task 3.3 (RED): MarkPRCreated
 // persists the given PR URL to run.json, mirroring MarkCanceled's method
 // shape (load -> mutate -> save) (run-persistence spec: "MarkPRCreated

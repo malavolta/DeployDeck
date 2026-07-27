@@ -33,6 +33,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onResumeDetect(msg)
 	case discoverDoneMsg:
 		return m.onDiscoverDone(msg)
+	case rePromoteSeededMsg:
+		return m.onRePromoteSeeded(msg)
 	case depWarningsMsg:
 		m.depWarnings = msg.warnings
 		return m, nil
@@ -276,6 +278,72 @@ func (m Model) onDiscoverDone(msg discoverDoneMsg) (tea.Model, tea.Cmd) {
 	return m, m.depWarningsCmd()
 }
 
+// startRePromoteInto seeds a new promotion run from a prior successful run
+// (HU-016 re-promotion). It structurally mirrors keyTicket's
+// synchronous-seed-then-cmd shape — NOT resumeInto's single-shot resume:
+// ticket and sourceRunID are seeded synchronously on the model, the
+// next-environment default target is computed via git.NextEnvironmentBranch
+// (commit-discovery spec: "Next-Environment Branch Suggested As Default
+// Target"), and the interim StateCommitDiscovery (reused, no new state) is
+// set while rePromoteRemapCmd runs the real patch-id remap asynchronously
+// against origin/<next>..origin/<rec.Target> — its result lands via
+// rePromoteSeededMsg, handled by onRePromoteSeeded.
+//
+// ok=false (currentTarget is already the last pipeline stage, e.g. prod, or
+// an unconfigured/Release-* branch — design decision #4) has NO next
+// environment to remap against: firing rePromoteRemapCmd anyway would build
+// the ill-defined range "origin/..origin/<rec.Target>" and hard-fail with a
+// real git error, landing the user on StateError. Instead this degrades to
+// the NORMAL manual flow, mirroring keyTicket's Enter branch exactly — the
+// ticket is pre-filled but sourceRunID is left unset (this degrade has no
+// well-defined provenance link to the prior run) and the ordinary
+// discoverCmd runs in place of the remap.
+func (m Model) startRePromoteInto(rec runs.Record) (tea.Model, tea.Cmd) {
+	next, ok := git.NextEnvironmentBranch(m.deps.Config, rec.Target)
+	if !ok {
+		m.ticket = rec.Ticket
+		m.notice = "no next environment configured after " + rec.Target + "; continuing manually"
+		m.prelim = preliminaryTarget(m.deps.Config)
+		m.state = StateCommitDiscovery
+		return m, m.discoverCmd()
+	}
+
+	m.ticket = rec.Ticket
+	m.sourceRunID = rec.RunID
+	m.prelim = next
+	m.state = StateCommitDiscovery
+	return m, m.rePromoteRemapCmd(rec.Commits, next, rec.Target)
+}
+
+// onRePromoteSeeded lands the HU-016 patch-id remap result. m.discovery is
+// replaced with a FRESH git.DiscoverResult carrying only OrderedCommits =
+// msg.Matched (review remediation, Finding 4b) — never mutated field-by-field
+// on whatever a prior in-session discovery left behind, so stale sibling
+// fields (e.g. Alternatives, CandidateBranches from an earlier no-results
+// search) can never leak into viewSelection's rendering. OrderedCommits
+// drives confirmSelection's git.IsContiguousSelection check (and the
+// dependency-warning command below) against the real reused set
+// (re-promotion spec: "Prior-Run Commits Pre-Loaded And Editable").
+// NewCommitSelectionItems pre-checks every matched commit while keeping it
+// fully toggleable, reusing the exact same selection machinery ordinary
+// discovery uses. Unmatched is held as rePromoteMissing for the view's
+// explicit warning (re-promotion spec: "Missing Commit Warned Explicitly" —
+// never silently dropped). A hard remap error surfaces like every other
+// command failure, landing on StateError.
+func (m Model) onRePromoteSeeded(msg rePromoteSeededMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.err = msg.err
+		m.state = StateError
+		return m, nil
+	}
+	m.discovery = git.DiscoverResult{OrderedCommits: msg.Matched}
+	m.items = git.NewCommitSelectionItems(m.discovery.OrderedCommits, m.ticket)
+	m.rePromoteMissing = msg.Unmatched
+	m.cursor = 0
+	m.state = StateCommitSelection
+	return m, m.depWarningsCmd()
+}
+
 func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.err = msg.err
@@ -295,15 +363,16 @@ func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 	if m.deps.Runs != nil {
 		now := m.now()
 		_ = m.deps.Runs.Save(runs.Record{
-			RunID:     m.runID,
-			Ticket:    m.plan.Ticket,
-			Target:    m.plan.TargetBranch,
-			Alias:     m.plan.SandboxAlias,
-			Commits:   commitSHAs(m.plan.SelectedCommits),
-			PickTotal: len(m.plan.SelectedCommits),
-			Phase:     "cherry-pick",
-			CreatedAt: now,
-			UpdatedAt: now,
+			RunID:       m.runID,
+			Ticket:      m.plan.Ticket,
+			Target:      m.plan.TargetBranch,
+			Alias:       m.plan.SandboxAlias,
+			Commits:     commitSHAs(m.plan.SelectedCommits),
+			PickTotal:   len(m.plan.SelectedCommits),
+			Phase:       "cherry-pick",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			SourceRunID: m.sourceRunID,
 		})
 	}
 

@@ -239,6 +239,17 @@ type Model struct {
 	runsCursor int
 	runDetail  bool
 
+	// RePromote (HU-016): sourceRunID links a completed re-promotion run back
+	// to the prior run it was re-promoted from — seeded synchronously by
+	// startRePromoteInto and threaded into the new run.Record at creation
+	// (onBranchCreated). rePromoteMissing holds prior-run commit SHAs with no
+	// patch-id equivalent in the new discovery range (onRePromoteSeeded),
+	// surfaced as an explicit warning on the selection screen rather than
+	// silently dropped (re-promotion spec: "Missing Commit Warned
+	// Explicitly").
+	sourceRunID      string
+	rePromoteMissing []string
+
 	// PushPreparation (HU-014): the sub-flow driving push + PR preparation
 	// from the success screen. pushPhase is the sub-state machine; pushErr
 	// holds a failed push's error (surfaced on pushConfirm, flow survives).
