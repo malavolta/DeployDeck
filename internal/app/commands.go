@@ -31,6 +31,13 @@ const queueCallTimeout = 30 * time.Second
 // AC4/AC6). The model is never the source of truth — the repo is.
 const pollInterval = 750 * time.Millisecond
 
+// resumeDetectTimeout bounds the startup HU-013 resume-detection: RepoState
+// spawns git subprocesses, so an unbounded context.Background() could let a
+// slow/hung git stall detection indefinitely. A few seconds is ample for a
+// local RepoState read; on timeout RepoState errors and onResumeDetect degrades
+// to the normal flow (the offer is a best-effort courtesy, never a gate).
+const resumeDetectTimeout = 5 * time.Second
+
 // --- Messages ---
 
 // prereqDoneMsg carries the HU-001 prereq report (or an error).
@@ -523,8 +530,13 @@ func (m Model) resumeDetectCmd() tea.Cmd {
 		return nil
 	}
 	dir := m.deps.Dir
-	ctx := m.ctx()
+	parent := m.ctx()
 	return func() tea.Msg {
+		// Bound the git-backed RepoState read so a slow/hung git never stalls
+		// startup detection; on timeout it errors and onResumeDetect falls back
+		// to the normal flow.
+		ctx, cancel := context.WithTimeout(parent, resumeDetectTimeout)
+		defer cancel()
 		state, err := g.RepoState(ctx, dir)
 		if err != nil {
 			return resumeDetectMsg{err: err}

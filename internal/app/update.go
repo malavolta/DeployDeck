@@ -105,6 +105,15 @@ func (m Model) onPrereqDone(msg prereqDoneMsg) (tea.Model, tea.Cmd) {
 // run. When nothing is resumable it proceeds to the normal flow without a
 // blocking prompt; a detection error also falls back to the normal flow.
 func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
+	if m.state != StateTicketInput {
+		// Detection is dispatched async from onPrereqDone (RepoState shells out to
+		// git); a slow launch can let this message land AFTER the user already
+		// advanced (typed a ticket, reached commit selection, ...). Acting now
+		// would yank them back to StateTicketInput or hijack them to
+		// StateRunHistory, discarding in-progress work. The resume offer is a
+		// startup-only courtesy, so off the initial screen it is a strict no-op.
+		return m, nil
+	}
 	if msg.err != nil {
 		// Best-effort: a detection failure must never block startup.
 		return m, nil
