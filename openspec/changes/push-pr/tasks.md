@@ -70,9 +70,9 @@ Chain strategy: size-exception
 - [x] 6.1 GREEN `cmd/deploydeck/main.go`: construct `github.New(runner)`, wire `Deps.GH` + `Checker.GH` (mechanical DI, no RED)
 
 ## Phase 7: Consolidated E2E [I]
-- [ ] 7.1 [I] RED `push_pr_e2e_test.go`: temp repo+bare local remote; drive Succeeded→`p`→real `git push -u` round-trips→base/compare/title
-- [ ] 7.2 [I] extend: 3 gh states via FakeRunner (authed→`CreatePR`+URL recorded; unauthed/absent→compare URL, origin in SSH AND HTTPS forms); PR-failure→error+manual data
-- [ ] 7.3 GREEN: close any integration gaps until 7.1/7.2 pass; assert no PR without confirmation end-to-end
+- [x] 7.1 [I] RED `push_pr_e2e_test.go`: temp repo+bare local remote; drive Succeeded→`p`→real `git push -u` round-trips→base/compare/title
+- [x] 7.2 [I] extend: 3 gh states via FakeRunner (authed→`CreatePR`+URL recorded; unauthed/absent→compare URL, origin in SSH AND HTTPS forms); PR-failure→error+manual data
+- [x] 7.3 GREEN: close any integration gaps until 7.1/7.2 pass; assert no PR without confirmation end-to-end
 
 ## Phase 8: Final Verification
 - [ ] 8.1 `go test -race ./...` all green
