@@ -63,7 +63,7 @@ Chain strategy: pending
 
 ## Phase 7: Real E2E (Verification)
 
-- [ ] 7.1 `[E2E-ORG]` extend `internal/salesforce/real_org_e2e_test.go`: queue query vs `AM-DEV-EDITION` — real `DeployRequest` records parse incl. `CreatedBy.Username`, own-job identified (HU-009)
+- [x] 7.1 `[E2E-ORG]` extend `internal/salesforce/real_org_e2e_test.go`: queue query vs `AM-DEV-EDITION` — real `DeployRequest` records parse incl. `CreatedBy.Username`, own-job identified (HU-009)
 - [ ] 7.2 `[E2E-ORG]` optional/best-effort: real cancel vs a real jobId — assert the CLI call runs, do NOT assert terminal status (timing-hard, documented, not required) (HU-012)
 
 ## Phase 8: Final Verification (Cleanup)
