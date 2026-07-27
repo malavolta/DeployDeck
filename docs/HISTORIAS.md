@@ -963,6 +963,27 @@ Ver `docs/MOCKUPS_TUI.md`, pantalla `Push Y PR`.
 - Variantes: validacion fallida -> no ofrece push como accion principal.
 - En CI: si (`gh` falso; remoto bare local).
 
+### Idea Futura (Opcional): Titulo Y Descripcion De PR Con Modelo Local
+
+Extension opcional de "Generar titulo sugerido": usar un modelo local pequeno
+(Gemma 3 1B/4B, Qwen2.5-Coder 1.5B/3B, via Ollama u otro servidor) para redactar
+el titulo (conventional-commit) y la descripcion del PR a partir del delta y los
+commits del ticket. Principios (coherentes con como DeployDeck trata git/sf/sgd/gh):
+
+- NO bundlear ni instalar el modelo desde el paquete. Es una dependencia externa
+  que el dev tiene corriendo; DeployDeck solo apunta a ella.
+- Config en `deploydeck.yaml`, bloque nuevo opcional:
+  `ai: { endpoint: "http://localhost:11434", model: "gemma3:4b", enabled: true }`.
+- Chequeo INFORMATIVO/no bloqueante en el doctor (HU-001): endpoint accesible +
+  modelo disponible. Igual que los checks de `gh`/git-hooks/gpgsign.
+- Degradado elegante: sin `ai` configurado o inalcanzable -> no se ofrece la
+  generacion; el flujo de push/PR sigue igual (mismo patron que el degradado por
+  permisos de la cola en HU-009).
+- Integracion via HTTP al endpoint (puerto), no shell-out obligatorio, para
+  soportar Ollama / LM Studio / llama.cpp / remoto compatible. Cuidar diffs
+  grandes (truncar/resumir por el limite de contexto del modelo pequeno).
+- Fuera del MVP de HU-014; se implementa solo si se prioriza.
+
 ## HU-015 - Quick Deploy Opcional
 
 Prioridad: Baja  
