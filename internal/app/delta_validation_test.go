@@ -295,6 +295,117 @@ func TestModel_ValidationStart_PersistsRunOnJobId(t *testing.T) {
 	}
 }
 
+// TestValidateCmd_FallbackRunIDWhenEmpty is task 3.7 (RED): when m.runID is
+// empty (no HU-013 branch-creation run precedes validate — e.g. the
+// standalone HU-010 path this locks), validateCmd still derives the runID as
+// ticket-to-target-timestamp and creates a fresh run via Create. This is the
+// exact fallback TestModel_ValidationStart_PersistsRunOnJobId (above) depends
+// on, made explicit and load-bearing on its own.
+func TestValidateCmd_FallbackRunIDWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	writer := runs.NewWriter(dir)
+
+	deps := Deps{Dir: dir, Config: validationConfig(), SF: exec_sf(t), Runs: writer, Now: clk.now}
+	m := reviewedModel(t, deps, false)
+	m.plan = git.RegisterDeltaArtifacts(m.plan, "pkg/package.xml", "")
+	if m.runID != "" {
+		t.Fatalf("precondition: expected m.runID empty (no branch creation happened), got %q", m.runID)
+	}
+
+	msg := run(t, m.validateCmd())
+	vmsg, ok := msg.(validateDoneMsg)
+	if !ok {
+		t.Fatalf("expected a validateDoneMsg, got %T", msg)
+	}
+	if vmsg.err != nil {
+		t.Fatalf("validate command errored: %v", vmsg.err)
+	}
+
+	wantRunID := "PROJ-1-to-UAT-20260102030405"
+	if vmsg.runID != wantRunID {
+		t.Fatalf("fallback runID = %q, want %q (ticket-to-target-timestamp)", vmsg.runID, wantRunID)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".deploydeck", "runs", wantRunID, "run.json")); err != nil {
+		t.Errorf("the fallback path should still create the run via Create: %v", err)
+	}
+}
+
+// TestValidateCmd_ReusesExistingRunID_MergesJobIDAndPhase is task 3.8 (RED):
+// when m.runID is already set (HU-013's branch-creation run precedes
+// validate), validateCmd REUSES it — merging JobID and Phase="validating"
+// into the ALREADY-persisted record via Load+Save — preserving
+// PickTotal/Commits/CreatedAt rather than creating a second run for the same
+// promotion.
+func TestValidateCmd_ReusesExistingRunID_MergesJobIDAndPhase(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	writer := runs.NewWriter(dir)
+
+	// Seed the run exactly as onBranchCreated would have: created earlier,
+	// mid-cherry-pick, with PickTotal/Commits/CreatedAt already on disk.
+	runID := "PROJ-1-to-UAT-branchcreated"
+	seededAt := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
+	if err := writer.Save(runs.Record{
+		RunID:     runID,
+		Ticket:    "PROJ-1",
+		Target:    "UAT",
+		Alias:     "UAT_SBX",
+		Commits:   []string{"aaa111", "bbb222"},
+		PickTotal: 2,
+		Phase:     "cherry-pick",
+		CreatedAt: seededAt,
+		UpdatedAt: seededAt,
+	}); err != nil {
+		t.Fatalf("seeding run: %v", err)
+	}
+
+	deps := Deps{Dir: dir, Config: validationConfig(), SF: exec_sf(t), Runs: writer, Now: clk.now}
+	m := reviewedModel(t, deps, false)
+	m.plan = git.RegisterDeltaArtifacts(m.plan, "pkg/package.xml", "")
+	m.runID = runID
+
+	msg := run(t, m.validateCmd())
+	vmsg, ok := msg.(validateDoneMsg)
+	if !ok {
+		t.Fatalf("expected a validateDoneMsg, got %T", msg)
+	}
+	if vmsg.err != nil {
+		t.Fatalf("validate command errored: %v", vmsg.err)
+	}
+	if vmsg.runID != runID {
+		t.Fatalf("expected the ALREADY-set runID reused, got %q, want %q", vmsg.runID, runID)
+	}
+
+	rec, err := writer.Load(runID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if rec.JobID != "0Af000000000042EAA" {
+		t.Errorf("JobID not merged, got %q", rec.JobID)
+	}
+	if rec.Phase != "validating" {
+		t.Errorf("Phase = %q, want validating", rec.Phase)
+	}
+	// The fields set at branch creation must be PRESERVED (merge, not replace).
+	if rec.PickTotal != 2 || len(rec.Commits) != 2 {
+		t.Errorf("PickTotal/Commits should be preserved from the branch-creation record, got %+v", rec)
+	}
+	if !rec.CreatedAt.Equal(seededAt) {
+		t.Errorf("CreatedAt should be preserved (not reset), got %v, want %v", rec.CreatedAt, seededAt)
+	}
+
+	// Exactly ONE run directory — no second run created for the same
+	// promotion.
+	entries, err := os.ReadDir(filepath.Join(dir, ".deploydeck", "runs"))
+	if err != nil {
+		t.Fatalf("reading runs dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected exactly 1 run dir, got %d", len(entries))
+	}
+}
+
 // TestModel_ValidationStart_CLIError_FlowStaysAlive is tasks 7.9/7.10 (error):
 // a CLI validate error surfaces the message + raw and keeps the flow alive on
 // ValidationStart — never a crash or a terminal error state.

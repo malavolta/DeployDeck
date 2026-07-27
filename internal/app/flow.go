@@ -72,3 +72,18 @@ func selectedSHASet(items []git.CommitSelectionItem) map[string]bool {
 	}
 	return set
 }
+
+// commitSHAs extracts the SHAs of commits, in order — the Commits field
+// HU-013 persists on the run record so resume detection can match the repo's
+// live CHERRY_PICK_HEAD against this run's original selection. Pure; an
+// empty selection yields nil (mirroring selectedCommits' convention).
+func commitSHAs(commits []git.DiscoveredCommit) []string {
+	if len(commits) == 0 {
+		return nil
+	}
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA
+	}
+	return shas
+}

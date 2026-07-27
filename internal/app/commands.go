@@ -425,17 +425,27 @@ func parsePackageFile(path string, destructive bool) (delta.Package, error) {
 	return delta.ParsePackage(data)
 }
 
-// validateCmd runs HU-010 async validate through the Salesforce shim and, on a
-// jobId, persists the run IMMEDIATELY (run-persistence spec: "before any
+// validateCmd runs HU-010 async validate through the Salesforce shim and, on
+// a jobId, persists the run IMMEDIATELY (run-persistence spec: "before any
 // further step"). A CLI error returns the message + raw for display without
 // crashing; a persistence error still surfaces the jobId so the run is
 // recoverable.
+//
+// HU-013: when m.runID is ALREADY set (a branch-creation run precedes
+// validate, the normal in-flow path), the jobId + Phase="validating" are
+// MERGED into that already-persisted record via Load+Save — preserving
+// Ticket/PickTotal/Commits/CreatedAt — rather than creating a second run for
+// the same promotion. When m.runID is empty (the standalone HU-010 path:
+// validate reached with no prior branch-creation run, e.g. a re-attach flow
+// or a pre-HU-013 caller), the ORIGINAL derivation + Create fallback runs
+// unchanged, keeping HU-010/011's existing behavior intact.
 func (m Model) validateCmd() tea.Cmd {
 	sf := m.deps.SF
 	writer := m.deps.Runs
 	now := m.now()
 	dir := m.deps.Dir
 	plan := m.plan
+	runID := m.runID
 	ctx := m.ctx()
 	return func() tea.Msg {
 		result, err := sf.ValidateDeploy(ctx, salesforce.ValidateRequest{
@@ -449,12 +459,32 @@ func (m Model) validateCmd() tea.Cmd {
 			return validateDoneMsg{result: result, err: err}
 		}
 
-		runID := plan.Ticket + "-to-" + plan.TargetBranch + "-" + now.Format("20060102150405")
-		if writer == nil {
+		if runID != "" {
+			if writer == nil {
+				return validateDoneMsg{result: result, runID: runID}
+			}
+			rec, lerr := writer.Load(runID)
+			if lerr != nil {
+				return validateDoneMsg{result: result, runID: runID, err: lerr}
+			}
+			rec.JobID = result.JobID
+			rec.Status = "Queued"
+			rec.Phase = "validating"
+			rec.UpdatedAt = now
+			if serr := writer.Save(rec); serr != nil {
+				return validateDoneMsg{result: result, runID: runID, err: serr}
+			}
 			return validateDoneMsg{result: result, runID: runID}
 		}
+
+		// Fallback: derive the runID exactly as HU-010 originally did, and
+		// create a fresh record (no prior branch-creation run to reuse).
+		fallbackID := plan.Ticket + "-to-" + plan.TargetBranch + "-" + now.Format("20060102150405")
+		if writer == nil {
+			return validateDoneMsg{result: result, runID: fallbackID}
+		}
 		runDir, perr := writer.Create(runs.Record{
-			RunID:     runID,
+			RunID:     fallbackID,
 			Ticket:    plan.Ticket,
 			Target:    plan.TargetBranch,
 			Alias:     plan.SandboxAlias,
@@ -463,7 +493,7 @@ func (m Model) validateCmd() tea.Cmd {
 			CreatedAt: now,
 			UpdatedAt: now,
 		}, []byte(result.Raw))
-		return validateDoneMsg{result: result, runID: runID, runDir: runDir, err: perr}
+		return validateDoneMsg{result: result, runID: fallbackID, runDir: runDir, err: perr}
 	}
 }
 

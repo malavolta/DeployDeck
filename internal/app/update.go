@@ -9,6 +9,7 @@ import (
 
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
+	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
 )
 
@@ -112,7 +113,71 @@ func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.plan = git.RegisterPromotionBranch(m.plan, m.branchName)
 	m.state = StateCherryPicking
+
+	// HU-013: create the run record IMMEDIATELY at branch creation — before
+	// any pick runs — so a crash mid-cherry-pick still leaves enough
+	// persisted context (Ticket/PickTotal/Commits) to offer resume (design.md:
+	// "Resume needs Ticket + PickTotal persisted DURING cherry-pick, before
+	// any jobId exists"). Best-effort: a nil Runs writer or a write hiccup
+	// must never block the flow, mirroring every other Runs call site.
+	m.runID = m.plan.Ticket + "-to-" + m.plan.TargetBranch + "-" + m.now().Format("20060102150405")
+	if m.deps.Runs != nil {
+		now := m.now()
+		_ = m.deps.Runs.Save(runs.Record{
+			RunID:     m.runID,
+			Ticket:    m.plan.Ticket,
+			Target:    m.plan.TargetBranch,
+			Alias:     m.plan.SandboxAlias,
+			Commits:   commitSHAs(m.plan.SelectedCommits),
+			PickTotal: len(m.plan.SelectedCommits),
+			Phase:     "cherry-pick",
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	}
+
 	return m, tea.Batch(m.cherryPickCmd(), tickCmd())
+}
+
+// derivePickIndex computes the 1-based ordinal of the pick CURRENTLY applying
+// (in progress or conflicted), from the total selected commits and the live
+// RepoState. See design.md's locked formula: .git/sequencer/todo INCLUDES the
+// commit CHERRY_PICK_HEAD already holds, so the completed count is
+// pickTotal-SequencerRemaining and the current (conflicting) pick is that+1.
+// Both edges are clamped: a completed sequence (!InProgress) returns
+// pickTotal; a single/last pick whose sequencer file is entirely absent
+// (SequencerRemaining==0) still clamps into [1,pickTotal], never overflowing.
+func derivePickIndex(pickTotal int, st git.RepoState) int {
+	if !st.InProgress {
+		return pickTotal
+	}
+	idx := pickTotal - st.SequencerRemaining + 1
+	if idx < 1 {
+		idx = 1
+	}
+	if idx > pickTotal {
+		idx = pickTotal
+	}
+	return idx
+}
+
+// saveRunProgress best-effort Loads the current run's persisted record and
+// applies mutate to it before Saving, preserving every field mutate does not
+// touch (CreatedAt, Ticket, PickTotal, Commits, ...) — the same
+// Load-then-Save merge pattern validateCmd uses to reuse the run created at
+// branch creation. A nil Runs writer, an empty runID, or a Load failure is a
+// silent no-op: HU-013's progress persistence is best-effort, mirroring
+// onReportDone's AppendReport (a write hiccup must never sink the live flow).
+func (m Model) saveRunProgress(mutate func(rec *runs.Record)) {
+	if m.deps.Runs == nil || m.runID == "" {
+		return
+	}
+	rec, err := m.deps.Runs.Load(m.runID)
+	if err != nil {
+		return
+	}
+	mutate(&rec)
+	_ = m.deps.Runs.Save(rec)
 }
 
 func (m Model) onPickDone(msg pickDoneMsg) (tea.Model, tea.Cmd) {
@@ -131,7 +196,17 @@ func (m Model) onPickDone(msg pickDoneMsg) (tea.Model, tea.Cmd) {
 			return m, m.skipCmd()
 		}
 		// Conflict: stop for resolution and start re-polling so external
-		// resolution/abort reconciles live.
+		// resolution/abort reconciles live. Persist the conflict's pick
+		// progress (HU-013 "pick N of M") so a crash here still leaves
+		// enough context to offer resume.
+		idx := derivePickIndex(len(m.plan.SelectedCommits), msg.outcome.State)
+		m.saveRunProgress(func(rec *runs.Record) {
+			rec.PickIndex = idx
+			rec.PickTotal = len(m.plan.SelectedCommits)
+			rec.CurrentCommit = msg.outcome.State.CurrentSHA
+			rec.Phase = "git-conflict"
+			rec.UpdatedAt = m.now()
+		})
 		m.state = StateCherryPickConflict
 		return m, tea.Batch(m.repoStateCmd(), tickCmd())
 	}
@@ -170,6 +245,10 @@ func (m Model) onAborted(msg abortedMsg) (tea.Model, tea.Cmd) {
 	// stays false even though the working tree is now clean.
 	m.aborted = true
 	m.repoState = git.RepoState{Clean: true}
+	m.saveRunProgress(func(rec *runs.Record) {
+		rec.Phase = "aborted"
+		rec.UpdatedAt = m.now()
+	})
 	m.state = StateAborted
 	return m, nil
 }
@@ -182,6 +261,10 @@ func (m Model) onVerifyDone(msg verifyDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.verification = msg.verification
 	m.deltaAllowed = git.DeltaAndValidationAllowed(m.repoState, m.aborted)
+	m.saveRunProgress(func(rec *runs.Record) {
+		rec.Phase = "done"
+		rec.UpdatedAt = m.now()
+	})
 	m.state = StatePickVerification
 	return m, nil
 }
