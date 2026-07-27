@@ -83,22 +83,22 @@ Chain strategy: size-exception
 
 ## Phase 7: `internal/app` wiring (state machine, both HU-007..011 UI halves)
 
-- [ ] 7.1 [T] RED `internal/app`: `PickVerification` confirm requires `Model.DeltaAllowed()`; false blocks entry to `DeltaGeneration`
-- [ ] 7.2 [T] GREEN: add `State` consts `DeltaGeneration..Canceled`, `Deps.{Delta,Runs,Now}`, gate wiring
-- [ ] 7.3 [T] RED: `DeltaGeneration` → `deltaCmd` (`Generate`+`Summarize`) → `PackageReview`; sgd failure keeps user on `DeltaGeneration` with `Raw` shown, no validation call
-- [ ] 7.4 [T] GREEN: implement `deltaCmd` + transition
-- [ ] 7.5 [T] RED: `PackageReview` blocks confirm while `summary.Empty` until explicit override (`emptyConfirmed`); override then proceeds
-- [ ] 7.6 [T] GREEN: implement the `emptyConfirmed` flag + gate
-- [ ] 7.7 [T] RED: `PackageReview` confirm → `QueueReview` (inert, zero queue query) → `ValidationStart` same tick
-- [ ] 7.8 [T] GREEN: implement the inert pass-through
-- [ ] 7.9 [T] RED: `ValidationStart` → `sf.ValidateDeploy` → jobId → `runs.Create` → `ValidationPolling`; CLI error shows message+`Raw`, flow stays alive (no crash/terminal-error state)
-- [ ] 7.10 [T] GREEN: implement `validateCmd` + immediate persistence
-- [ ] 7.11 [T] RED: `ValidationPolling` — `tea.Tick`-driven single `ReportDeploy`/tick; injected `Deps.Now` sets `pollDeadline` from `PollTimeoutSeconds`; `Now()>deadline` → `StateFailed`(timeout); transient report error retries within deadline; each raw report → `runs.AppendReport`
-- [ ] 7.12 [T] GREEN: implement `reportCmd`/`onTick`/`onReportDone` polling loop
-- [ ] 7.13 [T] RED: terminal mapping `{Succeeded,SucceededPartial}`→`StateSucceeded`, `Failed`→`StateFailed`, `Canceled`→`StateCanceled`; polling stops
-- [ ] 7.14 [T] GREEN: implement terminal mapping
-- [ ] 7.15 [T] RED: user exit during `ValidationPolling` leaves the Salesforce job active/resumable — no cancel/abort command issued
-- [ ] 7.16 Verify `boundary_test.go` (app never execs directly) still passes unmodified
+- [x] 7.1 [T] RED `internal/app`: `PickVerification` confirm requires `Model.DeltaAllowed()`; false blocks entry to `DeltaGeneration`
+- [x] 7.2 [T] GREEN: add `State` consts `DeltaGeneration..Canceled`, `Deps.{Delta,Runs,Now}`, gate wiring
+- [x] 7.3 [T] RED: `DeltaGeneration` → `deltaCmd` (`Generate`+`Summarize`) → `PackageReview`; sgd failure keeps user on `DeltaGeneration` with `Raw` shown, no validation call
+- [x] 7.4 [T] GREEN: implement `deltaCmd` + transition
+- [x] 7.5 [T] RED: `PackageReview` blocks confirm while `summary.Empty` until explicit override (`emptyConfirmed`); override then proceeds
+- [x] 7.6 [T] GREEN: implement the `emptyConfirmed` flag + gate
+- [x] 7.7 [T] RED: `PackageReview` confirm → `QueueReview` (inert, zero queue query) → `ValidationStart` same tick
+- [x] 7.8 [T] GREEN: implement the inert pass-through
+- [x] 7.9 [T] RED: `ValidationStart` → `sf.ValidateDeploy` → jobId → `runs.Create` → `ValidationPolling`; CLI error shows message+`Raw`, flow stays alive (no crash/terminal-error state)
+- [x] 7.10 [T] GREEN: implement `validateCmd` + immediate persistence
+- [x] 7.11 [T] RED: `ValidationPolling` — `tea.Tick`-driven single `ReportDeploy`/tick; injected `Deps.Now` sets `pollDeadline` from `PollTimeoutSeconds`; `Now()>deadline` → `StateFailed`(timeout); transient report error retries within deadline; each raw report → `runs.AppendReport`
+- [x] 7.12 [T] GREEN: implement `reportCmd`/`onTick`/`onReportDone` polling loop
+- [x] 7.13 [T] RED: terminal mapping `{Succeeded,SucceededPartial}`→`StateSucceeded`, `Failed`→`StateFailed`, `Canceled`→`StateCanceled`; polling stops
+- [x] 7.14 [T] GREEN: implement terminal mapping
+- [x] 7.15 [T] RED: user exit during `ValidationPolling` leaves the Salesforce job active/resumable — no cancel/abort command issued
+- [x] 7.16 Verify `boundary_test.go` (app never execs directly) still passes unmodified
 
 ## Phase 8: Real e2e
 

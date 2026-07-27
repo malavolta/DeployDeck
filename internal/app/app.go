@@ -15,12 +15,15 @@ package app
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"deploydeck/internal/config"
+	"deploydeck/internal/delta"
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
+	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
 )
 
@@ -54,9 +57,36 @@ const (
 	// StateAborted is the terminal reached by a confirmed abort — NOT a
 	// clean completion (delta/validation stay disabled).
 	StateAborted
-	// StatePickVerification is the post-pick verification screen and the
-	// scope edge of this slice (no DeltaGeneration/validation/push).
+	// StatePickVerification is the post-pick verification screen; confirming
+	// here (when DeltaAllowed) enters delta generation.
 	StatePickVerification
+	// StateDeltaGeneration runs HU-007 `sf sgd source delta`. On success it
+	// advances to PackageReview; an sgd failure keeps the user here with the
+	// raw output shown and never launches validation.
+	StateDeltaGeneration
+	// StatePackageReview is HU-008's pre-validation package summary. An empty
+	// package blocks confirm until an explicit override.
+	StatePackageReview
+	// StateQueueReview is an inert pass-through in this slice (HU-009 will add
+	// the real deploy-queue check here). PackageReview confirm passes straight
+	// through it to ValidationStart with zero queue query.
+	StateQueueReview
+	// StateValidationStart runs HU-010 `sf project deploy validate --async`
+	// and persists the run on jobId receipt. A CLI error keeps the flow alive
+	// here (message + raw shown) rather than crashing.
+	StateValidationStart
+	// StateValidationPolling runs HU-011: a tea.Tick-driven poll of
+	// `sf project deploy report`, bounded by a hard deadline, retrying
+	// transient errors and persisting every raw report.
+	StateValidationPolling
+	// StateSucceeded is the terminal success screen ({Succeeded,
+	// SucceededPartial} both fold here).
+	StateSucceeded
+	// StateFailed is the terminal failure screen (validation Failed or the
+	// poll's hard timeout).
+	StateFailed
+	// StateCanceled is the terminal screen for a Canceled validation job.
+	StateCanceled
 	// StateError is a terminal error screen.
 	StateError
 )
@@ -68,8 +98,19 @@ type Deps struct {
 	// integration tests). Required.
 	Git *git.Service
 	// SF is the read-only Salesforce shim, used for the target-selection
-	// sandbox-auth warning. May be nil (warning is then skipped).
+	// sandbox-auth warning and HU-010/011 validate + report calls. May be nil
+	// (the warning is then skipped; delta/validation deps are wired by main).
 	SF salesforce.Client
+	// Delta generates HU-007 delta packages via `sf sgd source delta`. main()
+	// wires delta.New(runner); nil disables delta generation.
+	Delta *delta.Service
+	// Runs persists validation runs under .deploydeck/runs/ (HU-010/011).
+	// main() wires runs.NewWriter(dir); nil disables persistence.
+	Runs *runs.Writer
+	// Now returns the current time for HU-011's poll deadline. It is
+	// injectable so ValidationPolling's timeout is testable without real
+	// time; nil falls back to time.Now.
+	Now func() time.Time
 	// Config is the loaded, validated deploydeck.yaml.
 	Config config.Config
 	// Dir is the working directory the flow runs in (the git service
@@ -130,6 +171,22 @@ type Model struct {
 	// PickVerification
 	verification git.PickVerification
 	deltaAllowed bool
+
+	// DeltaGeneration / PackageReview (HU-007/008)
+	deltaResult    delta.Result
+	summary        delta.PackageSummary
+	deltaErr       error // sgd failure, surfaced on DeltaGeneration
+	emptyConfirmed bool  // explicit override to validate an empty package
+
+	// Validation (HU-010/011)
+	jobID        string
+	runID        string
+	runDir       string
+	report       salesforce.DeployReport
+	validateErr  error     // CLI validate error, surfaced on ValidationStart
+	reportErr    error     // last transient report error, surfaced while polling
+	pollDeadline time.Time // hard poll timeout, from injected Now + PollTimeout
+	timedOut     bool      // true when StateFailed was reached via the deadline
 }
 
 // New builds the initial Model in StatePrereqCheck.
@@ -165,3 +222,55 @@ func (m Model) Init() tea.Cmd {
 // ctx returns the context used for service calls. A short-lived TUI uses the
 // background context; cancellation is handled by the process lifecycle.
 func (m Model) ctx() context.Context { return context.Background() }
+
+// now returns the current time through the injected Deps.Now (nil → time.Now),
+// so HU-011's poll deadline is deterministic under test.
+func (m Model) now() time.Time {
+	if m.deps.Now != nil {
+		return m.deps.Now()
+	}
+	return time.Now()
+}
+
+// pollIntervalSeconds is the configured HU-011 report poll cadence, falling
+// back to the package default when unset.
+func (m Model) pollIntervalSeconds() int {
+	if m.deps.Config.PollIntervalSeconds > 0 {
+		return m.deps.Config.PollIntervalSeconds
+	}
+	return config.DefaultPollIntervalSeconds
+}
+
+// pollTimeoutSeconds is the configured HU-011 hard poll timeout, falling back
+// to the package default when unset.
+func (m Model) pollTimeoutSeconds() int {
+	if m.deps.Config.PollTimeoutSeconds > 0 {
+		return m.deps.Config.PollTimeoutSeconds
+	}
+	return config.DefaultPollTimeoutSeconds
+}
+
+// terminalState maps a terminal deploy-report status to its screen: both
+// Succeeded and SucceededPartial fold into StateSucceeded (design's
+// "SucceededPartial folds into StateSucceeded"), Failed and Canceled to their
+// own terminal states.
+func terminalState(status string) State {
+	switch status {
+	case "Failed":
+		return StateFailed
+	case "Canceled":
+		return StateCanceled
+	default: // Succeeded, SucceededPartial
+		return StateSucceeded
+	}
+}
+
+// deltaBaseDir is the configured base directory for delta artifacts, defaulting
+// to config.DefaultDeltaOutputDir. The per-run directory
+// (<base>/<ticket>-to-<target>) is composed by deltaCmd.
+func deltaBaseDir(cfg config.Config) string {
+	if cfg.Delta.OutputDir != "" {
+		return cfg.Delta.OutputDir
+	}
+	return config.DefaultDeltaOutputDir
+}

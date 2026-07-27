@@ -23,7 +23,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyConflict(msg)
 	case StatePickVerification:
 		return m.keyVerification(msg)
-	case StateAborted, StateError:
+	case StateDeltaGeneration:
+		return m.keyDeltaGeneration(msg)
+	case StatePackageReview:
+		return m.keyPackageReview(msg)
+	case StateValidationStart:
+		return m.keyValidationStart(msg)
+	case StateValidationPolling:
+		return m.keyValidationPolling(msg)
+	case StateAborted, StateError, StateSucceeded, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, tea.Quit
 		}
@@ -215,13 +223,116 @@ func (m Model) conflictCursor() int {
 
 func (m Model) keyVerification(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "enter", "q":
+	case "enter":
+		// Confirm gated by the reused cherry-pick gate (delta-generation spec:
+		// "entry gated by post-pick verification"): a failed/aborted run never
+		// enters delta generation.
+		if !m.DeltaAllowed() {
+			m.notice = "delta and validation blocked: the cherry-pick did not complete cleanly"
+			return m, nil
+		}
+		m.notice = ""
+		m.deltaErr = nil
+		m.state = StateDeltaGeneration
+		return m, m.deltaCmd()
+	case "q":
 		return m, tea.Quit
 	case "e":
 		// Edit selection: PickVerification -> CommitSelection (partial
 		// promotion, per the state diagram).
 		m.state = StateCommitSelection
 		return m, nil
+	}
+	return m, nil
+}
+
+// keyDeltaGeneration handles the DeltaGeneration screen's keys. On success the
+// state auto-advances (no key needed); these keys serve the sgd-failure screen:
+// retry, edit the selection, or quit.
+func (m Model) keyDeltaGeneration(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		if m.deltaErr != nil {
+			m.deltaErr = nil
+			return m, m.deltaCmd()
+		}
+		return m, nil
+	case "e":
+		m.state = StateCommitSelection
+		return m, nil
+	case "q":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// keyPackageReview handles the HU-008 review screen: confirm proceeds to
+// validation (through the inert QueueReview pass-through), an empty package is
+// blocked until an explicit `o` override, `e` edits the selection, `q` quits.
+func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		return m.confirmPackageReview()
+	case "o":
+		// Explicit override for an empty package (delta-generation spec:
+		// "validation only proceeds after the user explicitly confirms an
+		// override").
+		if m.summary.Empty {
+			m.emptyConfirmed = true
+			m.notice = ""
+		}
+		return m, nil
+	case "e":
+		m.state = StateCommitSelection
+		return m, nil
+	case "q":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// confirmPackageReview gates on the empty-package override, then passes through
+// the inert QueueReview (zero queue query in this slice; HU-009 will add the
+// real check) straight to ValidationStart, firing the validate command.
+func (m Model) confirmPackageReview() (tea.Model, tea.Cmd) {
+	if m.summary.Empty && !m.emptyConfirmed {
+		m.notice = "empty package blocks validation: press o to override, or e to edit the selection"
+		return m, nil
+	}
+	m.notice = ""
+	m.validateErr = nil
+	m.state = StateValidationStart
+	return m, m.validateCmd()
+}
+
+// keyValidationStart handles the ValidationStart screen. On success the state
+// auto-advances to polling; these keys serve the CLI-error screen (retry the
+// validate call) and quit.
+func (m Model) keyValidationStart(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		if m.validateErr != nil {
+			m.validateErr = nil
+			return m, m.validateCmd()
+		}
+		return m, nil
+	case "q":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// keyValidationPolling handles the live-progress screen. `r` refreshes
+// manually (an immediate extra poll); `q` exits WITHOUT issuing any
+// cancel/abort — the Salesforce job stays active and the persisted run stays
+// resumable (validation-progress spec: "user exit leaves the job active and
+// resumable").
+func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		return m, m.reportCmd()
+	case "q":
+		return m, tea.Quit
 	}
 	return m, nil
 }

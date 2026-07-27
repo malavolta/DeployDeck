@@ -1,10 +1,13 @@
 package app
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
+	"deploydeck/internal/salesforce"
 )
 
 // Update is the Bubble Tea reducer. It derives the next state from the
@@ -40,6 +43,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onVerifyDone(msg)
 	case tickMsg:
 		return m.onTick()
+	case deltaDoneMsg:
+		return m.onDeltaDone(msg)
+	case validateDoneMsg:
+		return m.onValidateDone(msg)
+	case reportDoneMsg:
+		return m.onReportDone(msg)
+	case pollTickMsg:
+		return m.onPollTick()
 	}
 	return m, nil
 }
@@ -175,4 +186,89 @@ func (m Model) onTick() (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.repoStateCmd(), tickCmd())
 	}
 	return m, nil
+}
+
+// onDeltaDone lands the HU-007 delta result. An sgd/parse failure keeps the
+// user on DeltaGeneration with the raw output shown and launches NO validation
+// (delta-generation spec: "sgd failure surfaces output without running
+// validation"). Success registers the artifact paths on the plan and advances
+// to the HU-008 PackageReview.
+func (m Model) onDeltaDone(msg deltaDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.deltaErr = msg.err
+		m.state = StateDeltaGeneration
+		return m, nil
+	}
+	m.deltaErr = nil
+	m.deltaResult = msg.result
+	m.summary = msg.summary
+	m.plan = git.RegisterDeltaArtifacts(m.plan, msg.result.PackageXMLPath, msg.result.DestructiveChangesPath)
+	m.state = StatePackageReview
+	return m, nil
+}
+
+// onValidateDone lands the HU-010 validate outcome. A CLI error (or a
+// persistence failure) keeps the flow alive on ValidationStart with the
+// message + raw shown — never a crash or a terminal error state. Success holds
+// the jobId, arms the hard poll deadline from the injected clock, and begins
+// polling with an immediate first report plus the tick cadence.
+func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
+	m.jobID = msg.result.JobID
+	m.runID = msg.runID
+	m.runDir = msg.runDir
+	if msg.err != nil {
+		m.validateErr = msg.err
+		m.state = StateValidationStart
+		return m, nil
+	}
+	m.validateErr = nil
+	m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
+	m.state = StateValidationPolling
+	return m, tea.Batch(m.reportCmd(), pollTickCmd(m.pollIntervalSeconds()))
+}
+
+// onReportDone processes one HU-011 poll. A transient error keeps the state so
+// the next tick retries within the deadline. A successful report is persisted
+// (every raw report saved, never overwritten) and its live progress adopted;
+// a terminal status maps to its terminal screen and stops polling.
+func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
+	if m.state != StateValidationPolling {
+		// A late report after we already left polling is ignored.
+		return m, nil
+	}
+	if msg.err != nil {
+		m.reportErr = msg.err
+		return m, nil
+	}
+	m.reportErr = nil
+	m.report = msg.report
+
+	// Persist every raw report (best-effort: a write hiccup must not sink the
+	// live poll; the job keeps running and the next poll re-persists).
+	if m.deps.Runs != nil && m.runID != "" {
+		_ = m.deps.Runs.AppendReport(m.runID, msg.report.Status, []byte(msg.report.Raw))
+	}
+
+	if salesforce.IsTerminal(msg.report.Status) {
+		m.state = terminalState(msg.report.Status)
+		return m, nil
+	}
+	return m, nil
+}
+
+// onPollTick reschedules the HU-011 poll ONLY while ValidationPolling. On each
+// tick it first enforces the hard deadline (Now()>pollDeadline → StateFailed,
+// timeout), otherwise fires the next report and re-arms the tick. Any other
+// state stops the loop (nil), so no background polling leaks past a terminal
+// state or a user exit.
+func (m Model) onPollTick() (tea.Model, tea.Cmd) {
+	if m.state != StateValidationPolling {
+		return m, nil
+	}
+	if m.now().After(m.pollDeadline) {
+		m.timedOut = true
+		m.state = StateFailed
+		return m, nil
+	}
+	return m, tea.Batch(m.reportCmd(), pollTickCmd(m.pollIntervalSeconds()))
 }

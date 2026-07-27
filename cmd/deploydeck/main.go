@@ -17,9 +17,11 @@ import (
 
 	"deploydeck/internal/app"
 	"deploydeck/internal/config"
+	"deploydeck/internal/delta"
 	"deploydeck/internal/exec"
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
+	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
 )
 
@@ -155,10 +157,13 @@ func defaultRunTUI(dir string) error {
 	deps := app.Deps{
 		Git:        git.New(runner),
 		SF:         salesforce.New(runner),
+		Delta:      delta.New(runner),
+		Runs:       runs.NewWriter(dir),
 		Config:     cfg,
 		Dir:        dir,
 		NewChecker: defaultChecker,
 		Edit:       editHandoff,
+		// Now is left nil: production uses the real time.Now clock.
 	}
 
 	program := tea.NewProgram(app.New(deps))

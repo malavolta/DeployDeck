@@ -35,6 +35,16 @@ func (m Model) View() string {
 		return header("Cherry-pick abortado") + "\n  El run fue abortado. No se genera delta ni validacion.\n" + footer("q salir")
 	case StatePickVerification:
 		return m.viewVerification()
+	case StateDeltaGeneration:
+		return m.viewDeltaGeneration()
+	case StatePackageReview, StateQueueReview:
+		return m.viewPackageReview()
+	case StateValidationStart:
+		return m.viewValidationStart()
+	case StateValidationPolling:
+		return m.viewValidationPolling()
+	case StateSucceeded, StateFailed, StateCanceled:
+		return m.viewValidationResult()
 	case StateError:
 		return header("Error") + fmt.Sprintf("\n  %v\n", m.err) + footer("q salir")
 	}
@@ -279,6 +289,132 @@ func conflictMark(k git.ConflictKind) string {
 	default:
 		return "U"
 	}
+}
+
+func (m Model) viewDeltaGeneration() string {
+	var b strings.Builder
+	b.WriteString(header("Generando Delta"))
+	if m.deltaErr != nil {
+		b.WriteString("\n  [XX] sfdx-git-delta fallo. No se ejecuta validacion.\n\n")
+		b.WriteString("  Salida:\n")
+		b.WriteString("  " + m.deltaErr.Error() + "\n")
+		b.WriteString(footer("r reintentar   e editar seleccion   q salir"))
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("\n  Comparando origin/%s..HEAD\n  Generando package.xml...\n", m.plan.TargetBranch))
+	b.WriteString(footer("q salir"))
+	return b.String()
+}
+
+func (m Model) viewPackageReview() string {
+	var b strings.Builder
+	b.WriteString(header("Resumen De Package"))
+	b.WriteString("\n  Cambios aditivos (package.xml):\n")
+	if len(m.summary.Types) == 0 {
+		b.WriteString("  (sin tipos)\n")
+	}
+	for _, t := range m.summary.Types {
+		b.WriteString(fmt.Sprintf("  - %-16s %d\n", t.Name, t.Count))
+	}
+
+	if m.summary.HasDestructive {
+		b.WriteString("\n  [!!] Destructive changes (destructiveChanges.xml):\n")
+		for _, t := range m.summary.DestructiveTypes {
+			b.WriteString(fmt.Sprintf("  - %-16s %d\n", t.Name, t.Count))
+		}
+	}
+
+	if len(m.summary.SensitiveTypes) > 0 {
+		b.WriteString("\n  [!!] Metadata sensible: " + strings.Join(m.summary.SensitiveTypes, ", ") + "\n")
+	}
+
+	if len(m.summary.OutsideSourceDirs) > 0 {
+		b.WriteString("\n  Ficheros fuera de sourceDirs configurados:\n")
+		for _, f := range m.summary.OutsideSourceDirs {
+			b.WriteString("  - " + f + "\n")
+		}
+	}
+
+	if m.summary.Empty {
+		if m.emptyConfirmed {
+			b.WriteString("\n  [!!] Package vacio: override confirmado.\n")
+		} else {
+			b.WriteString("\n  [!!] Package vacio. Validacion bloqueada hasta confirmar override.\n")
+		}
+	}
+
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	if m.summary.Empty {
+		b.WriteString(footer("o override   Enter validar   e editar seleccion   q salir"))
+	} else {
+		b.WriteString(footer("Enter validar   e editar seleccion   q salir"))
+	}
+	return b.String()
+}
+
+func (m Model) viewValidationStart() string {
+	var b strings.Builder
+	b.WriteString(header("Lanzando Validacion"))
+	if m.validateErr != nil {
+		b.WriteString("\n  [XX] Salesforce CLI devolvio error (el flujo sigue vivo):\n\n")
+		b.WriteString("  " + m.validateErr.Error() + "\n")
+		b.WriteString(footer("r reintentar   q salir"))
+		return b.String()
+	}
+	b.WriteString(fmt.Sprintf("\n  Target org: %s\n  Test level: %s\n  Validando (async)...\n", m.plan.SandboxAlias, m.plan.TestLevel))
+	b.WriteString(footer("q salir"))
+	return b.String()
+}
+
+func (m Model) viewValidationPolling() string {
+	var b strings.Builder
+	b.WriteString(header("Validacion En Vivo"))
+	b.WriteString(m.validationBody())
+	if m.reportErr != nil {
+		b.WriteString("\n  (error transitorio, reintentando: " + m.reportErr.Error() + ")\n")
+	}
+	b.WriteString(footer("r refrescar   q salir (deja el job activo)"))
+	return b.String()
+}
+
+func (m Model) viewValidationResult() string {
+	var b strings.Builder
+	b.WriteString(header("Resultado De Validacion"))
+	b.WriteString(m.validationBody())
+	if m.timedOut {
+		b.WriteString("\n  [XX] Timeout: la validacion no alcanzo un estado terminal a tiempo (timed out).\n")
+	}
+	b.WriteString(footer("Enter/q salir"))
+	return b.String()
+}
+
+// validationBody renders the shared live/terminal progress body: job id,
+// status, component/test counters, metadata errors and failed tests (HU-011).
+func (m Model) validationBody() string {
+	var b strings.Builder
+	r := m.report
+	if m.jobID != "" {
+		b.WriteString(fmt.Sprintf("\n  Job: %s\n", m.jobID))
+	}
+	b.WriteString(fmt.Sprintf("  Estado: %s\n", r.Status))
+	b.WriteString(fmt.Sprintf("  Componentes: %d/%d (errores: %d)\n", r.NumberComponentsDeployed, r.NumberComponentsTotal, r.NumberComponentErrors))
+	b.WriteString(fmt.Sprintf("  Tests: %d/%d (errores: %d)\n", r.NumberTestsCompleted, r.NumberTestsTotal, r.NumberTestErrors))
+
+	if len(r.ComponentFailures) > 0 {
+		b.WriteString("\n  Errores de metadata:\n")
+		for _, f := range r.ComponentFailures {
+			b.WriteString(fmt.Sprintf("  - %s (%s): %s\n", f.Component, f.Type, f.Message))
+		}
+	}
+	if len(r.TestFailures) > 0 {
+		b.WriteString("\n  Tests fallidos:\n")
+		for _, f := range r.TestFailures {
+			b.WriteString(fmt.Sprintf("  - %s.%s: %s\n", f.Class, f.Method, f.Message))
+		}
+	}
+	return b.String()
 }
 
 func (m Model) viewVerification() string {
