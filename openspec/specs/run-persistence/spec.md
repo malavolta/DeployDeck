@@ -41,6 +41,52 @@ The system SHALL update the run's persisted status in `run.json` to `Canceled` w
 - WHEN `MarkCanceled(runID, cancelRaw)` is called
 - THEN the run's persisted status becomes `Canceled` (HU-012)
 
-## Out of Scope (Deferred to HU-013)
+### Requirement: Additive Record Growth With Backward Compatibility
 
-This slice is a minimal writer only. Full run history browsing/listing, retention/cleanup policy, and resume-by-jobId are explicitly OUT of this change and are owned by HU-013, which extends this writer rather than rewriting it.
+The `Record` SHALL grow additively with `PickIndex`, `PickTotal`, `CurrentCommit`, `Phase`, and `Commits []string`, with NO `SchemaVersion` bump. Older `run.json` files written before these fields existed SHALL still `Load` cleanly, with the new fields zero-valued.
+
+#### Scenario: Prior-slice run.json still loads
+- GIVEN a `run.json` written before `PickIndex`/`PickTotal`/`CurrentCommit`/`Phase`/`Commits` existed
+- WHEN it is loaded
+- THEN it loads without error and the new fields are zero-valued
+
+#### Scenario: New fields persist through a full round trip
+- GIVEN a run whose record has `PickIndex`, `PickTotal`, `CurrentCommit`, `Phase`, and `Commits` set
+- WHEN the record is written and reloaded
+- THEN all five fields round-trip unchanged
+
+### Requirement: List Runs Newest First
+
+`Writer.List()` SHALL scan `.deploydeck/runs/*/run.json` and return all records ordered newest first by `CreatedAt`.
+
+#### Scenario: List returns runs sorted newest first
+- GIVEN three persisted runs with different `CreatedAt` values
+- WHEN `List()` is called
+- THEN the returned records are ordered newest first
+
+### Requirement: Load A Single Run By ID
+
+`Writer.Load(runID)` SHALL return the persisted `Record` for a given run ID.
+
+#### Scenario: Load returns the persisted record
+- GIVEN a persisted run directory for `runID`
+- WHEN `Load(runID)` is called
+- THEN the matching `Record` is returned
+
+#### Scenario: Load a non-existent run ID errors
+- GIVEN no run directory exists for `runID`
+- WHEN `Load(runID)` is called
+- THEN an error is returned
+
+### Requirement: Prune Removes Runs Outside The Retention Window
+
+`Writer.Prune(keepLast, keepDays, now)` SHALL delete the on-disk directory for every run selected as prunable (per the `run-retention` selection rule) and SHALL return the list of removed run IDs, leaving all other runs untouched.
+
+#### Scenario: Prune removes only the selected run directories
+- GIVEN a set of runs where some are outside both `keepLast` and `keepDays`
+- WHEN `Prune(keepLast, keepDays, now)` runs
+- THEN only those runs' directories are deleted and their IDs are returned
+
+## Extended by HU-013
+
+Full run history browsing/listing, retention/cleanup policy, and resume-by-jobId are now owned by HU-013, which extends this writer. See `run-history`, `run-retention`, and `run-resume` capabilities.

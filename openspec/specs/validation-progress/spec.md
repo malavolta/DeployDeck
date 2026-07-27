@@ -86,6 +86,20 @@ The system SHALL leave the Salesforce job active when the user exits the progres
 - WHEN the user presses `q` to exit rather than `c` to cancel
 - THEN the job is left active/resumable and no cancellation is executed (HU-012)
 
+### Requirement: Re-Attach Polling To A Non-Terminal jobId On A Later Launch
+
+When `run-resume` offers and the user accepts resume for a run whose persisted `jobId` has not reached a terminal state, the system SHALL re-attach `deploy report` polling for that `jobId` at the configured interval, reusing the same polling, terminal-state-detection, and timeout requirements as a freshly started validation.
+
+#### Scenario: Resumed run re-attaches to deploy report polling
+- GIVEN a persisted run with a `jobId` not in `{Succeeded, SucceededPartial, Failed, Canceled}`
+- WHEN the user accepts the resume offer
+- THEN `deploy report` polling re-attaches for that `jobId` at the configured interval (HU-013 AC `docs/HISTORIAS.md:844`)
+
+#### Scenario: Resumed job already terminal is not offered for polling resume
+- GIVEN a persisted run whose `jobId` already reached a terminal state
+- WHEN startup resume-detection runs
+- THEN that run is not offered for polling re-attach (it remains browsable in history but is not resumable via polling)
+
 ### Requirement: Each Raw Report Persisted
 
 The system SHALL save each polled raw `deploy report` response relevant to the run.

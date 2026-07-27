@@ -133,10 +133,24 @@ The system SHALL NOT generate a delta package or run Salesforce validation when 
 - WHEN the flow evaluates next steps
 - THEN no delta is generated and no Salesforce validation runs
 
+### Requirement: Resumed Entry Accepts Rehydrated Conflict Context
+
+The cherry-pick conflict screen SHALL accept entry either from a freshly started sequence or from a resumed run, and SHALL display the resumed run's ticket, pick index/total, and current commit identically to a fresh sequence. Once entered, the existing live re-polling and continue-gating requirements apply unchanged regardless of entry path.
+
+#### Scenario: Resumed run shows ticket and pick N of M
+- GIVEN `run-resume` routes into `StateCherryPickConflict` for a run with a persisted ticket, `PickIndex`, and `PickTotal`
+- WHEN the conflict screen renders
+- THEN it shows the ticket and "pick N of M" matching the resumed record (HU-013 AC `docs/HISTORIAS.md:846`)
+
+#### Scenario: Resumed conflict screen behaves like a fresh one
+- GIVEN a resumed conflict screen with unresolved paths
+- WHEN the user attempts to continue
+- THEN continue is disabled per the existing unresolved-state gating, same as a freshly started sequence
+
 ## Design Notes
 
 - Conflict file classification uses `git status --porcelain -z` (NUL-delimited) to reliably parse paths containing spaces or special characters.
 - The `DU`/`UD` codes from porcelain output map to modify/delete conflicts; binary conflicts are detected via the `-` marker in numstat output.
 - All cherry-pick invocations carry `-c commit.gpgsign=false` to prevent GPG signing failures due to missing TTY during automation.
 - The promotion branch state is never cached; it is reread from `.git/CHERRY_PICK_HEAD`, `.git/sequencer/todo`, and `git status` on every update.
-- Run persistence (resume after closing and reopening) is intentionally deferred to HU-013 and out of scope for this change.
+- Resume entry and routing (reopen/resume) is now provided by the `run-resume` capability (HU-013).
