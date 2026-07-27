@@ -145,3 +145,50 @@ No other deviations — Phases 4-7 match design.md's data flow, locked pick-inde
 ## Task Checklist (cumulative — ALL phases complete)
 
 `openspec/changes/run-history/tasks.md` is the authoritative checklist: `[x]` through 7.5 (7.3 marked `[~]` — opt-in real-org E2E, not mandated; its code path is covered CI-safe by `TestResume_ByJobId_ReattachesPolling`). All six `proposal.md` Success Criteria checked off with their proving tests.
+
+---
+
+# Batch 3 — Adversarial-review remediation (HU-013 resume flow)
+
+An adversarial review of the otherwise archive-ready `run-history` change found TWO real bugs in the resume flow. Both fixed under STRICT TDD (RED reproducing the bug FIRST, then GREEN). The SOUND parts were deliberately NOT touched (resync guarded by `CHERRY_PICK_HEAD`, terminal-job not re-attached, live pick-index recompute, decline path, boundary). `internal/app`'s `boundary_test.go` (`TestApp_NeverImportsExecSeam`) remains green — no new exec seam was introduced.
+
+## TDD Cycle Evidence (Batch 3)
+
+| Hole | RED (test written first, confirmed failing) | GREEN (implementation passes) | REFACTOR |
+|---|---|---|---|
+| B (MEDIUM) — resume rehydration gap | `TestResume_ContinueToNextConflict_PreservesPickProgress` (real double-conflict cherry-pick; resume → in-app `c`-continue → next conflict) + `TestResume_Completion_RunsPostPickVerification` (real repo; resume → WRONG resolution → complete). BOTH failed at `len(fresh.plan.SelectedCommits) == 0` before the fix | Rehydrate `m.plan.SelectedCommits` in `resumeInto`'s conflict branch from `rec.Commits` via the new pure `rehydrateSelectedCommits` (SHA-only `DiscoveredCommit`s). (a) pick N/M stays `2 of 3` on the Model AND persisted `run.json`; (b) post-pick verify runs over the selected set and FLAGS the partial promotion (`OK()==false`, `PartialFiles=[a.cls]`) instead of being skipped | None — single rehydration point; `onPickDone`/`verifyCmd` logic unchanged |
+| A (LOW) — startup resume-detection race | `TestOnResumeDetect_IgnoredOffTicketInput` (2 sub-cases): a resumable AND a nothing-resumable `resumeDetectMsg` delivered while `m.state == StateCommitSelection`. Before the fix, case 1 hijacked to `StateRunHistory` (21) and case 2 reset to `StateTicketInput` (1), discarding the in-progress selection | (1) Guard `onResumeDetect` with `if m.state != StateTicketInput { return m, nil }`; (2) bound `resumeDetectCmd` with `context.WithTimeout(parent, resumeDetectTimeout=5s)`, degrading to normal flow on timeout. Both sub-cases now no-op (state + selection + cursor preserved, no runs populated, nil cmd) | None |
+
+## Chosen fix for HOLE B (noted per instructions)
+
+Rehydrate `m.plan.SelectedCommits` from the persisted `rec.Commits` (the cleaner of the two offered options) — a SINGLE rehydration point in `resumeInto`. Reconstructs minimal `git.DiscoveredCommit{Commit: git.Commit{SHA: sha}}` values (`Merge=false`, so none is skipped by `verifyCmd`; the record never persisted the other `Commit` fields and the resume path needs none). `len()` feeds `onPickDone`/`derivePickIndex`; each SHA feeds `VerifyPromotedContent`, which recomputes touched files from the SHA via git. This leaves `onPickDone` and `verifyCmd` logic untouched, versus the alternative of threading `m.pickTotal` through `onPickDone`/`saveRunProgress` AND separately rewiring `verifyCmd`.
+
+## Work Unit Evidence (Batch 3)
+
+### HOLE B — commit `fix(app): rehydrate selected commits on resume so pick N/M and verification survive` (`860a29e`)
+- Focused test command and exact result: `go test ./internal/app/ -run 'TestResume_ContinueToNextConflict_PreservesPickProgress|TestResume_Completion_RunsPostPickVerification' -count=1 -v` → both PASS (RED first: both failed at `len(...SelectedCommits)==0`)
+- Runtime harness command/scenario and exact result: REAL temp git repos — `setupDoubleConflictRepo3` (two real conflicts, drives a real `git cherry-pick --continue` onto the second conflict) and `setupConflictRepo2` (WRONG resolution → real `VerifyPromotedContent` over the rehydrated selection flags `a.cls`); no org
+- Rollback boundary: revert `internal/app/flow.go` (`rehydrateSelectedCommits`), the one added line + comment in `internal/app/update.go`'s `resumeInto` conflict branch, and `internal/app/resume_rehydrate_test.go`; the sound resume paths (resync/decline/terminal/live pick-index) are untouched
+
+### HOLE A — commit `fix(app): guard+bound startup resume-detection against a slow-git race` (`034efeb`)
+- Focused test command and exact result: `go test ./internal/app/ -run 'TestOnResumeDetect_IgnoredOffTicketInput' -count=1 -v` → PASS (RED first: case 1 → 21, case 2 → 1)
+- Runtime harness command/scenario and exact result: N/A — pure `Model.Update()` state-transition tests (the race is a state-guard concern); the timeout bound is a `context.WithTimeout` on the existing git-backed `RepoState` read, exercised live by the existing real-git resume integration tests, all still green
+- Rollback boundary: revert the guard clause in `internal/app/update.go`'s `onResumeDetect`, the `resumeDetectTimeout` const + `context.WithTimeout` in `internal/app/commands.go`'s `resumeDetectCmd`, and `internal/app/resume_detect_race_test.go`
+
+## Full-suite verification (end of Batch 3)
+
+```
+$ export PATH="/usr/local/go/bin:$PATH" && go build ./... && go vet ./... && gofmt -l . && go test -race ./...
+# build clean; vet clean; gofmt -l clean (no output)
+ok  	deploydeck/cmd/deploydeck	(cached)
+ok  	deploydeck/internal/app	14.439s
+ok  	deploydeck/internal/config	(cached)
+ok  	deploydeck/internal/delta	(cached)
+ok  	deploydeck/internal/exec	(cached)
+ok  	deploydeck/internal/git	(cached)
+ok  	deploydeck/internal/prereq	(cached)
+ok  	deploydeck/internal/runs	(cached)
+ok  	deploydeck/internal/salesforce	(cached)
+```
+
+`TestApp_NeverImportsExecSeam` (boundary_test.go) still green — the remediation added no exec seam (rehydration is a pure helper; the timeout wraps an existing service call).
