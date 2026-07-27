@@ -312,3 +312,267 @@ func TestWriter_MarkCanceled_UnknownRunIDErrors(t *testing.T) {
 		t.Fatal("expected an error for an unknown runID, got nil")
 	}
 }
+
+// --- HU-013: additive Record growth + List/Load/Save/Prune -----------------
+
+// mustSave is a small seeding helper for the tests below: it calls Save and
+// fails the test on error.
+func mustSave(t *testing.T, w *runs.Writer, rec runs.Record) {
+	t.Helper()
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("seeding run %s: %v", rec.RunID, err)
+	}
+}
+
+// TestRecord_BackwardCompat_OldShapeRunJSONStillLoads is task 1.1 (RED):
+// a run.json written before PickIndex/PickTotal/CurrentCommit/Phase/Commits
+// existed must still Load cleanly, with the new fields zero-valued
+// (run-persistence spec: "Additive Record Growth With Backward Compatibility").
+func TestRecord_BackwardCompat_OldShapeRunJSONStillLoads(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	runID := "TICKET-1-to-UAT-20260101000000"
+	dir := filepath.Join(base, ".deploydeck", "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seeding run dir: %v", err)
+	}
+	// Old-shape run.json: exactly the pre-HU-013 field set, nothing more.
+	oldShape := `{"schemaVersion":1,"runId":"TICKET-1-to-UAT-20260101000000","ticket":"TICKET-1","target":"UAT","alias":"UAT_SANDBOX","jobId":"0Af1","status":"Queued","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(oldShape), 0o644); err != nil {
+		t.Fatalf("seeding old-shape run.json: %v", err)
+	}
+
+	rec, err := w.Load(runID)
+	if err != nil {
+		t.Fatalf("an old-shape run.json should still Load cleanly: %v", err)
+	}
+	if rec.RunID != runID || rec.Ticket != "TICKET-1" || rec.Target != "UAT" || rec.JobID != "0Af1" {
+		t.Fatalf("expected the existing fields to round-trip, got %+v", rec)
+	}
+	if rec.PickIndex != 0 || rec.PickTotal != 0 || rec.CurrentCommit != "" || rec.Phase != "" || rec.Commits != nil {
+		t.Fatalf("expected every new field zero-valued on an old-shape record, got %+v", rec)
+	}
+}
+
+// TestRecord_NewFields_RoundTripUnchanged is task 1.1 (RED): a record with
+// PickIndex/PickTotal/CurrentCommit/Phase/Commits set round-trips unchanged
+// through Save then Load.
+func TestRecord_NewFields_RoundTripUnchanged(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	rec := runs.Record{
+		RunID:         "TICKET-2-to-UAT-20260727120000",
+		Ticket:        "TICKET-2",
+		Target:        "UAT",
+		Commits:       []string{"aaa111", "bbb222"},
+		PickIndex:     1,
+		PickTotal:     2,
+		CurrentCommit: "aaa111",
+		Phase:         "git-conflict",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := w.Load(rec.RunID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Commits) != 2 || got.Commits[0] != "aaa111" || got.Commits[1] != "bbb222" {
+		t.Errorf("Commits did not round-trip, got %+v", got.Commits)
+	}
+	if got.PickIndex != 1 || got.PickTotal != 2 || got.CurrentCommit != "aaa111" || got.Phase != "git-conflict" {
+		t.Errorf("new fields did not round-trip, got %+v", got)
+	}
+}
+
+// TestWriter_List_ReturnsNewestFirstAndSkipsMalformed is task 1.3 (RED):
+// List scans .deploydeck/runs/*/run.json and returns records newest-first by
+// CreatedAt; a malformed run dir is skipped rather than failing the listing
+// (run-persistence spec: "List Runs Newest First").
+func TestWriter_List_ReturnsNewestFirstAndSkipsMalformed(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	middle := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	newest := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	mustSave(t, w, runs.Record{RunID: "run-old", CreatedAt: older})
+	mustSave(t, w, runs.Record{RunID: "run-mid", CreatedAt: middle})
+	mustSave(t, w, runs.Record{RunID: "run-new", CreatedAt: newest})
+
+	// A malformed run dir (unparseable run.json) must be skipped, not fail
+	// the whole listing.
+	badDir := filepath.Join(base, ".deploydeck", "runs", "run-bad")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatalf("seeding malformed run dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(badDir, "run.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatalf("seeding malformed run.json: %v", err)
+	}
+
+	got, err := w.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 valid runs (malformed skipped), got %d: %+v", len(got), got)
+	}
+	wantOrder := []string{"run-new", "run-mid", "run-old"}
+	for i, id := range wantOrder {
+		if got[i].RunID != id {
+			t.Errorf("position %d = %q, want %q (newest-first)", i, got[i].RunID, id)
+		}
+	}
+}
+
+// TestWriter_List_NoRunsDirReturnsEmpty proves List degrades to an empty
+// (nil, nil) result rather than erroring when .deploydeck/runs/ does not
+// exist yet (a fresh repo with no runs ever created).
+func TestWriter_List_NoRunsDirReturnsEmpty(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	got, err := w.List()
+	if err != nil {
+		t.Fatalf("List on a repo with no runs dir should not error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected an empty list, got %+v", got)
+	}
+}
+
+// TestWriter_Load_ReturnsPersistedRecord is task 1.5 (RED): Load(runID)
+// returns the persisted Record for an existing run (run-persistence spec:
+// "Load A Single Run By ID").
+func TestWriter_Load_ReturnsPersistedRecord(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+	mustSave(t, w, runs.Record{RunID: "run-1", Ticket: "T-1"})
+
+	got, err := w.Load("run-1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.RunID != "run-1" || got.Ticket != "T-1" {
+		t.Errorf("unexpected record: %+v", got)
+	}
+}
+
+// TestWriter_Load_MissingRunIDErrors is task 1.5 (RED): Load errors on an
+// unknown runID rather than returning a silent zero Record.
+func TestWriter_Load_MissingRunIDErrors(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	if _, err := w.Load("does-not-exist"); err == nil {
+		t.Fatal("expected an error for a missing runID, got nil")
+	}
+}
+
+// TestWriter_Save_UpsertsRunJSONAndForcesSchemaVersion is task 1.7 (RED):
+// Save upserts run.json (creating the run dir if needed) and forces
+// SchemaVersion to SchemaVersion1, exactly like Create.
+func TestWriter_Save_UpsertsRunJSONAndForcesSchemaVersion(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{SchemaVersion: 99, RunID: "run-save", Ticket: "T-1", Status: "Queued"}
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := w.Load("run-save")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.SchemaVersion != runs.SchemaVersion1 {
+		t.Errorf("expected SchemaVersion forced to %d, got %d", runs.SchemaVersion1, got.SchemaVersion)
+	}
+	if got.Status != "Queued" {
+		t.Errorf("expected Status %q, got %q", "Queued", got.Status)
+	}
+
+	// A second Save upserts (overwrites) rather than duplicating.
+	got.Status = "InProgress"
+	if err := w.Save(got); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	got2, err := w.Load("run-save")
+	if err != nil {
+		t.Fatalf("Load after upsert: %v", err)
+	}
+	if got2.Status != "InProgress" {
+		t.Errorf("expected upserted Status %q, got %q", "InProgress", got2.Status)
+	}
+	entries, err := os.ReadDir(filepath.Join(base, ".deploydeck", "runs"))
+	if err != nil {
+		t.Fatalf("reading runs dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly 1 run dir after upsert (no duplicate), got %d", len(entries))
+	}
+}
+
+// TestWriter_Prune_RemovesOnlyRunsOutsideRetentionWindow is task 1.11 (RED):
+// a mixed fixture removes only the runs outside BOTH keepLast and keepDays,
+// returns their IDs, and leaves every other run untouched (run-persistence
+// spec: "Prune Removes Runs Outside The Retention Window").
+func TestWriter_Prune_RemovesOnlyRunsOutsideRetentionWindow(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+
+	mustSave(t, w, runs.Record{RunID: "keep-recent", CreatedAt: now.Add(-1 * day)})
+	mustSave(t, w, runs.Record{RunID: "keep-by-age", CreatedAt: now.Add(-3 * day)})
+	mustSave(t, w, runs.Record{RunID: "prune-me", CreatedAt: now.Add(-100 * day)})
+
+	removed, err := w.Prune(2, 5, now)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "prune-me" {
+		t.Fatalf("expected only prune-me removed, got %v", removed)
+	}
+
+	if _, err := os.Stat(filepath.Join(base, ".deploydeck", "runs", "prune-me")); !os.IsNotExist(err) {
+		t.Error("prune-me directory should have been removed")
+	}
+	for _, keep := range []string{"keep-recent", "keep-by-age"} {
+		if _, err := os.Stat(filepath.Join(base, ".deploydeck", "runs", keep)); err != nil {
+			t.Errorf("%s should still exist untouched: %v", keep, err)
+		}
+	}
+}
+
+// TestWriter_Prune_NeverTouchesArbitraryPaths is the threat-matrix guard
+// (design.md: "Prune removes ONLY <baseDir>/.deploydeck/runs/<runID>
+// directories enumerated by List — never arbitrary or user-supplied paths"):
+// a sibling directory OUTSIDE .deploydeck/runs/ must survive Prune even when
+// every real run is pruned.
+func TestWriter_Prune_NeverTouchesArbitraryPaths(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
+
+	mustSave(t, w, runs.Record{RunID: "prune-me", CreatedAt: now.Add(-100 * 24 * time.Hour)})
+
+	sibling := filepath.Join(base, "some-other-dir")
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatalf("seeding sibling dir: %v", err)
+	}
+
+	if _, err := w.Prune(0, 0, now); err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+
+	if _, err := os.Stat(sibling); err != nil {
+		t.Errorf("Prune must never touch paths outside .deploydeck/runs/, sibling dir gone: %v", err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -35,6 +36,26 @@ type Record struct {
 	Status        string    `json:"status"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+
+	// HU-013 additive fields — every one `omitempty`, zero-default safe. A
+	// run.json written before these existed still Load()s cleanly with all
+	// five zero-valued (run-persistence spec: "Additive Record Growth With
+	// Backward Compatibility"). NO SchemaVersion bump accompanies this growth.
+	//
+	// Commits holds the selected commit SHAs (topological order), set once at
+	// branch creation — it lets resume detection match the repo's live
+	// CHERRY_PICK_HEAD against this run's original selection.
+	Commits []string `json:"commits,omitempty"`
+	// PickIndex/PickTotal are the cherry-pick sequencer's "pick N of M",
+	// updated as the pick progresses (see internal/app's derivePickIndex).
+	PickIndex int `json:"pickIndex,omitempty"`
+	PickTotal int `json:"pickTotal,omitempty"`
+	// CurrentCommit is the SHA currently being cherry-picked (mirrors
+	// git.RepoState.CurrentSHA at the moment it was persisted).
+	CurrentCommit string `json:"currentCommit,omitempty"`
+	// Phase is the coarse flow stage: cherry-pick|git-conflict|validating|
+	// done|aborted.
+	Phase string `json:"phase,omitempty"`
 }
 
 // Writer persists run records under baseDir/.deploydeck/runs/. baseDir is
@@ -77,6 +98,62 @@ func (w *Writer) Create(rec Record, validateRaw []byte) (string, error) {
 	}
 
 	return dir, nil
+}
+
+// List scans .deploydeck/runs/*/run.json and returns every run, ordered
+// newest-first by CreatedAt (run-persistence spec: "List Runs Newest First").
+// A run directory whose run.json is missing or malformed is skipped rather
+// than failing the whole listing — a single corrupted run must never make the
+// rest of the history inaccessible. A repo with no runs dir yet (nothing ever
+// created) returns an empty list, not an error.
+func (w *Writer) List() ([]Record, error) {
+	root := filepath.Join(w.baseDir, ".deploydeck", "runs")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("runs: reading runs dir %s: %w", root, err)
+	}
+
+	var records []Record
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		rec, err := w.readRecord(filepath.Join(root, entry.Name()))
+		if err != nil {
+			continue
+		}
+		records = append(records, rec)
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].CreatedAt.After(records[j].CreatedAt)
+	})
+	return records, nil
+}
+
+// Load returns the persisted Record for runID (run-persistence spec: "Load A
+// Single Run By ID"). An unknown runID (no run.json, e.g. never created) is
+// an explicit error, never a silent zero Record.
+func (w *Writer) Load(runID string) (Record, error) {
+	return w.readRecord(w.runDir(runID))
+}
+
+// Save upserts rec's run.json (creating the run dir if needed), forcing
+// SchemaVersion to SchemaVersion1 — this package is always the schema
+// authority, same invariant as Create. Save is the general-purpose upsert
+// HU-013's progress writes use (run creation at branch time, cherry-pick
+// pick-index progress, phase transitions merged in place); Create remains the
+// original HU-010 jobId-time constructor that also writes validate.json.
+func (w *Writer) Save(rec Record) error {
+	dir := w.runDir(rec.RunID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("runs: creating run dir %s: %w", dir, err)
+	}
+	rec.SchemaVersion = SchemaVersion1
+	return writeJSON(filepath.Join(dir, "run.json"), rec)
 }
 
 // reportFilePattern matches this package's own report-<NNN>.json naming
