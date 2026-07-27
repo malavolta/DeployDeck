@@ -33,6 +33,14 @@ type Client interface {
 	// Callers (internal/app's ValidationPolling state) drive the repeated
 	// polling themselves; this is never a blocking loop.
 	ReportDeploy(ctx context.Context, jobID, targetOrg, dir string) (DeployReport, error)
+	// ListDeployQueue runs `sf data query --use-tooling-api --json` (HU-009):
+	// active DeployRequest jobs (Pending/InProgress) ordered by CreatedDate
+	// ascending, giving operational visibility of the shared sandbox queue
+	// before/during a validation. Returns ErrQueuePermission when the
+	// profile lacks Tooling API access to DeployRequest — callers should
+	// warn and continue without the queue view (non-blocking degrade); any
+	// other query failure is a generic, actionable error, never swallowed.
+	ListDeployQueue(ctx context.Context, targetOrg string) ([]DeployQueueEntry, error)
 }
 
 // VersionInfo is the parsed `sf --version` output.
