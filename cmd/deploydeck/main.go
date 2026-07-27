@@ -21,6 +21,7 @@ import (
 	"deploydeck/internal/delta"
 	"deploydeck/internal/exec"
 	"deploydeck/internal/git"
+	"deploydeck/internal/github"
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
@@ -203,6 +204,8 @@ func defaultChecker(dir string) (*prereq.Checker, error) {
 		SF:     salesforce.New(runner),
 		Config: cfg,
 		Lock:   lock,
+		// GH backs the informative, non-blocking gh doctor check (HU-014).
+		GH: github.New(runner),
 	}, nil
 }
 
@@ -221,6 +224,7 @@ func defaultRunTUI(dir string) error {
 		Git:        git.New(runner),
 		SF:         salesforce.New(runner),
 		Delta:      delta.New(runner),
+		GH:         github.New(runner),
 		Runs:       runs.NewWriter(dir),
 		Config:     cfg,
 		Dir:        dir,

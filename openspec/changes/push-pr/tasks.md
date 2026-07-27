@@ -67,7 +67,7 @@ Chain strategy: size-exception
 - [x] 5.11 Re-run `boundary_test.go` (`TestApp_NeverImportsExecSeam`) — confirm still green with `Deps.GH` wired
 
 ## Phase 6: Wiring
-- [ ] 6.1 GREEN `cmd/deploydeck/main.go`: construct `github.New(runner)`, wire `Deps.GH` + `Checker.GH` (mechanical DI, no RED)
+- [x] 6.1 GREEN `cmd/deploydeck/main.go`: construct `github.New(runner)`, wire `Deps.GH` + `Checker.GH` (mechanical DI, no RED)
 
 ## Phase 7: Consolidated E2E [I]
 - [ ] 7.1 [I] RED `push_pr_e2e_test.go`: temp repo+bare local remote; drive Succeeded→`p`→real `git push -u` round-trips→base/compare/title
