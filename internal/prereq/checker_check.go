@@ -10,9 +10,10 @@ const nameGitRepository = "git repository"
 
 // Check runs every configured local-prerequisite check — git/sf/
 // sfdx-git-delta versions, repo membership + origin, working tree,
-// .deploydeck/ gitignore, git hooks, commit.gpgsign, Salesforce aliases,
-// and the single-instance lock — aggregating them into one report (HU-001:
-// "Prerequisite Check Execution And Reporting").
+// .deploydeck/ gitignore, git hooks, commit.gpgsign, Salesforce aliases, the
+// informative gh CLI check (HU-014), and the single-instance lock —
+// aggregating them into one report (HU-001: "Prerequisite Check Execution
+// And Reporting").
 //
 // Repo-dependent checks (working tree, gitignore, hooks, gpgsign) are
 // skipped when Dir is not inside a git repository — the repo-membership
@@ -65,6 +66,12 @@ func (c *Checker) Check(ctx context.Context) ([]PrereqCheck, error) {
 		return nil, err
 	}
 	all = append(all, aliasChecks...)
+
+	ghCheck, err := c.CheckGH(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, ghCheck)
 
 	lockCheck, err := c.CheckLock(ctx)
 	if err != nil {

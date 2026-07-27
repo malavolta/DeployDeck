@@ -3,6 +3,7 @@ package prereq
 import (
 	"deploydeck/internal/config"
 	"deploydeck/internal/git"
+	"deploydeck/internal/github"
 	"deploydeck/internal/salesforce"
 )
 
@@ -40,4 +41,10 @@ type Checker struct {
 	// Lock skips lock acquisition entirely (useful for tests/dry runs of
 	// the other checks).
 	Lock *Lock
+
+	// GH is the gh CLI client backing the informative, non-blocking gh
+	// availability/auth doctor check (HU-014, CheckGH). A nil GH — every
+	// Checker built before HU-014, and every existing checker test that
+	// never sets it — skips CheckGH entirely, reporting OK.
+	GH github.Client
 }

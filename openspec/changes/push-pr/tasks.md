@@ -50,8 +50,8 @@ Chain strategy: size-exception
 - [x] 3.4 GREEN `writer.go`: implement `MarkPRCreated`
 
 ## Phase 4: `internal/prereq` gh Doctor Check
-- [ ] 4.1 [U] RED `checker_gh_test.go`: `CheckGH` absent/unauth/authed, always informative/non-blocking; existing checker tests stay green with `Checker.GH` nil (prereq-check delta)
-- [ ] 4.2 GREEN: `checker.go` add `Checker.GH` (nil-guarded); `checker_gh.go` `CheckGH`; wire into `checker_check.go` `Check()`
+- [x] 4.1 [U] RED `checker_gh_test.go`: `CheckGH` absent/unauth/authed, always informative/non-blocking; existing checker tests stay green with `Checker.GH` nil (prereq-check delta)
+- [x] 4.2 GREEN: `checker.go` add `Checker.GH` (nil-guarded); `checker_gh.go` `CheckGH`; wire into `checker_check.go` `Check()`
 
 ## Phase 5: `internal/app` StatePushPreparation
 - [ ] 5.1 [T] RED `keys_test.go`: `keySucceeded` — `p`→`StatePushPreparation`; `q`/`enter`/`esc` quit; Failed/Canceled/Aborted/Error stay quit-only (AC1/AC2)
