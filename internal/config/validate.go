@@ -11,9 +11,11 @@ var branchFormatTokenPattern = regexp.MustCompile(`\{\{[^{}]*\}\}`)
 // Validate checks that ticketPatterns compile as regexes, every sandbox has
 // a non-empty alias, branchFormat only uses tokens from
 // AllowedBranchFormatTokens, PollIntervalSeconds/PollTimeoutSeconds are
-// strictly positive, and — when any Delta field is configured — Delta.
-// SourceDirs is non-empty (an sgd run with zero source dirs would scan
-// nothing, silently producing an always-empty package).
+// strictly positive, Runs.KeepLast/Runs.KeepDays are non-negative (HU-013
+// run-retention: a negative window is nonsensical), and — when any Delta
+// field is configured — Delta.SourceDirs is non-empty (an sgd run with zero
+// source dirs would scan nothing, silently producing an always-empty
+// package).
 func (c Config) Validate() error {
 	for _, pattern := range c.TicketPatterns {
 		if _, err := regexp.Compile(pattern); err != nil {
@@ -36,6 +38,13 @@ func (c Config) Validate() error {
 	}
 	if c.PollTimeoutSeconds <= 0 {
 		return fmt.Errorf("config: pollTimeoutSeconds must be > 0, got %d", c.PollTimeoutSeconds)
+	}
+
+	if c.Runs.KeepLast < 0 {
+		return fmt.Errorf("config: runs.keepLast must be >= 0, got %d", c.Runs.KeepLast)
+	}
+	if c.Runs.KeepDays < 0 {
+		return fmt.Errorf("config: runs.keepDays must be >= 0, got %d", c.Runs.KeepDays)
 	}
 
 	if deltaConfigured(c.Delta) && len(c.Delta.SourceDirs) == 0 {

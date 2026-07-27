@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 
 	"deploydeck/internal/config"
@@ -91,6 +92,27 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "negative runs.keepLast fails",
+			mutate: func(c *config.Config) {
+				c.Runs.KeepLast = -1
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative runs.keepDays fails",
+			mutate: func(c *config.Config) {
+				c.Runs.KeepDays = -1
+			},
+			wantErr: true,
+		},
+		{
+			name: "runs.keepLast==0 passes (a valid, if aggressive, retention window)",
+			mutate: func(c *config.Config) {
+				c.Runs.KeepLast = 0
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -106,5 +128,23 @@ func TestConfig_Validate(t *testing.T) {
 				t.Fatalf("expected Validate() to return nil, got: %v", err)
 			}
 		})
+	}
+}
+
+// TestConfig_Validate_RunsBoundsIdentifyField is task 2.1 (RED): the
+// run-retention spec requires each bounds error to identify the offending
+// field (run-retention spec: "KeepLast/KeepDays Config Bounds Are
+// Validated").
+func TestConfig_Validate_RunsBoundsIdentifyField(t *testing.T) {
+	keepLastCfg := validConfig()
+	keepLastCfg.Runs.KeepLast = -5
+	if err := keepLastCfg.Validate(); err == nil || !strings.Contains(err.Error(), "keepLast") {
+		t.Fatalf("expected an error identifying keepLast, got %v", err)
+	}
+
+	keepDaysCfg := validConfig()
+	keepDaysCfg.Runs.KeepDays = -5
+	if err := keepDaysCfg.Validate(); err == nil || !strings.Contains(err.Error(), "keepDays") {
+		t.Fatalf("expected an error identifying keepDays, got %v", err)
 	}
 }
