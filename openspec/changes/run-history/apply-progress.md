@@ -1,8 +1,8 @@
 # Apply Progress: HU-013 — Run History, Retention & Resume (`run-history`)
 
-Batch 1 of N. Scope: **Phases 1-3 only** (`internal/runs` extension, `internal/config` bounds, run-creation-at-branch + pick-index + `validateCmd` compat). Phase 4 (resume-detection) and later are explicitly OUT of this batch.
+**Batch 1** (Phases 1-3) and **Batch 2** (Phases 4-7) — ALL phases complete. Batch 1 scope: `internal/runs` extension, `internal/config` bounds, run-creation-at-branch + pick-index + `validateCmd` compat. Batch 2 scope: startup resume-detection + resync (Phase 4), `StateRunHistory` browse screen (Phase 5), `deploydeck runs prune` CLI (Phase 6), final verification + CI-safe E2E (Phase 7).
 
-Strict TDD Mode: enabled. RED confirmed (compile failure or failing assertion) before every GREEN implementation, per task.
+Strict TDD Mode: enabled. RED confirmed (compile failure or failing assertion) before every GREEN implementation, per task, across both batches.
 
 ## TDD Cycle Evidence
 
@@ -66,12 +66,82 @@ ok  	deploydeck/internal/salesforce	2.426s
 
 No other deviations — Phase 1-3 implementation matches design.md's architecture decisions, locked pick-index formula, and file-changes table.
 
-## Risks / Notes for next batch
+## Risks / Notes (carried forward from Batch 1)
 
-- Phase 4 (resume-detection at `onPrereqDone`) is NOT started. `resumeDetectMsg`/`resumeDetectCmd`/`onResumeDetect`/`resumeInto` all remain to be implemented.
-- The `Model` does not yet carry `runs []runs.Record` / `runsCursor` (Phase 5 `StateRunHistory` fields) — those arrive with Phase 5.
-- `onPickDone`'s EMPTY-pick branch (auto-skip) does not persist progress in this batch (only the conflict branch does, per task 3.6's explicit scope). This is consistent with the empty-pick case transitioning immediately to the next pick without a user-visible stop, but should be revisited if Phase 4/5 resume needs pick-progress visibility mid-auto-skip.
+- `onPickDone`'s EMPTY-pick branch (auto-skip) does not persist progress (only the conflict branch does, per task 3.6's explicit scope). Batch 2 resume recomputes `PickIndex` LIVE from `RepoState` via `derivePickIndex` — never the persisted value — so the empty-pick/auto-skip branch not persisting `PickIndex` is harmless: `resumeInto` reads the live sequencer, not the stale record. Confirmed by `TestResume_RealInProgressCherryPick_RoutesToConflict` (3-commit, conflict-on-second → live `pickIndex==2`).
 
-## Task Checklist (cumulative — Phases 1-3 complete, Phase 4+ pending)
+---
 
-See `openspec/changes/run-history/tasks.md` for the authoritative, up-to-date checklist (`[x]` through task 3.10; `[ ]` from task 4.1 onward).
+# Batch 2 — Phases 4-7 (resume-detection, run-history screen, `runs prune`, verification)
+
+Strict TDD Mode: enabled. RED (compile failure or failing assertion) confirmed before each GREEN, per task.
+
+## TDD Cycle Evidence (Batch 2)
+
+| Task | RED (test written first) | GREEN (implementation passes) | REFACTOR |
+|---|---|---|---|
+| 4.1/4.2 `resumeDetectCmd` | `TestResumeDetectCmd_RealInProgressCherryPick` + `TestResumeDetectCmd_NilDepsIsNoOp` fail to compile (`resumeDetectCmd`/`resumeDetectMsg` undefined) | `resumeDetectMsg` + `resumeDetectCmd` (composes `Git.RepoState`+`Runs.List`, nil-dep guard) in commands.go; `onPrereqDone` dispatches it; both green | None |
+| 4.3/4.4 `onResumeDetect` routing | `TestOnResumeDetect_RoutesToRunHistoryWhenResumable` (4 sub-cases) fails to compile (`resumeDetectMsg`/`StateRunHistory` undefined) | `onResumeDetect` + `firstResumable`/`isResumable`/`containsSHA` helpers; resumable → `StateRunHistory` pre-selected, none → `StateTicketInput`, error → normal flow; green | None |
+| 4.5/4.6 resync | `TestOnResumeDetect_ResyncsStaleConflictRecord` fails (record still `git-conflict`) | `reconcileStaleRuns` (repo clean + cherry-pick phase → `Save` Phase=aborted) before the resumable set; green | None |
+| 4.7/4.8 `resumeInto` | `TestResumeInto_RoutesConflictAndPolling` (3 sub-cases) fails to compile (`resumeInto` undefined) | `resumeInto` — conflict-phase+live-HEAD → `StateCherryPickConflict` (pickIndex recomputed LIVE, not persisted 99) + `repoStateCmd`/`tick`; non-terminal jobId → `StateValidationPolling` re-armed (jobID/runID/pollCtx/reportCmd, mirrors `onValidateDone`); terminal → no-op; green | None |
+| 4.x integration (real git + fs + sf-fake) | `TestResume_RealInProgressCherryPick_RoutesToConflict`, `TestResume_Resync_ExternallyResolved`, `TestResume_ByJobId_ReattachesPolling` fail to compile/assert | All three green against real `git cherry-pick` sequencer + `Runs.List` + FakeRunner `deploy report` | None |
+| 5.1/5.2 `viewRunHistory` list | `TestViewRunHistory_ListsRunsNewestFirst` fails (compile after Phase-4 minimal view trimmed) | Enriched `viewRunHistory` — rows (date/ticket/target/progress/jobId) newest-first, empty renders no rows; green | Phase-4 committed a minimal offer-surface view; Phase 5 enriched it tests-first (trim→RED→enrich→GREEN) to keep strict TDD honest per phase |
+| 5.3/5.4 progress cell | `TestViewRunHistory_RowShowsProgressReached` fails to compile (`runProgressLabel` undefined) | `runProgressLabel` — jobId→Status, jobless→Phase; green | None |
+| 5.5/5.6 detail panel | `TestViewRunHistory_DetailOnSelection` fails (no branch/commits/package rendered) | Selected-run detail (branch via `RenderBranchName`, commit count, `runPackagePath`); green | None |
+| 5.7/5.8 `keyRunHistory` nav | `TestKeyRunHistory_Navigation` (5 sub-cases) fails (↑/↓/`d` not wired) | `keyRunHistory` up/down/`d` added alongside Enter-resume/`q`-decline; green | None |
+| 6.1/6.2 `runs prune` core | `TestRunsPrune_RemovesOnlyOutsideWindow` + `TestRunsCmd_Registered` fail to compile (`runPrune`/`newRunsCmd` undefined) | `newRunsCmd`→`runs prune` (composes `config.Load`+`runs.NewWriter().Prune`), registered via `root.AddCommand`; `runPrune` testable core; green | Extracted `runPrune(w, dir)` so `RunE` only supplies `os.Getwd()` — testable end-to-end without process-level cwd tricks |
+| 6.3/6.4 end-to-end + non-zero exit | `TestRunsPruneCmd_EndToEnd` (via `t.Chdir`+cobra `Execute`) + `TestRunsPrune_ConfigError_NonZeroExit` fail | `RunE` resolves cwd → `runPrune`; a load/prune failure returns a non-zero exit mirroring `newDoctorCmd`; green | None |
+| 7.1/7.2 consolidated E2E | `TestE2E_RunHistory_SeedsOfferDeclineResume` fails to compile until wiring exists | Seeds done/stale-conflict/jobId runs on a real clean repo + fs + sf-fake; drives startup→offer→resync→list→decline→resume-by-jobId; green with NO gaps beyond Phase 4-6 wiring | None |
+
+## Work Unit Evidence (Batch 2)
+
+### Unit 4 — Startup resume-detection + resync + `resumeInto` (commit `feat(app): startup resume-detection and resync`)
+- Focused test command and exact result: `go test ./internal/app/ -run 'Resume|OnResumeDetect|ResumeInto|ResumeDetect'` → PASS (routing units + 3 real-git/fs/sf-fake integration tests)
+- Runtime harness command/scenario and exact result: `go test ./internal/app/ -run 'TestResume_RealInProgressCherryPick_RoutesToConflict|TestResume_Resync_ExternallyResolved|TestResume_ByJobId_ReattachesPolling' -v` → PASS; REAL `git cherry-pick` sequencer (live `PickIndex` recompute), external `git cherry-pick --abort` resync, and FakeRunner `deploy report` re-attach — no org
+- Rollback boundary: revert `resumeDetectMsg`/`resumeDetectCmd` (commands.go), `onResumeDetect`/`resumeInto`/`reconcileStaleRuns`/`isResumable`/`firstResumable`/`containsSHA`/`isCherryPickPhase` + `onPrereqDone` dispatch + `onPickDone` pickIndex (update.go), `StateRunHistory` const + Model fields (app.go), `keyRunHistory` + routing (keys.go), `viewConflict` pick-N-of-M + minimal `viewRunHistory` (view.go), `resume_test.go`; `onPrereqDone` reverts to unconditional `StateTicketInput`
+
+### Unit 5 — `StateRunHistory` browse screen (commit `feat(app): run-history browse screen`)
+- Focused test command and exact result: `go test ./internal/app/ -run 'RunHistory'` → PASS (list/progress/detail/navigation)
+- Runtime harness: `Model.Update()` direct transitions + `View()` rendering — N/A for a real external-process harness (pure TUI state/render layer)
+- Rollback boundary: revert the enriched `viewRunHistory` + `runProgressLabel`/`runPackagePath` (view.go) and `keyRunHistory` up/down/`d` (keys.go) + `run_history_test.go`; the minimal Phase-4 offer surface remains functional
+
+### Unit 6 — `deploydeck runs prune` CLI (commit `feat(cmd): runs prune command`)
+- Focused test command and exact result: `go test ./cmd/deploydeck/ -run 'RunsPrune|RunsCmd'` → PASS
+- Runtime harness command/scenario and exact result: `TestRunsPruneCmd_EndToEnd` invokes the registered cobra command end-to-end (`t.Chdir` + real `deploydeck.yaml` + real `.deploydeck/runs/` fixture via `RunE`→`os.Getwd`→`config.Load`→`Prune`), asserting exact dirs removed/kept — no org
+- Rollback boundary: revert `newRunsCmd`/`newRunsPruneCmd`/`runPrune` + the `root.AddCommand(newRunsCmd())` registration (cmd/deploydeck/main.go) + `runs_prune_test.go`
+
+### Unit 7 — Final verification + consolidated CI-safe E2E
+- Focused test command and exact result: `go test ./internal/app/ -run 'TestE2E_RunHistory_SeedsOfferDeclineResume' -v` → PASS
+- Runtime harness: real clean temp git repo + temp `.deploydeck/runs/` + FakeRunner `deploy report` (fs+temp+sf-fake, no org)
+- Rollback boundary: revert `run_history_e2e_test.go` (verification-only; removes no production behavior)
+
+## Full-suite verification (end of Batch 2)
+
+```
+$ go build ./...                  # clean
+$ go vet ./...                    # clean
+$ gofmt -l .                      # clean (no output)
+$ go test -race -count=1 ./...
+ok  	deploydeck/cmd/deploydeck	5.816s
+ok  	deploydeck/internal/app	9.450s
+ok  	deploydeck/internal/config	1.640s
+ok  	deploydeck/internal/delta	8.266s
+ok  	deploydeck/internal/exec	3.328s
+ok  	deploydeck/internal/git	50.454s
+ok  	deploydeck/internal/prereq	4.301s
+ok  	deploydeck/internal/runs	2.968s
+ok  	deploydeck/internal/salesforce	2.670s
+```
+
+`TestApp_NeverImportsExecSeam` (boundary_test.go) reconfirmed green — the resume/history/prune paths route through `git.Service`/`salesforce.Client`/`runs.Writer` only; `internal/app` still never execs directly.
+
+## Deviations from design.md (Batch 2)
+
+1. **Resume offer surface is `StateRunHistory` (not direct-to-conflict)**: the orchestrator's Phase-4 bullet reads "route to `StateCherryPickConflict`", but design.md's data-flow diagram + tasks 4.3/4.4/4.7 route detection → `StateRunHistory` (offer) → Enter → `resumeInto` → `StateCherryPickConflict`/`StateValidationPolling`. Implemented per the design/tasks (the offer surface), with the integration test driving the full startup→offer→Enter→conflict path so the deliverable ("startup routes to the conflict screen with ticket + pick N of M") is satisfied end-to-end.
+2. **`newRunsCmd()` takes no `Deps`** (unlike `newDoctorCmd(deps)`): `runs prune` composes `config.Load` + `runs.NewWriter` directly from the resolved cwd and needs nothing from `Deps`, so the constructor is parameterless. Registered as `root.AddCommand(newRunsCmd())`.
+
+No other deviations — Phases 4-7 match design.md's data flow, locked pick-index formula (recomputed LIVE on resume), retention semantics, and file-changes table.
+
+## Task Checklist (cumulative — ALL phases complete)
+
+`openspec/changes/run-history/tasks.md` is the authoritative checklist: `[x]` through 7.5 (7.3 marked `[~]` — opt-in real-org E2E, not mandated; its code path is covered CI-safe by `TestResume_ByJobId_ReattachesPolling`). All six `proposal.md` Success Criteria checked off with their proving tests.

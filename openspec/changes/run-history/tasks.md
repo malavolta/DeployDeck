@@ -102,8 +102,8 @@ Chain strategy: pending
 
 ## Phase 7: Final verification
 
-- [ ] 7.1 `[E2E]` RED: CI-safe `fs+temp+sf-fake` (no org) — seed: conflicted run w/ `CHERRY_PICK_HEAD`; resync case (conflict record, clean repo); run w/ `jobId`; run w/o job; >`keepLast`/>`keepDays` runs. Drives startup→offer→resume→(conflict|polling)/decline + `runs prune`.
-- [ ] 7.2 `[E2E]` GREEN: close any gaps surfaced by 7.1 (expect none beyond wiring already built).
-- [ ] 7.3 `[E2E-ORG]` opt-in, best-effort: real-org `ReportDeploy` re-attach behind `DEPLOYDECK_E2E_ORG`, never mandated.
-- [ ] 7.4 Run `go test -race ./...`, `go vet ./...`, `gofmt -l .` — clean; rerun `boundary_test.go`.
-- [ ] 7.5 Check off every `proposal.md` Success Criteria line against passing tests.
+- [x] 7.1 `[E2E]` RED: CI-safe `fs+temp+sf-fake` (no org) — seed: conflicted run w/ `CHERRY_PICK_HEAD`; resync case (conflict record, clean repo); run w/ `jobId`; run w/o job; >`keepLast`/>`keepDays` runs. Drives startup→offer→resume→(conflict|polling)/decline + `runs prune`. (`TestE2E_RunHistory_SeedsOfferDeclineResume` for the TUI story; `TestResume_RealInProgressCherryPick_RoutesToConflict`/`TestResume_Resync_ExternallyResolved`/`TestResume_ByJobId_ReattachesPolling` for the individual seeds; `TestRunsPruneCmd_EndToEnd` for retention.)
+- [x] 7.2 `[E2E]` GREEN: close any gaps surfaced by 7.1 (expect none beyond wiring already built). No gaps — the E2E passed against the existing Phase 4-6 wiring.
+- [~] 7.3 `[E2E-ORG]` opt-in, best-effort: real-org `ReportDeploy` re-attach behind `DEPLOYDECK_E2E_ORG`, never mandated. Not mandated for CI; the CI-safe `sf-fake` re-attach (`TestResume_ByJobId_ReattachesPolling`) fully exercises the same code path without an org.
+- [x] 7.4 Run `go test -race ./...`, `go vet ./...`, `gofmt -l .` — clean; rerun `boundary_test.go`. All clean under `-race -count=1`; `TestApp_NeverImportsExecSeam` reconfirmed green.
+- [x] 7.5 Check off every `proposal.md` Success Criteria line against passing tests. All six checked off with their proving tests.
