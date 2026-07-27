@@ -20,9 +20,9 @@ Chain strategy: pending
 
 | Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|-----------|----------------------|-----------------|-------------------|
-| 1 | Batches 1-2: `SourceRunID` + `NextEnvironmentBranch` (pure-unit) | PR 1 | `go test ./internal/runs/... ./internal/git/... -run 'SourceRunID|NextEnvironmentBranch'` | N/A — pure-unit, no external process | Revert `writer.go` field + `source_suggestion.go` addition; additive/omitempty, no schema bump |
+| 1 | Batches 1-2: `SourceRunID` + `NextEnvironmentBranch` (pure-unit) | PR 1 | `go test ./internal/runs/... ./internal/git/... -run 'SourceRunID\|NextEnvironmentBranch'` | N/A — pure-unit, no external process | Revert `writer.go` field + `source_suggestion.go` addition; additive/omitempty, no schema bump |
 | 2 | Batch 3: `RemapCommitsByPatchID` (integration) | PR 1 | `go test ./internal/git/... -run RemapCommitsByPatchID` | `t.TempDir()` real git repo via `newTempRepo`/`newTempRepoWithRemote`, `-short`-skippable | Delete `internal/git/re_promote.go` + its test; no other file depends on it yet |
-| 3 | Batches 4-5: `startRePromoteInto` + `SourceRunID` threading (app-level) | PR 1 | `go test ./internal/app/... -run 'RePromote|KeyRunHistory|SourceRunID'` | N/A — `Model.Update` unit tests, no real git/org | Revert `keyRunHistory`'s `r` branch + `update.go`/`app.go`/`view.go` additions; `internal/app` stays exec-free (`boundary_test.go`) |
+| 3 | Batches 4-5: `startRePromoteInto` + `SourceRunID` threading (app-level) | PR 1 | `go test ./internal/app/... -run 'RePromote\|KeyRunHistory\|SourceRunID'` | N/A — `Model.Update` unit tests, no real git/org | Revert `keyRunHistory`'s `r` branch + `update.go`/`app.go`/`view.go` additions; `internal/app` stays exec-free (`boundary_test.go`) |
 | 4 | Batch 6-7: consolidated e2e + docs | PR 1 | `go test ./internal/app/... -run RePromote_E2E` | temp git + runs fixture (`t.TempDir()`), NO org, `-short`-skippable | Delete e2e test file; docs edits are additive notes, trivially revertible |
 
 ## Phase 1: `run-persistence` — `SourceRunID` (pure-unit)
