@@ -1,6 +1,6 @@
 # Apply Progress: Delta + Validation (HU-007, 008, 010, 011)
 
-**Batch**: 2 of N (Phases 4-6 this batch; Phases 1-3 completed in batch 1)
+**Batch**: 3 of 3, FINAL (Phases 7-9 this batch; Phases 1-3 in batch 1, 4-6 in batch 2)
 **Mode**: Strict TDD
 **Delivery**: single-pr under `size:exception` (maintainer-approved, per tasks.md's Review Workload Forecast)
 **Branch**: `delta-validation`
@@ -11,10 +11,11 @@ Phase 1 (Foundations: config/plan/changed-files), Phase 2 (HU-007
 `internal/delta` delta generation), Phase 3 (HU-008 `Summarize`
 package-summary) — batch 1. Phase 4 (HU-010 `salesforce.ValidateDeploy`),
 Phase 5 (`internal/runs` minimal writer), Phase 6 (HU-011
-`salesforce.ReportDeploy` + `IsTerminal`) — batch 2 (this batch). Phase 7
-(`internal/app` wiring), Phase 8 (real e2e), Phase 9 (final verification)
-are **NOT** started — explicitly out of scope for this batch per the
-orchestrator's instruction ("Phases 4-6 ONLY... Do NOT start Phase 7+").
+`salesforce.ReportDeploy` + `IsTerminal`) — batch 2. Phase 7 (`internal/app`
+state-machine wiring past `StatePickVerification`), Phase 8 (real e2e:
+multi-`--source-dir` real sgd + opt-in `[E2E-ORG]` validate+report), Phase 9
+(final verification) — batch 3 (this FINAL batch). **All 53 tasks.md items
+are now complete.**
 
 ## Completed Tasks
 
@@ -61,8 +62,35 @@ orchestrator's instruction ("Phases 4-6 ONLY... Do NOT start Phase 7+").
 - [x] 6.3 RED `IsTerminal` table (8 cases: 4 terminal, 4 non-terminal incl. empty string)
 - [x] 6.4 GREEN `IsTerminal`
 
-**31/53 tasks.md items complete** (Phases 1-6 fully done; Phases 7-9
-remain for the next batch).
+### Phase 7: `internal/app` wiring (state machine)
+- [x] 7.1 RED PickVerification confirm gated by `Model.DeltaAllowed()`
+- [x] 7.2 GREEN `State` consts `DeltaGeneration..Canceled`, `Deps.{Delta,Runs,Now}`, gate
+- [x] 7.3 RED DeltaGeneration → `deltaCmd` → PackageReview; sgd failure keeps user + Raw, no validation
+- [x] 7.4 GREEN `deltaCmd` + transition
+- [x] 7.5 RED PackageReview blocks confirm while `summary.Empty` until `emptyConfirmed`
+- [x] 7.6 GREEN `emptyConfirmed` flag + `o` override gate
+- [x] 7.7 RED PackageReview confirm → QueueReview (inert) → ValidationStart same tick
+- [x] 7.8 GREEN inert pass-through
+- [x] 7.9 RED ValidationStart → `ValidateDeploy` → jobId → `runs.Create` → Polling; CLI error stays alive
+- [x] 7.10 GREEN `validateCmd` + immediate persistence
+- [x] 7.11 RED Polling: `tea.Tick` single `ReportDeploy`/tick; injected `Now` deadline; timeout→Failed; transient retry; each report → `AppendReport`
+- [x] 7.12 GREEN `reportCmd`/`onPollTick`/`onReportDone` loop
+- [x] 7.13 RED terminal mapping {Succeeded,SucceededPartial}→Succeeded, Failed→Failed, Canceled→Canceled; stops
+- [x] 7.14 GREEN terminal mapping
+- [x] 7.15 RED user exit during Polling leaves job active/resumable — no cancel issued
+- [x] 7.16 `boundary_test.go` (app never execs directly) still passes unmodified
+
+### Phase 8: Real e2e
+- [x] 8.1 `[I]` real-sgd multi-`--source-dir` merge (new) + destructive path (batch-1 `generate_e2e_test.go`)
+- [x] 8.2 `[E2E-ORG]` `internal/salesforce/real_org_e2e_test.go`: non-destructive async CheckOnly validate + report poll-to-terminal vs `AM-DEV-EDITION`
+
+### Phase 9: Final verification
+- [x] 9.1 `go test -race ./...` green
+- [x] 9.2 `go vet ./...` clean
+- [x] 9.3 `gofmt -l .` empty
+- [x] 9.4 `proposal.md` Success Criteria checked off
+
+**53/53 tasks.md items complete** (all phases done and green).
 
 ## Files Changed
 
@@ -99,6 +127,21 @@ remain for the next batch).
 | `internal/runs/writer.go` | Created | `Record`/`SchemaVersion1`/`Writer`/`NewWriter`/`Create`/`AppendReport`/`readRecord`/`nextReportNumber`/`writeJSON` |
 | `internal/runs/writer_test.go` | Created | `Create` round-trip + forced-schema-version + directory-creation tests; `AppendReport` numbered-report + status/UpdatedAt-update + unknown-runID-errors tests |
 
+### Batch 3 (Phases 7-9, this FINAL batch)
+
+| File | Action | What Was Done |
+|---|---|---|
+| `internal/app/app.go` | Modified | Added `State` consts `StateDeltaGeneration..StateCanceled`; `Deps.{Delta *delta.Service, Runs *runs.Writer, Now func()time.Time}`; Model fields (`deltaResult`/`summary`/`deltaErr`/`emptyConfirmed`/`jobID`/`runID`/`runDir`/`report`/`validateErr`/`reportErr`/`pollDeadline`/`timedOut`); helpers `now`/`pollIntervalSeconds`/`pollTimeoutSeconds`/`terminalState`/`deltaBaseDir` |
+| `internal/app/commands.go` | Modified | Added `deltaDoneMsg`/`validateDoneMsg`/`reportDoneMsg`/`pollTickMsg`; `deltaCmd` (Generate+parse+ChangedFiles+Summarize), `parsePackageFile`, `validateCmd` (ValidateDeploy+immediate `runs.Create`), `reportCmd` (per-call `context.WithTimeout`), `pollTickCmd` |
+| `internal/app/update.go` | Modified | Wired the 4 new msg cases; `onDeltaDone`/`onValidateDone`/`onReportDone`/`onPollTick` (deadline enforcement, transient retry, `AppendReport` each poll, terminal mapping) |
+| `internal/app/keys.go` | Modified | Routing for the 5 new states; `keyVerification` enter now gates on `DeltaAllowed` → DeltaGeneration; `keyDeltaGeneration`/`keyPackageReview`(+`confirmPackageReview` inert pass-through + `o` override)/`keyValidationStart`/`keyValidationPolling` (`q` leaves job active, `r` manual refresh) |
+| `internal/app/view.go` | Modified | `viewDeltaGeneration`/`viewPackageReview`/`viewValidationStart`/`viewValidationPolling`/`viewValidationResult`/`validationBody` — surface per-type/destructive/sensitive/outside-dir summary, sgd raw on failure, live component/test counts, metadata errors (component/type/message), failed tests (class/method/message), timeout note |
+| `internal/app/delta_validation_test.go` | Created | 15 `Model.Update`/`FakeRunner`/injected-clock tests covering tasks 7.1-7.15 + a `deltaCmd` composition test + a live/terminal view test |
+| `cmd/deploydeck/main.go` | Modified | `defaultRunTUI` now constructs `Delta: delta.New(runner)` + `Runs: runs.NewWriter(dir)` (Now left nil → real clock) |
+| `internal/delta/multi_source_dir_e2e_test.go` | Created | `[I]` real-sgd multi-`--source-dir` merge: two SFDX package dirs, one Apex class each, both edited; asserts ONE merged `package.xml` lists members from BOTH dirs |
+| `internal/salesforce/real_org_e2e_test.go` | Created | `[E2E-ORG]` opt-in (`DEPLOYDECK_E2E_ORG`) non-destructive async CheckOnly validate + report poll-to-terminal vs `AM-DEV-EDITION`; asserts jobId, immediate persistence, terminal state, and report-shape parsing (fail-on-mismatch) |
+| `internal/salesforce/report.go` | Modified | Doc-only: `reportResultEnvelope` comment now records the shape was confirmed verbatim against real `sf` CLI 2.135.7 output (resolves batch-2 deviation 7) |
+
 ## TDD Cycle Evidence
 
 | Task | RED (failing test first) | GREEN (implementation) | REFACTOR |
@@ -116,6 +159,10 @@ remain for the next batch).
 | 5.3/5.4 | `go test ./internal/runs/... -run AppendReport` → `w.AppendReport undefined` build failure (confirmed) | `AppendReport`/`readRecord`/`nextReportNumber` added; both `AppendReport` tests green | none |
 | 6.1/6.2 | `go test ./internal/salesforce/... -run 'ReportDeploy\|IsTerminal'` → `client.ReportDeploy undefined` + `undefined: salesforce.IsTerminal` build failures (confirmed) | `report.go` added, `Client` interface extended; arg/counters/ComponentFailures/TestFailures/CLI-error tests green | `gofmt -w` re-aligned the `DeployReport{}` struct literal after adding fields (mechanical, no behavior change) |
 | 6.3/6.4 | Same RED run also exercised `TestIsTerminal`'s 8 subtests, failing to compile alongside the rest | `terminalStatuses` map + `IsTerminal` added; all 8 subtests green | none |
+| 7.1-7.15 | `go test ./internal/app/... -run 'DeltaValidation\|DeltaGeneration\|PackageReview\|Validation\|PickVerification_ConfirmGated\|DeltaCmd'` → compile failure `undefined: StateDeltaGeneration`, `undefined: deltaDoneMsg`, `m.summary undefined`, etc. (confirmed) | states/deps/messages/commands/handlers/views added; all 15 tests + subtests green | `pollTickMsg`/`pollTickCmd` kept distinct from cherry-pick `tickMsg`/`tickCmd` (different cadence, different command); `parsePackageFile` extracted as a shared helper |
+| 7.16 | Boundary invariant — `internal/app` must import neither `os/exec` nor `internal/exec` even after importing `delta`+`runs` | `TestApp_NeverImportsExecSeam` re-run PASS unmodified: `delta`/`runs` are DIRECT imports, the seam is only transitive (allowed) | none |
+| 8.1 | `go test ./internal/delta/... -run MultiSourceDir -count=1` → RED against not-yet-written seed helpers (compile) then real sgd | Passes against REAL `sf sgd source delta`, 2.92s: one merged `package.xml` carries AlphaService (pkg-a) + BetaService (pkg-b) | reused `runGit`/`memberOfType` from `generate_e2e_test.go` (same package) |
+| 8.2 | Skips cleanly with no `DEPLOYDECK_E2E_ORG` (visible SKIP); RED-authored strong shape assertions | Passes vs `AM-DEV-EDITION`: jobId `0Affj...` captured, run persisted, polled `Pending → Failed` (3 component errors) to terminal, all 3 `componentFailures` parsed with component/type/message | none — the inferred shape matched real output, so no `report.go` tag change was needed |
 
 ## Work Unit Evidence
 
@@ -148,6 +195,16 @@ remain for the next batch).
 - Focused test: `go test ./internal/salesforce/... -run 'ReportDeploy|IsTerminal' -v` → `ok deploydeck/internal/salesforce` (13 subtests, all PASS)
 - Runtime harness: `[E2E-ORG]` deferred to Phase 8 (opt-in, `DEPLOYDECK_E2E_ORG`) — N/A this batch, per tasks.md's own Suggested Work Units table for Unit 6
 - Rollback boundary: delete `internal/salesforce/report.go`(+test); revert the `ReportDeploy` method from `Client` in `client.go`; no dependents yet (Phase 7 wiring not started)
+
+### Unit 7 — `internal/app` state-machine wiring (Phase 7)
+- Focused test: `go test ./internal/app/... -short` → `ok deploydeck/internal/app`; `-run '...ConfirmGated|DeltaGeneration|PackageReview|Validation|DeltaCmd|NeverImportsExecSeam' -v` → 16 top-level tests + subtests all PASS
+- Runtime harness: the injected-clock + `FakeRunner` + real `runs.Writer(t.TempDir())` tests ARE the harness for the app half (design's "direct `Model.Update(msg)` + `FakeRunner`"); the real service composition is exercised by Unit 8's e2e. `boundary_test.go` re-confirms no direct exec.
+- Rollback boundary: revert `internal/app/{app,commands,update,keys,view}.go` additions + delete `delta_validation_test.go` + revert `cmd/deploydeck/main.go`'s `Delta`/`Runs` deps; the flow falls back to stopping at `StatePickVerification` (foundation flow untouched)
+
+### Unit 8 — Real e2e suite (Phase 8)
+- Focused test: `go test ./internal/delta/... -run MultiSourceDir -v` → `PASS (2.92s)` real sgd; `DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test ./internal/salesforce/... -run TestE2ERealOrg_ValidateAndReport -v` → `PASS (11.87s)` real org
+- Runtime harness: the tests ARE the harness — real `sf sgd source delta` (two `--source-dir`) and real non-destructive CheckOnly `sf project deploy validate --async` + `sf project deploy report` polled to a terminal `Failed` state
+- Rollback boundary: delete the two e2e test files (`multi_source_dir_e2e_test.go`, `real_org_e2e_test.go`) + revert the `report.go` doc-comment note; no production code changes
 
 ## Deviations From Design
 
@@ -214,7 +271,8 @@ remain for the next batch).
    7). `Raw` is still always preserved on the returned `DeployReport`
    (tested), matching design.md's field but not over-engineering an
    error-decoding contract nothing asked for.
-7. **`reportResultEnvelope`'s nested `details.componentFailures`/
+7. **[RESOLVED in batch 3 — shape CONFIRMED, no fix needed]**
+   `reportResultEnvelope`'s nested `details.componentFailures`/
    `details.runTestResult.failures` shape was not literally specified in
    design.md** (design.md only names the flat source keys:
    `fullName,componentType,problem` and `name,methodName,message`, not
@@ -229,37 +287,59 @@ remain for the next batch).
    in Phase 8's `[E2E-ORG]` test — a shape mismatch there is a localized
    fix to `reportResultEnvelope`'s struct tags only, since `DeployReport`
    and `ReportDeploy`'s signature are unaffected either way.
+   **Batch-3 resolution**: `TestE2ERealOrg_ValidateAndReport` against
+   `AM-DEV-EDITION` returned a `Failed` validate with
+   `numberComponentErrors:3` and `result.details.componentFailures[]` whose
+   entries are exactly `{fullName, componentType, problem}`, plus
+   `result.details.runTestResult.failures` as the test-failure container —
+   the inferred nesting matches real `sf` CLI 2.135.7 output VERBATIM and
+   the parser extracted all 3 failures. **No struct-tag change required**;
+   `report.go`'s comment now records the confirmation.
+
+### Batch 3 (Phase 7-9) deviations
+
+8. **`pollTickMsg`/`pollTickCmd` are separate from the cherry-pick
+   `tickMsg`/`tickCmd`, not a reuse of `onTick`.** Reusing one `tickMsg`
+   would conflate two genuinely different cadences (750ms cherry-pick
+   re-poll vs the configured `pollIntervalSeconds`, default 10s) firing two
+   different commands (`repoStateCmd` vs `reportCmd`). A dedicated
+   `pollTickMsg` + `onPollTick` keeps each loop explicit and independently
+   testable — behaviorally identical to design.md's polling-loop intent.
+9. **`deltaCmd`'s `git.ChangedFiles` call is best-effort** (a git-diff error
+   degrades to no `OutsideSourceDirs`, never sinks a successful delta),
+   matching the existing `depWarningsCmd` degrade-to-empty policy.
+10. **`validateCmd` does not populate `ValidateRequest.Tests`** — HU-010's
+    `RunSpecifiedTests` class list has no selection UI in this slice; the
+    salesforce-layer repeated-`--tests` composition is Phase-4-tested and
+    exercised by the real-org e2e (`RunSpecifiedTests`+`AccountServiceTest`).
+11. **An sgd failure surfaces its raw output via the error TEXT**, not a
+    separate model `Raw` field: `Generate` already embeds raw stdout/stderr
+    in its error (batch-1 deviation 3), and `viewDeltaGeneration` renders
+    `deltaErr.Error()`.
 
 ## Issues Found
 
-None beyond the deviations above (all resolved within their respective
-batch, not deferred, except deviation 7 which is explicitly flagged for
-Phase 8 confirmation).
+None. Every deviation above is resolved within its batch; batch-2 deviation
+7 is now CONFIRMED against real `sf` output with no code change required.
 
 ## Remaining Tasks
 
-Phase 7 (`internal/app` wiring: `DeltaGeneration`, `PackageReview`,
-`QueueReview`, `ValidationStart`, `ValidationPolling` states +
-`Deps.{Delta,Runs,Now}` + `deltaCmd`/`validateCmd`/`reportCmd`/`onTick`/
-`onReportDone`) through Phase 9 (final verification) — 22 remaining
-`tasks.md` items. Explicitly NOT started per this batch's scope
-(orchestrator instruction: "Phases 4-6 ONLY... Do NOT start Phase 7+").
+None — all 53 `tasks.md` items (Phases 1-9) are complete and green.
 
 ## Workload / PR Boundary
 
 - Mode: single PR under `size:exception` (delivery=`single-pr`,
   chain-strategy=`size-exception`, per tasks.md's Review Workload
   Forecast — maintainer-approved, ~2.5k lines within the 40,000 budget)
-- Current work unit: Units 4-6 of 8 (HU-010 validate, `internal/runs`
-  writer, HU-011 report+`IsTerminal`) — this batch
-- Boundary: starts from batch 1's clean, green Phase 1-3 state; ends with
-  Phase 6 complete and green, Phase 7+ untouched
-- Estimated review budget impact: this batch added 3 commits touching
-  `internal/salesforce/{client,validate,report}.go`(+tests) and
-  `internal/runs/writer.go`(+test) — `git diff --stat 4852ed8 HEAD --
-  internal/` shows the batch's authored addition, well within the granted
-  exception (full running total still far under the 40,000 session
-  budget)
+- Current work unit (batch 3): Units 7-8 of 8 (`internal/app` state-machine
+  wiring + real e2e suite)
+- Boundary: starts from batch 2's clean, green Phase 1-6 state; ends with
+  Phases 7-9 complete and green (full flow reaches a terminal validation
+  state; real-org e2e confirmed). The single PR now covers all three batches.
+- Estimated review budget impact: batch 3 added 2 commits — the `internal/app`
+  wiring (5 files + 1 test + main) and the 2 e2e test files (+ a `report.go`
+  doc note). `size:exception` remains the granted delivery mode; the full
+  running total is still under the 40,000 session budget.
 
 ## Final Verification (this batch's scope)
 
@@ -296,6 +376,47 @@ $ go test ./internal/runs/... -v -count=1
 ok  	deploydeck/internal/runs	0.524s  (5 test functions, all PASS)
 ```
 
+## Final Verification (Phase 9 — full change)
+
+Command 1 — full suite, no env var (real-org tests SKIP), verbatim:
+```
+$ export PATH="/usr/local/go/bin:$PATH" && go build ./... && go vet ./... && gofmt -l . && go test -race ./...
+ok  	deploydeck/cmd/deploydeck	(cached)
+ok  	deploydeck/internal/app	(cached)
+ok  	deploydeck/internal/config	(cached)
+ok  	deploydeck/internal/delta	(cached)
+ok  	deploydeck/internal/exec	(cached)
+ok  	deploydeck/internal/git	(cached)
+ok  	deploydeck/internal/prereq	(cached)
+ok  	deploydeck/internal/runs	(cached)
+ok  	deploydeck/internal/salesforce	(cached)
+```
+(`go build`/`go vet`/`gofmt -l .` produced no output; on the immediately
+prior uncached run the packages timed at cmd 6.163s, app 4.242s, delta
+7.588s, git 48.245s, prereq 4.064s, salesforce 2.601s — all `ok`.)
+
+Command 2 — real-org validate+report, verbatim (condensed to key lines):
+```
+$ export PATH="/usr/local/go/bin:$PATH" && DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test -run 'E2EOrg|RealOrg|E2E_Org' ./... -v -count=1 -timeout 20m
+=== RUN   TestE2ERealOrg_Smoke
+--- PASS: TestE2ERealOrg_Smoke (3.57s)
+ok  	deploydeck/internal/prereq	4.227s
+=== RUN   TestE2ERealOrg_ValidateAndReport
+    real_org_e2e_test.go:201: captured jobId: 0Affj00000L13r0CAB
+    real_org_e2e_test.go:239: poll status="Pending" components=0/0(err 0) tests=0/0(err 0)
+    real_org_e2e_test.go:239: poll status="Failed" components=0/3(err 3) tests=0/0(err 0)
+--- PASS: TestE2ERealOrg_ValidateAndReport (11.87s)
+ok  	deploydeck/internal/salesforce	12.897s
+(other packages: [no tests to run], all ok)
+```
+
+**Report JSON shape verdict**: the real `sf project deploy report --json`
+output MATCHED the inferred `reportResultEnvelope` struct VERBATIM —
+`result.details.componentFailures[]` with `{fullName, componentType,
+problem}` and `result.details.runTestResult.failures` as the test-failure
+container. All 3 real component failures parsed correctly. **No struct-tag
+fix was required.**
+
 ## Commits
 
 Batch 1:
@@ -306,15 +427,18 @@ Batch 1:
 5. `1b5e47c` `test(delta): real-sgd integration against test-e2e-org fixture`
 6. `4852ed8` `fix(config): only default delta.outputDir once sourceDirs is set`
 
-Batch 2 (this batch):
+Batch 2:
 7. `31c84c4` `feat(salesforce): async deploy validate`
 8. `970265c` `feat(runs): minimal run persistence`
 9. `9c77413` `feat(salesforce): deploy report + bounded polling primitives`
 
+Batch 3 (this FINAL batch):
+10. `a18cf21` `feat(app): wire delta generation, package review and async validation states`
+11. `e25db27` `test(delta,salesforce): real e2e for multi-source-dir delta and org validate+report`
+12. (this doc + tasks/proposal checkbox updates) `docs(delta-validation): mark phases 7-9 complete`
+
 ## Status
 
-31/53 tasks.md items complete (Phases 1-6 fully done and green).
-Ready for the next `sdd-apply` batch (Phase 7: `internal/app` wiring —
-`DeltaGeneration` through `ValidationPolling` states, `Deps.{Delta,Runs,
-Now}`, and the actual `tea.Tick`-driven poll loop with timeout/
-transient-retry).
+53/53 tasks.md items complete (Phases 1-9 fully done and green).
+All batches complete. The change is fully implemented, green under
+`-race`, and confirmed against the real org — ready for `sdd-verify`.

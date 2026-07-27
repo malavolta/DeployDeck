@@ -107,10 +107,10 @@ Chain strategy: size-exception
 
 ## Phase 9: Final verification
 
-- [ ] 9.1 `go test -race ./...` green
-- [ ] 9.2 `go vet ./...` clean
-- [ ] 9.3 `gofmt -l .` empty output
-- [ ] 9.4 Check off `proposal.md` Success Criteria against implemented behavior
+- [x] 9.1 `go test -race ./...` green
+- [x] 9.2 `go vet ./...` clean
+- [x] 9.3 `gofmt -l .` empty output
+- [x] 9.4 Check off `proposal.md` Success Criteria against implemented behavior
 
 ## HU / Test-Type Mapping
 

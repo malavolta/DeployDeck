@@ -65,7 +65,7 @@ Additive on branch `delta-validation`; revert the feature commits — foundation
 
 ## Success Criteria
 
-- [ ] Post-verification flow reaches a terminal validation state with no manual `sgd`/`sf` calls.
-- [ ] Delta artifacts + summary shown; empty package blocks validation pending explicit confirm.
-- [ ] jobId + status + raw JSON persisted under `.deploydeck/runs/<run-id>/`.
-- [ ] Unit + temp-repo-sgd integration green; opt-in real-org e2e polls to terminal.
+- [x] Post-verification flow reaches a terminal validation state with no manual `sgd`/`sf` calls. (`internal/app` states `DeltaGeneration → PackageReview → (QueueReview) → ValidationStart → ValidationPolling → {Succeeded,Failed,Canceled}`, all routed through `Deps.Delta`/`SF`/`Runs`; `boundary_test.go` proves `internal/app` never execs directly.)
+- [x] Delta artifacts + summary shown; empty package blocks validation pending explicit confirm. (`viewPackageReview` renders per-type/destructive/sensitive/outside-dir summary; `emptyConfirmed` override gate blocks confirm until an explicit `o`.)
+- [x] jobId + status + raw JSON persisted under `.deploydeck/runs/<run-id>/`. (`validateCmd` calls `runs.Create` immediately on jobId; confirmed by unit test and the real-org e2e run.json/validate.json/report-NNN.json assertions.)
+- [x] Unit + temp-repo-sgd integration green; opt-in real-org e2e polls to terminal. (`go test -race ./...` fully green; real-org `TestE2ERealOrg_ValidateAndReport` polled `Pending → Failed` to a terminal state against `AM-DEV-EDITION`.)
