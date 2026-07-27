@@ -204,3 +204,111 @@ func TestWriter_AppendReport_UnknownRunIDErrors(t *testing.T) {
 		t.Fatal("expected an error for an unknown runID, got nil")
 	}
 }
+
+func TestWriter_MarkCanceled_WritesCancelJSONAndSetsCanceledStatus(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{
+		RunID:     "TICKET-7-to-UAT-20260727120000",
+		Ticket:    "TICKET-7",
+		Target:    "UAT",
+		Alias:     "UAT_SANDBOX",
+		JobID:     "0Af000000000007EAA",
+		Status:    "InProgress",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	dir, err := w.Create(rec, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error creating run: %v", err)
+	}
+
+	cancelRaw := []byte(`{"status":0,"result":{"id":"0Af000000000007EAA","status":"Canceled"}}`)
+	if err := w.MarkCanceled(rec.RunID, cancelRaw); err != nil {
+		t.Fatalf("unexpected error on MarkCanceled: %v", err)
+	}
+
+	// cancel.json companion holds the raw cancel response verbatim.
+	gotCancel, err := os.ReadFile(filepath.Join(dir, "cancel.json"))
+	if err != nil {
+		t.Fatalf("expected cancel.json to exist: %v", err)
+	}
+	if string(gotCancel) != string(cancelRaw) {
+		t.Fatalf("expected cancel.json to hold the raw cancel response verbatim, got %q", gotCancel)
+	}
+
+	// run.json Status transitions to Canceled, UpdatedAt advances, identity
+	// fields preserved.
+	runData, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		t.Fatalf("expected run.json to exist: %v", err)
+	}
+	var gotRec runs.Record
+	if err := json.Unmarshal(runData, &gotRec); err != nil {
+		t.Fatalf("run.json is not valid JSON: %v", err)
+	}
+	if gotRec.Status != "Canceled" {
+		t.Fatalf("expected run.json Status updated to %q, got %q", "Canceled", gotRec.Status)
+	}
+	if !gotRec.UpdatedAt.After(rec.UpdatedAt) {
+		t.Fatalf("expected UpdatedAt to advance, got %v (original %v)", gotRec.UpdatedAt, rec.UpdatedAt)
+	}
+	if gotRec.RunID != rec.RunID || gotRec.JobID != rec.JobID || gotRec.Ticket != rec.Ticket {
+		t.Fatalf("expected identifying fields preserved, got %+v", gotRec)
+	}
+}
+
+// TestWriter_MarkCanceled_DoesNotConsumeReportNumbering proves a cancel is
+// persisted as cancel.json, NOT as a new report-<NNN>.json — it must not
+// misrepresent a cancel as a poll nor perturb the poll numbering (HU-012
+// run-persistence spec).
+func TestWriter_MarkCanceled_DoesNotConsumeReportNumbering(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{RunID: "TICKET-8-to-UAT-20260727120000", Status: "InProgress"}
+	dir, err := w.Create(rec, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error creating run: %v", err)
+	}
+
+	// Two prior polls exist as report-001/002.json.
+	if err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":1}`)); err != nil {
+		t.Fatalf("seeding report 1: %v", err)
+	}
+	if err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":2}`)); err != nil {
+		t.Fatalf("seeding report 2: %v", err)
+	}
+
+	if err := w.MarkCanceled(rec.RunID, []byte(`{"canceled":true}`)); err != nil {
+		t.Fatalf("unexpected error on MarkCanceled: %v", err)
+	}
+
+	// The cancel must NOT have been written as report-003.json.
+	if _, err := os.Stat(filepath.Join(dir, "report-003.json")); err == nil {
+		t.Fatal("MarkCanceled must NOT consume report numbering (report-003.json should not exist)")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cancel.json")); err != nil {
+		t.Fatalf("the cancel must be written as cancel.json: %v", err)
+	}
+
+	// A subsequent poll still numbers as report-003.json (cancel did not
+	// perturb the sequence).
+	if err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":3}`)); err != nil {
+		t.Fatalf("appending report 3: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "report-003.json")); err != nil {
+		t.Fatalf("the next poll should still number as report-003.json: %v", err)
+	}
+}
+
+func TestWriter_MarkCanceled_UnknownRunIDErrors(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	err := w.MarkCanceled("does-not-exist", []byte(`{}`))
+	if err == nil {
+		t.Fatal("expected an error for an unknown runID, got nil")
+	}
+}

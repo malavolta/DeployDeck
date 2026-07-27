@@ -117,6 +117,38 @@ func (w *Writer) AppendReport(runID, status string, reportRaw []byte) error {
 	return nil
 }
 
+// MarkCanceled records a successful cancellation (HU-012): it writes the raw
+// cancel response verbatim as a cancel.json companion — mirroring exactly how
+// Create persists validate.json — and updates run.json's Status to "Canceled"
+// with a fresh time.Now() UpdatedAt. Unlike AppendReport it deliberately does
+// NOT use the report-<NNN>.json poll-numbering scheme: a cancel is a distinct
+// one-off event, not a poll, so persisting it as a report would misrepresent it
+// and perturb the poll sequence (run-persistence spec: "MarkCanceled SHALL NOT
+// write the cancel result using the report-<NNN>.json poll-numbering scheme").
+// An unknown runID (no run.json, e.g. a run never created via Create) is an
+// explicit error, never a silent no-op.
+func (w *Writer) MarkCanceled(runID string, cancelRaw []byte) error {
+	dir := w.runDir(runID)
+
+	rec, err := w.readRecord(dir)
+	if err != nil {
+		return err
+	}
+
+	rec.Status = "Canceled"
+	rec.UpdatedAt = time.Now()
+	if err := writeJSON(filepath.Join(dir, "run.json"), rec); err != nil {
+		return err
+	}
+
+	cancelPath := filepath.Join(dir, "cancel.json")
+	if err := os.WriteFile(cancelPath, cancelRaw, 0o644); err != nil {
+		return fmt.Errorf("runs: writing %s: %w", cancelPath, err)
+	}
+
+	return nil
+}
+
 // readRecord loads run.json from a run's directory. A missing/unreadable
 // run.json (e.g. an unknown runID never created via Create) is an explicit
 // error, never a silent zero Record.
