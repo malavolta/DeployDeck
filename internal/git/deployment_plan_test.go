@@ -88,3 +88,59 @@ func TestGenerateDeploymentPlan_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestRegisterDeltaArtifacts_SetsPathsPreservesOtherFields proves
+// RegisterDeltaArtifacts (HU-007 AC: "Guardar paths generados en
+// DeploymentPlan") sets PackageXMLPath/DestructiveChangesPath while
+// preserving every other field already on plan, mirroring
+// RegisterPromotionBranch's gate-then-persist shape.
+func TestRegisterDeltaArtifacts_SetsPathsPreservesOtherFields(t *testing.T) {
+	plan := git.DeploymentPlan{
+		Ticket:          "PROJ-1",
+		SelectedCommits: []git.DiscoveredCommit{{Commit: git.Commit{SHA: "a"}}},
+		TargetBranch:    "UAT",
+		SandboxAlias:    "UAT_SANDBOX",
+		TestLevel:       "RunLocalTests",
+		PromotionBranch: "deploy/PROJ-1-to-UAT",
+	}
+
+	wantPackage := "/repo/.deploydeck/manifest/delta/PROJ-1-to-UAT/package/package.xml"
+	wantDestructive := "/repo/.deploydeck/manifest/delta/PROJ-1-to-UAT/destructiveChanges/destructiveChanges.xml"
+
+	got := git.RegisterDeltaArtifacts(plan, wantPackage, wantDestructive)
+
+	if got.PackageXMLPath != wantPackage {
+		t.Errorf("PackageXMLPath = %q, want %q", got.PackageXMLPath, wantPackage)
+	}
+	if got.DestructiveChangesPath != wantDestructive {
+		t.Errorf("DestructiveChangesPath = %q, want %q", got.DestructiveChangesPath, wantDestructive)
+	}
+
+	// Every other field already on plan must survive untouched.
+	if got.Ticket != plan.Ticket {
+		t.Errorf("Ticket = %q, want %q (preserved)", got.Ticket, plan.Ticket)
+	}
+	if got.TargetBranch != plan.TargetBranch || got.SandboxAlias != plan.SandboxAlias || got.TestLevel != plan.TestLevel {
+		t.Errorf("target/sandbox/testLevel fields not preserved: got %+v, want fields from %+v", got, plan)
+	}
+	if got.PromotionBranch != plan.PromotionBranch {
+		t.Errorf("PromotionBranch = %q, want %q (preserved)", got.PromotionBranch, plan.PromotionBranch)
+	}
+	if len(got.SelectedCommits) != len(plan.SelectedCommits) || got.SelectedCommits[0].SHA != plan.SelectedCommits[0].SHA {
+		t.Errorf("SelectedCommits not preserved: got %+v, want %+v", got.SelectedCommits, plan.SelectedCommits)
+	}
+}
+
+// TestRegisterDeltaArtifacts_DestructiveChangesPathOptional proves an empty
+// destructiveChangesPath (no deleted metadata in the diff) round-trips as
+// an empty DestructiveChangesPath, while PackageXMLPath is always set.
+func TestRegisterDeltaArtifacts_DestructiveChangesPathOptional(t *testing.T) {
+	got := git.RegisterDeltaArtifacts(git.DeploymentPlan{Ticket: "PROJ-1"}, "/repo/.deploydeck/manifest/delta/PROJ-1-to-UAT/package/package.xml", "")
+
+	if got.PackageXMLPath == "" {
+		t.Error("expected a non-empty PackageXMLPath")
+	}
+	if got.DestructiveChangesPath != "" {
+		t.Errorf("expected empty DestructiveChangesPath when no destructive changes were generated, got %q", got.DestructiveChangesPath)
+	}
+}

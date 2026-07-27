@@ -29,6 +29,14 @@ type DeploymentPlan struct {
 	// final name of the temporary branch Service.CreatePromotionBranch
 	// created, once creation succeeds.
 	PromotionBranch string
+
+	// PackageXMLPath and DestructiveChangesPath are set by
+	// RegisterDeltaArtifacts (HU-007): the generated delta package.xml
+	// path (always set on a successful generation) and, when the diff
+	// included deleted metadata, destructiveChanges.xml's path ("" when no
+	// destructive changes were generated).
+	PackageXMLPath         string
+	DestructiveChangesPath string
 }
 
 // GenerateDeploymentPlan produces a preliminary DeploymentPlan from a
@@ -53,4 +61,16 @@ func GenerateDeploymentPlan(ticket string, items []CommitSelectionItem) (Deploym
 		Ticket:          ticket,
 		SelectedCommits: selected,
 	}, nil
+}
+
+// RegisterDeltaArtifacts saves the generated delta package.xml path and,
+// when present, destructiveChanges.xml path on plan (HU-007 AC: "Guardar
+// paths generados en DeploymentPlan"). It mirrors RegisterPromotionBranch:
+// it does not itself generate or verify the artifacts — callers run
+// internal/delta.Service.Generate (and act on its result) BEFORE calling
+// this — and every other field already on plan is preserved.
+func RegisterDeltaArtifacts(plan DeploymentPlan, packageXMLPath, destructiveChangesPath string) DeploymentPlan {
+	plan.PackageXMLPath = packageXMLPath
+	plan.DestructiveChangesPath = destructiveChangesPath
+	return plan
 }

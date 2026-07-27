@@ -12,7 +12,8 @@ import (
 const FileName = "deploydeck.yaml"
 
 // Load reads deploydeck.yaml from dir, applying defaults for any omitted
-// fields (BranchFormat, Runs.KeepLast, Runs.KeepDays).
+// fields (BranchFormat, Runs.KeepLast, Runs.KeepDays,
+// PollIntervalSeconds, PollTimeoutSeconds, Delta.OutputDir).
 func Load(dir string) (Config, error) {
 	path := filepath.Join(dir, FileName)
 
@@ -40,5 +41,14 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Runs.KeepDays == 0 {
 		cfg.Runs.KeepDays = DefaultRunsKeepDays
+	}
+	if cfg.PollIntervalSeconds == 0 {
+		cfg.PollIntervalSeconds = DefaultPollIntervalSeconds
+	}
+	if cfg.PollTimeoutSeconds == 0 {
+		cfg.PollTimeoutSeconds = DefaultPollTimeoutSeconds
+	}
+	if cfg.Delta.OutputDir == "" {
+		cfg.Delta.OutputDir = DefaultDeltaOutputDir
 	}
 }

@@ -15,6 +15,23 @@ const (
 	DefaultRunsKeepDays = 90
 )
 
+// DefaultPollIntervalSeconds/DefaultPollTimeoutSeconds are applied when
+// pollIntervalSeconds/pollTimeoutSeconds are omitted (or zero) from
+// deploydeck.yaml. They drive HU-011's Salesforce deploy-report polling
+// loop (internal/app's ValidationPolling state): how often a tea.Tick
+// re-polls, and the hard deadline after which a still-in-progress
+// validation is treated as failed (timeout).
+const (
+	DefaultPollIntervalSeconds = 10
+	DefaultPollTimeoutSeconds  = 3600
+)
+
+// DefaultDeltaOutputDir is applied when delta.outputDir is omitted. It is
+// the BASE directory HU-007's delta artifacts are written under; the final
+// per-run directory (<base>/<ticket>-to-<target>) is composed by the
+// caller (internal/app), not by this package.
+const DefaultDeltaOutputDir = ".deploydeck/manifest/delta"
+
 // AllowedBranchFormatTokens are the only "{{...}}" substitution tokens
 // permitted in branchFormat. Validate (this package) and the Phase 9
 // branch-name renderer (internal/git) both check against this exact list so
@@ -34,6 +51,18 @@ type SandboxConfig struct {
 type RunsConfig struct {
 	KeepLast int `yaml:"keepLast"`
 	KeepDays int `yaml:"keepDays"`
+}
+
+// DeltaConfig configures HU-007's sgd-backed delta generation: the base
+// output directory delta artifacts are written under, which source
+// directories `sf sgd source delta` scans (each becomes a repeated
+// --source-dir flag), and optional gitignore-style files passed through as
+// sgd's --ignore-file/--ignore-destructive-file.
+type DeltaConfig struct {
+	OutputDir             string   `yaml:"outputDir"`
+	SourceDirs            []string `yaml:"sourceDirs"`
+	IgnoreFile            string   `yaml:"ignoreFile"`
+	IgnoreDestructiveFile string   `yaml:"ignoreDestructiveFile"`
 }
 
 // Config is the parsed, defaulted deploydeck.yaml.
@@ -60,4 +89,15 @@ type Config struct {
 
 	// Runs controls local run-history retention.
 	Runs RunsConfig `yaml:"runs"`
+
+	// Delta configures HU-007's sgd-backed delta generation.
+	Delta DeltaConfig `yaml:"delta"`
+
+	// PollIntervalSeconds/PollTimeoutSeconds control HU-011's Salesforce
+	// deploy-report polling loop: how often (seconds) to poll, and the
+	// hard timeout (seconds) after which a still-in-progress validation is
+	// treated as failed. See DefaultPollIntervalSeconds/
+	// DefaultPollTimeoutSeconds for the values applied when omitted.
+	PollIntervalSeconds int `yaml:"pollIntervalSeconds"`
+	PollTimeoutSeconds  int `yaml:"pollTimeoutSeconds"`
 }

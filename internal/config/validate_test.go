@@ -12,10 +12,12 @@ func validConfig() config.Config {
 		Sandboxes: map[string]config.SandboxConfig{
 			"INT": {Alias: "INT_SANDBOX", TestLevel: "RunLocalTests"},
 		},
-		TicketPatterns: []string{"OTACUPYR-[0-9]+"},
-		BranchFormat:   "deploy/{{ticket}}-to-{{target}}",
-		MinVersions:    map[string]string{"git": "2.30.0"},
-		Runs:           config.RunsConfig{KeepLast: 30, KeepDays: 90},
+		TicketPatterns:      []string{"OTACUPYR-[0-9]+"},
+		BranchFormat:        "deploy/{{ticket}}-to-{{target}}",
+		MinVersions:         map[string]string{"git": "2.30.0"},
+		Runs:                config.RunsConfig{KeepLast: 30, KeepDays: 90},
+		PollIntervalSeconds: 10,
+		PollTimeoutSeconds:  3600,
 	}
 }
 
@@ -50,6 +52,44 @@ func TestConfig_Validate(t *testing.T) {
 				c.BranchFormat = "deploy/{{ticket}}-to-{{bogus}}"
 			},
 			wantErr: true,
+		},
+		{
+			name: "pollIntervalSeconds <= 0 fails",
+			mutate: func(c *config.Config) {
+				c.PollIntervalSeconds = 0
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative pollIntervalSeconds fails",
+			mutate: func(c *config.Config) {
+				c.PollIntervalSeconds = -1
+			},
+			wantErr: true,
+		},
+		{
+			name: "pollTimeoutSeconds <= 0 fails",
+			mutate: func(c *config.Config) {
+				c.PollTimeoutSeconds = 0
+			},
+			wantErr: true,
+		},
+		{
+			name: "delta configured with empty sourceDirs fails",
+			mutate: func(c *config.Config) {
+				c.Delta = config.DeltaConfig{OutputDir: ".deploydeck/manifest/delta"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "delta configured with non-empty sourceDirs passes",
+			mutate: func(c *config.Config) {
+				c.Delta = config.DeltaConfig{
+					OutputDir:  ".deploydeck/manifest/delta",
+					SourceDirs: []string{"force-app"},
+				}
+			},
+			wantErr: false,
 		},
 	}
 
