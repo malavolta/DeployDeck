@@ -133,6 +133,18 @@ type queueDoneMsg struct {
 	err      error
 }
 
+// resumeDetectMsg is the HU-013 startup resume-detection result: the live
+// RepoState (repo is the source of truth) plus the persisted run list, or an
+// error. onResumeDetect reconciles stale conflict records against state, then
+// offers resume (StateRunHistory) when anything is resumable, else proceeds to
+// the normal flow. A matching cherry-pick run is the newest non-terminal run
+// whose Commits contains state.CurrentSHA.
+type resumeDetectMsg struct {
+	state   git.RepoState
+	records []runs.Record
+	err     error
+}
+
 // cancelDoneMsg carries the HU-012 cancel outcome: the raw cancel response
 // (persisted verbatim as cancel.json on success) or an error. onCancelDone
 // marks the run Canceled + persists on success, or surfaces the error WITHOUT
@@ -494,6 +506,31 @@ func (m Model) validateCmd() tea.Cmd {
 			UpdatedAt: now,
 		}, []byte(result.Raw))
 		return validateDoneMsg{result: result, runID: fallbackID, runDir: runDir, err: perr}
+	}
+}
+
+// resumeDetectCmd composes the HU-013 startup resume-detection: it reads the
+// live RepoState (Git.RepoState — the same authority the cherry-pick screens
+// poll, no new exec seam) and the persisted run list (Runs.List) so
+// onResumeDetect can offer to continue an in-progress cherry-pick or a
+// non-terminal validation job. Best-effort: a nil Git or Runs writer disables
+// detection (returns nil), and internal/app still NEVER execs directly — every
+// call routes through the injected services (boundary_test.go holds).
+func (m Model) resumeDetectCmd() tea.Cmd {
+	g := m.deps.Git
+	writer := m.deps.Runs
+	if g == nil || writer == nil {
+		return nil
+	}
+	dir := m.deps.Dir
+	ctx := m.ctx()
+	return func() tea.Msg {
+		state, err := g.RepoState(ctx, dir)
+		if err != nil {
+			return resumeDetectMsg{err: err}
+		}
+		records, err := writer.List()
+		return resumeDetectMsg{state: state, records: records, err: err}
 	}
 }
 

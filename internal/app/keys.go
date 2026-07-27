@@ -35,6 +35,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyValidationPolling(msg)
 	case StateCancelConfirm:
 		return m.keyCancelConfirm(msg)
+	case StateRunHistory:
+		return m.keyRunHistory(msg)
 	case StateAborted, StateError, StateSucceeded, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, tea.Quit
@@ -380,6 +382,29 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// read-only report subprocess via the session context.
 		m.cancelPoll()
 		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// keyRunHistory handles HU-013's run-history resume-offer screen (mockup
+// docs/MOCKUPS_TUI.md "Historial De Runs"): `Enter` resumes the selected run
+// when it is resumable (routing into StateCherryPickConflict or
+// StateValidationPolling) and is a no-op on a terminal run, and `q`/`esc`
+// declines the resume offer, proceeding to the normal ticket-input flow
+// (run-resume spec: "User declines the resume offer"). Browse navigation
+// (↑/↓, detail toggle) is added by the run-history browse screen (Phase 5).
+func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+			return m, nil
+		}
+		// resumeInto is a no-op for a terminal run, leaving the user on history.
+		return m.resumeInto(m.runs[m.runsCursor])
+	case "q", "esc":
+		// Decline the offer: proceed to the normal flow rather than resuming.
+		m.state = StateTicketInput
+		return m, nil
 	}
 	return m, nil
 }

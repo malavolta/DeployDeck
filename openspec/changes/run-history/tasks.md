@@ -73,14 +73,14 @@ Chain strategy: pending
 
 ## Phase 4: Resume-detection at `onPrereqDone` (run-resume)
 
-- [ ] 4.1 `[I]` RED: real temp-repo in-progress cherry-pick seed — `resumeDetectCmd` returns `resumeDetectMsg{state, records}` reflecting real `RepoState`+`Runs.List()`.
-- [ ] 4.2 `[I]` GREEN: implement `resumeDetectMsg`/`resumeDetectCmd` (composes `Git.RepoState`+`Runs.List`); `onPrereqDone` dispatches it instead of unconditional `StateTicketInput`.
-- [ ] 4.3 `[T]` RED: matching in-progress pick + run (`Commits` contains `CurrentSHA`) → routes to `StateRunHistory` pre-selected. (run-resume: In-progress cherry-pick offers resume)
-- [ ] 4.4 `[T]` GREEN: implement `onResumeDetect` — resumable set (matching in-progress, or non-terminal `JobID`) → `StateRunHistory` pre-selected; none → `StateTicketInput`. (run-resume: No resumable run skips the prompt)
-- [ ] 4.5 `[I]` RED: real temp repo, `Phase="git-conflict"` record but no `CHERRY_PICK_HEAD` → corrected via `Save`, not offered as resumable. (run-resume: Resync When The Repo No Longer Matches...)
-- [ ] 4.6 `[I]` GREEN: in `onResumeDetect`, resync stale conflict records (`Runs.Save`) before computing the resumable set.
-- [ ] 4.7 `[T]` RED: resume-accept routing table test — conflict-phase run → `StateCherryPickConflict` rehydrated (ticket/pickIndex/pickTotal/runID, `repoStateCmd`+`tickCmd`); non-terminal-jobId run → `StateValidationPolling` re-armed (jobID/runID/pollCtx/reportCmd). (run-resume: both "Accepted..." scenarios; cherry-pick + validation-progress deltas)
-- [ ] 4.8 `[T]` GREEN: implement shared `resumeInto(rec)` routing both branches; terminal-jobId runs excluded upstream from the resumable set. (validation-progress: Resumed job already terminal is not offered)
+- [x] 4.1 `[I]` RED: real temp-repo in-progress cherry-pick seed — `resumeDetectCmd` returns `resumeDetectMsg{state, records}` reflecting real `RepoState`+`Runs.List()`.
+- [x] 4.2 `[I]` GREEN: implement `resumeDetectMsg`/`resumeDetectCmd` (composes `Git.RepoState`+`Runs.List`); `onPrereqDone` dispatches it instead of unconditional `StateTicketInput`.
+- [x] 4.3 `[T]` RED: matching in-progress pick + run (`Commits` contains `CurrentSHA`) → routes to `StateRunHistory` pre-selected. (run-resume: In-progress cherry-pick offers resume)
+- [x] 4.4 `[T]` GREEN: implement `onResumeDetect` — resumable set (matching in-progress, or non-terminal `JobID`) → `StateRunHistory` pre-selected; none → `StateTicketInput`. (run-resume: No resumable run skips the prompt)
+- [x] 4.5 `[I]` RED: real temp repo, `Phase="git-conflict"` record but no `CHERRY_PICK_HEAD` → corrected via `Save`, not offered as resumable. (run-resume: Resync When The Repo No Longer Matches...)
+- [x] 4.6 `[I]` GREEN: in `onResumeDetect`, resync stale conflict records (`Runs.Save`) before computing the resumable set.
+- [x] 4.7 `[T]` RED: resume-accept routing table test — conflict-phase run → `StateCherryPickConflict` rehydrated (ticket/pickIndex/pickTotal/runID, `repoStateCmd`+`tickCmd`); non-terminal-jobId run → `StateValidationPolling` re-armed (jobID/runID/pollCtx/reportCmd). (run-resume: both "Accepted..." scenarios; cherry-pick + validation-progress deltas)
+- [x] 4.8 `[T]` GREEN: implement shared `resumeInto(rec)` routing both branches; terminal-jobId runs excluded upstream from the resumable set. (validation-progress: Resumed job already terminal is not offered)
 
 ## Phase 5: `StateRunHistory` browse screen (run-history)
 

@@ -29,6 +29,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prereqDoneMsg:
 		return m.onPrereqDone(msg)
+	case resumeDetectMsg:
+		return m.onResumeDetect(msg)
 	case discoverDoneMsg:
 		return m.onDiscoverDone(msg)
 	case depWarningsMsg:
@@ -87,8 +89,146 @@ func (m Model) onPrereqDone(msg prereqDoneMsg) (tea.Model, tea.Cmd) {
 		m.state = StatePrereqCheck
 		return m, nil
 	}
+	// Default to the normal flow, but fire HU-013 resume-detection: once it
+	// lands, onResumeDetect may redirect to the resume offer (StateRunHistory).
+	// resumeDetectCmd is nil when Git/Runs are absent, so this stays a plain
+	// advance to ticket input for callers without those deps (e.g. unit tests).
 	m.state = StateTicketInput
+	return m, m.resumeDetectCmd()
+}
+
+// onResumeDetect lands the HU-013 startup resume-detection. It first resyncs
+// any stale cherry-pick record against the live repo (a record claiming a
+// cherry-pick phase while the repo shows no in-progress pick was resolved or
+// aborted externally — repo is the source of truth, AC docs/HISTORIAS.md:847),
+// then offers resume via StateRunHistory PRE-SELECTED on the newest resumable
+// run. When nothing is resumable it proceeds to the normal flow without a
+// blocking prompt; a detection error also falls back to the normal flow.
+func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		// Best-effort: a detection failure must never block startup.
+		return m, nil
+	}
+	records := m.reconcileStaleRuns(msg.records, msg.state)
+	m.runs = records
+	m.repoState = msg.state
+	idx, ok := firstResumable(records, msg.state)
+	if !ok {
+		m.state = StateTicketInput
+		return m, nil
+	}
+	m.runsCursor = idx
+	m.state = StateRunHistory
 	return m, nil
+}
+
+// reconcileStaleRuns resyncs cherry-pick-phase records against the live repo:
+// when the repo shows NO in-progress cherry-pick, any record still claiming a
+// cherry-pick/git-conflict phase is stale (resolved or aborted outside
+// DeployDeck), so it is marked aborted and persisted (best-effort Save) before
+// the resumable set is computed — so a stale conflict is never offered. When
+// the repo IS mid-pick nothing is resynced (the matching run is live). The
+// returned slice mirrors the on-disk correction so the in-memory history
+// agrees with the reconciled records.
+func (m Model) reconcileStaleRuns(records []runs.Record, state git.RepoState) []runs.Record {
+	if state.InProgress {
+		return records
+	}
+	out := make([]runs.Record, len(records))
+	copy(out, records)
+	for i := range out {
+		if !isCherryPickPhase(out[i].Phase) {
+			continue
+		}
+		out[i].Phase = "aborted"
+		out[i].UpdatedAt = m.now()
+		if m.deps.Runs != nil {
+			_ = m.deps.Runs.Save(out[i])
+		}
+	}
+	return out
+}
+
+// resumeInto routes a resumable run directly into its live screen with no
+// intermediate suspended state (run-resume spec: "Accepted Resume Routes
+// Directly Into Conflict Or Polling"). A conflict-phase run matching the live
+// in-progress cherry-pick rehydrates StateCherryPickConflict (ticket, pick N
+// of M recomputed LIVE from RepoState via derivePickIndex — never the possibly
+// stale persisted PickIndex — plus runID) and re-arms the reconciling poll; a
+// non-terminal jobId run re-attaches StateValidationPolling exactly as
+// onValidateDone does (jobID/runID/pollCtx re-armed, first reportCmd fired). A
+// run that is neither (already terminal) is a no-op — the caller stays put.
+func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
+	switch {
+	case m.repoState.InProgress && isCherryPickPhase(rec.Phase) && containsSHA(rec.Commits, m.repoState.CurrentSHA):
+		m.runID = rec.RunID
+		m.plan.Ticket = rec.Ticket
+		m.plan.TargetBranch = rec.Target
+		m.plan.SandboxAlias = rec.Alias
+		m.pickTotal = rec.PickTotal
+		m.pickIndex = derivePickIndex(rec.PickTotal, m.repoState)
+		m.state = StateCherryPickConflict
+		return m, tea.Batch(m.repoStateCmd(), tickCmd())
+	case rec.JobID != "" && !salesforce.IsTerminal(rec.Status):
+		m.runID = rec.RunID
+		m.jobID = rec.JobID
+		m.plan.Ticket = rec.Ticket
+		m.plan.TargetBranch = rec.Target
+		m.plan.SandboxAlias = rec.Alias
+		m.validateErr = nil
+		m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
+		m.state = StateValidationPolling
+		// Arm the cancelable polling session exactly like onValidateDone: reportCmd
+		// derives its per-call timeout from pollCtx, and any polling exit cancels
+		// it. Fire only the FIRST report; onReportDone schedules the rest.
+		m.pollCtx, m.pollCancel = context.WithCancel(context.Background())
+		m.pollInFlight = true
+		return m, m.reportCmd()
+	default:
+		return m, nil
+	}
+}
+
+// isCherryPickPhase reports whether phase is one of the mid-Git phases a
+// resume can re-enter or a resync must reconcile.
+func isCherryPickPhase(phase string) bool {
+	return phase == "cherry-pick" || phase == "git-conflict"
+}
+
+// containsSHA reports whether sha is one of the run's selected commit SHAs —
+// how a live CHERRY_PICK_HEAD is matched back to the run that selected it.
+func containsSHA(commits []string, sha string) bool {
+	if sha == "" {
+		return false
+	}
+	for _, c := range commits {
+		if c == sha {
+			return true
+		}
+	}
+	return false
+}
+
+// isResumable reports whether rec can be resumed given the live repo state: a
+// conflict-phase run whose selection holds the live CHERRY_PICK_HEAD, or a run
+// with a non-terminal jobId (validation-progress spec: a terminal job stays
+// browsable but is never offered for polling re-attach).
+func isResumable(rec runs.Record, state git.RepoState) bool {
+	if state.InProgress && isCherryPickPhase(rec.Phase) && containsSHA(rec.Commits, state.CurrentSHA) {
+		return true
+	}
+	return rec.JobID != "" && !salesforce.IsTerminal(rec.Status)
+}
+
+// firstResumable returns the index of the newest resumable run (records are
+// newest-first, List's contract) and whether one exists.
+func firstResumable(records []runs.Record, state git.RepoState) (int, bool) {
+	for i, rec := range records {
+		if isResumable(rec, state) {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 func (m Model) onDiscoverDone(msg discoverDoneMsg) (tea.Model, tea.Cmd) {
@@ -200,6 +340,11 @@ func (m Model) onPickDone(msg pickDoneMsg) (tea.Model, tea.Cmd) {
 		// progress (HU-013 "pick N of M") so a crash here still leaves
 		// enough context to offer resume.
 		idx := derivePickIndex(len(m.plan.SelectedCommits), msg.outcome.State)
+		// Hold the live "pick N of M" on the model so the conflict screen shows
+		// it for a fresh sequence, identically to a resumed one (cherry-pick
+		// spec: "Resumed Entry Accepts Rehydrated Conflict Context").
+		m.pickIndex = idx
+		m.pickTotal = len(m.plan.SelectedCommits)
 		m.saveRunProgress(func(rec *runs.Record) {
 			rec.PickIndex = idx
 			rec.PickTotal = len(m.plan.SelectedCommits)

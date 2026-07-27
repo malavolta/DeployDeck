@@ -100,6 +100,13 @@ const (
 	StateCanceled
 	// StateError is a terminal error screen.
 	StateError
+	// StateRunHistory is HU-013's run-history browse + resume-offer screen
+	// (mockup docs/MOCKUPS_TUI.md "Historial De Runs"). Startup resume-detection
+	// routes here PRE-SELECTED on a resumable run; Enter resumes it (routing
+	// directly into StateCherryPickConflict or StateValidationPolling), q/esc
+	// declines to the normal ticket-input flow. There is deliberately NO
+	// literal StateSuspended — resume routes straight into the live states.
+	StateRunHistory
 )
 
 // Deps carries the services and configuration the TUI composes. main() wires
@@ -178,6 +185,19 @@ type Model struct {
 	continueEnabled bool
 	continuePending []string
 	aborted         bool
+	// pickIndex/pickTotal are the live "pick N of M" shown on the conflict
+	// screen — for a fresh sequence (set in onPickDone's conflict branch) and a
+	// resumed one (recomputed live in resumeInto via derivePickIndex). pickTotal
+	// is 0 outside a cherry-pick, so the view omits the counter then.
+	pickIndex int
+	pickTotal int
+
+	// RunHistory (HU-013): the browsable past-run list that doubles as the
+	// resume-offer surface. runs is the full List() snapshot (newest-first),
+	// runsCursor the selected row, runDetail the expanded-detail toggle.
+	runs       []runs.Record
+	runsCursor int
+	runDetail  bool
 
 	// PickVerification
 	verification git.PickVerification

@@ -48,6 +48,8 @@ func (m Model) View() string {
 		return m.viewValidationPolling()
 	case StateCancelConfirm:
 		return m.viewCancelConfirm()
+	case StateRunHistory:
+		return m.viewRunHistory()
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
@@ -262,8 +264,19 @@ func (m Model) viewCherryPicking() string {
 func (m Model) viewConflict() string {
 	var b strings.Builder
 	b.WriteString(header("Conflicto De Cherry-Pick"))
+	b.WriteString("\n")
+	// Ticket + "pick N of M" render identically for a fresh sequence and a
+	// resumed one (cherry-pick spec: rehydrated conflict context, HU-013 AC
+	// docs/HISTORIAS.md:846). pickTotal is 0 outside a cherry-pick, so the
+	// counter is omitted then.
+	if m.plan.Ticket != "" {
+		b.WriteString(fmt.Sprintf("  Ticket: %s\n", m.plan.Ticket))
+	}
+	if m.pickTotal > 0 {
+		b.WriteString(fmt.Sprintf("  Pick %d de %d\n", m.pickIndex, m.pickTotal))
+	}
 	if m.repoState.CurrentSHA != "" {
-		b.WriteString(fmt.Sprintf("\n  Commit actual: %s\n", m.repoState.CurrentSHA))
+		b.WriteString(fmt.Sprintf("  Commit actual: %s\n", m.repoState.CurrentSHA))
 	}
 	b.WriteString("\n  Archivos en conflicto (se actualiza solo al detectar cambios en el repo):\n\n")
 	for _, f := range m.repoState.Unmerged {
@@ -512,6 +525,38 @@ func (m Model) validationBody() string {
 			b.WriteString(fmt.Sprintf("  - %s.%s: %s\n", f.Class, f.Method, f.Message))
 		}
 	}
+	return b.String()
+}
+
+// viewRunHistory renders HU-013's run-history resume-offer surface (mockup
+// docs/MOCKUPS_TUI.md "Historial De Runs"): the past runs newest-first with the
+// selected row marked. The full browse rendering (progress cell, selected-run
+// detail panel) is added by the run-history browse screen (Phase 5). An empty
+// history renders no rows and no error.
+func (m Model) viewRunHistory() string {
+	var b strings.Builder
+	b.WriteString(header("Historial"))
+	b.WriteString("\n\n")
+
+	if len(m.runs) == 0 {
+		b.WriteString("  (sin runs registrados)\n")
+		b.WriteString(footer("q salir"))
+		return b.String()
+	}
+
+	for i, rec := range m.runs {
+		cursor := " "
+		if i == m.runsCursor {
+			cursor = ">"
+		}
+		date := "-"
+		if !rec.CreatedAt.IsZero() {
+			date = rec.CreatedAt.Format("2006-01-02 15:04")
+		}
+		b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-6s\n", cursor, date, rec.Ticket, rec.Target))
+	}
+
+	b.WriteString(footer("Enter reanudar   q salir"))
 	return b.String()
 }
 
