@@ -69,10 +69,10 @@ Chain strategy: size-exception
 
 ## Phase 5: `internal/runs` minimal writer (run-persistence)
 
-- [ ] 5.1 [U] RED `internal/runs/writer_test.go`: `Create` writes `.deploydeck/runs/<run-id>/{run.json,validate.json}`, `SchemaVersion:1`, jobId/status/timestamps (`t.TempDir`)
-- [ ] 5.2 [U] GREEN: implement `Record`/`NewWriter`/`Create`
-- [ ] 5.3 [U] RED: `AppendReport` persists EACH poll as `report-<NNN>.json` (`001,002,…`, never overwritten), updates `run.json` status/`UpdatedAt`
-- [ ] 5.4 [U] GREEN: implement `AppendReport` with an incrementing `NNN` counter
+- [x] 5.1 [U] RED `internal/runs/writer_test.go`: `Create` writes `.deploydeck/runs/<run-id>/{run.json,validate.json}`, `SchemaVersion:1`, jobId/status/timestamps (`t.TempDir`)
+- [x] 5.2 [U] GREEN: implement `Record`/`NewWriter`/`Create`
+- [x] 5.3 [U] RED: `AppendReport` persists EACH poll as `report-<NNN>.json` (`001,002,…`, never overwritten), updates `run.json` status/`UpdatedAt`
+- [x] 5.4 [U] GREEN: implement `AppendReport` with an incrementing `NNN` counter
 
 ## Phase 6: HU-011 `salesforce.ReportDeploy` (validation-progress, CLI half)
 
