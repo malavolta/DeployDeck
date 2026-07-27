@@ -55,6 +55,13 @@ type DeployReport struct {
 // `sf project deploy validate`/`report` share): top-level counters plus a
 // nested details object holding componentFailures and the test run's
 // failures.
+//
+// Shape confirmed against REAL `sf project deploy report --json` output (sf
+// CLI 2.135.7) by TestE2ERealOrg_ValidateAndReport: a Failed validate reported
+// numberComponentErrors:3 under result.details.componentFailures[] with exactly
+// {fullName, componentType, problem}, and result.details.runTestResult.failures
+// as the test-failure container — i.e. the nesting inferred here matches the
+// live CLI verbatim, no tag adjustment required.
 type reportResultEnvelope struct {
 	Status string `json:"status"`
 

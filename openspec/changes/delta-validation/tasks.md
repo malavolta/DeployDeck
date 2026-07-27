@@ -102,8 +102,8 @@ Chain strategy: size-exception
 
 ## Phase 8: Real e2e
 
-- [ ] 8.1 [I] `internal/delta` real-sgd temp-repo integration seeded from the `test-e2e-org` fixture (already committed) — full HU-007 path incl. multi-dir + destructive
-- [ ] 8.2 [E2E-ORG] new `internal/salesforce/real_org_e2e_test.go`, same convention as `internal/prereq/real_org_e2e_test.go` (env-gate + `t.Skip`, `NewOSRunner`) — non-destructive CheckOnly `ValidateDeploy --async` then `ReportDeploy` polling to terminal against a personal alias; never a real deploy
+- [x] 8.1 [I] `internal/delta` real-sgd temp-repo integration seeded from the `test-e2e-org` fixture (already committed) — full HU-007 path incl. multi-dir + destructive
+- [x] 8.2 [E2E-ORG] new `internal/salesforce/real_org_e2e_test.go`, same convention as `internal/prereq/real_org_e2e_test.go` (env-gate + `t.Skip`, `NewOSRunner`) — non-destructive CheckOnly `ValidateDeploy --async` then `ReportDeploy` polling to terminal against a personal alias; never a real deploy
 
 ## Phase 9: Final verification
 
