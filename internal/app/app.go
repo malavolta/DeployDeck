@@ -67,9 +67,12 @@ const (
 	// StatePackageReview is HU-008's pre-validation package summary. An empty
 	// package blocks confirm until an explicit override.
 	StatePackageReview
-	// StateQueueReview is an inert pass-through in this slice (HU-009 will add
-	// the real deploy-queue check here). PackageReview confirm passes straight
-	// through it to ValidationStart with zero queue query.
+	// StateQueueReview is HU-009's real stop between package confirm and
+	// validation start: it queries the active DeployRequest queue and shows
+	// user/status/progress per job, highlighting the current run's own job
+	// (when present) with its approximate position. A Tooling-API-permission
+	// failure auto-skips to StateValidationStart (non-blocking); a generic
+	// failure keeps the user here with the error shown (non-aborting).
 	StateQueueReview
 	// StateValidationStart runs HU-010 `sf project deploy validate --async`
 	// and persists the run on jobId receipt. A CLI error keeps the flow alive
@@ -177,6 +180,11 @@ type Model struct {
 	summary        delta.PackageSummary
 	deltaErr       error // sgd failure, surfaced on DeltaGeneration
 	emptyConfirmed bool  // explicit override to validate an empty package
+
+	// QueueReview (HU-009)
+	queue    []salesforce.DeployQueueEntry // parsed active DeployRequest queue
+	queueErr error                         // generic (non-permission) query failure, surfaced on QueueReview
+	identity string                        // own-job identity: Orgs()->FindByAlias(alias).Username
 
 	// Validation (HU-010/011)
 	jobID        string

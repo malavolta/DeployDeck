@@ -27,6 +27,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyDeltaGeneration(msg)
 	case StatePackageReview:
 		return m.keyPackageReview(msg)
+	case StateQueueReview:
+		return m.keyQueueReview(msg)
 	case StateValidationStart:
 		return m.keyValidationStart(msg)
 	case StateValidationPolling:
@@ -266,9 +268,9 @@ func (m Model) keyDeltaGeneration(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// keyPackageReview handles the HU-008 review screen: confirm proceeds to
-// validation (through the inert QueueReview pass-through), an empty package is
-// blocked until an explicit `o` override, `e` edits the selection, `q` quits.
+// keyPackageReview handles the HU-008 review screen: confirm proceeds to the
+// HU-009 QueueReview stop, an empty package is blocked until an explicit `o`
+// override, `e` edits the selection, `q` quits.
 func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
@@ -291,18 +293,38 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// confirmPackageReview gates on the empty-package override, then passes through
-// the inert QueueReview (zero queue query in this slice; HU-009 will add the
-// real check) straight to ValidationStart, firing the validate command.
+// confirmPackageReview gates on the empty-package override, then enters the
+// HU-009 QueueReview stop and fires queueCmd (own-job identity + active
+// DeployRequest queue).
 func (m Model) confirmPackageReview() (tea.Model, tea.Cmd) {
 	if m.summary.Empty && !m.emptyConfirmed {
 		m.notice = "empty package blocks validation: press o to override, or e to edit the selection"
 		return m, nil
 	}
 	m.notice = ""
-	m.validateErr = nil
-	m.state = StateValidationStart
-	return m, m.validateCmd()
+	m.queueErr = nil
+	m.state = StateQueueReview
+	return m, m.queueCmd()
+}
+
+// keyQueueReview handles the HU-009 QueueReview screen (mockup
+// docs/MOCKUPS_TUI.md "Cola De Deploys"): `enter` continues into validation,
+// `r` re-fires the queue query, `esc` returns to PackageReview.
+func (m Model) keyQueueReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		m.notice = ""
+		m.validateErr = nil
+		m.state = StateValidationStart
+		return m, m.validateCmd()
+	case "r":
+		m.queueErr = nil
+		return m, m.queueCmd()
+	case "esc":
+		m.state = StatePackageReview
+		return m, nil
+	}
+	return m, nil
 }
 
 // keyValidationStart handles the ValidationStart screen. On success the state

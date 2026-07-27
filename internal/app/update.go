@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,6 +50,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onTick()
 	case deltaDoneMsg:
 		return m.onDeltaDone(msg)
+	case queueDoneMsg:
+		return m.onQueueDone(msg)
 	case validateDoneMsg:
 		return m.onValidateDone(msg)
 	case reportDoneMsg:
@@ -208,6 +211,34 @@ func (m Model) onDeltaDone(msg deltaDoneMsg) (tea.Model, tea.Cmd) {
 	m.summary = msg.summary
 	m.plan = git.RegisterDeltaArtifacts(m.plan, msg.result.PackageXMLPath, msg.result.DestructiveChangesPath)
 	m.state = StatePackageReview
+	return m, nil
+}
+
+// onQueueDone lands the HU-009 deploy-queue outcome. A Tooling-API-permission
+// failure (ErrQueuePermission) is a non-blocking degrade: it warns via
+// m.notice and skips straight to ValidationStart, firing validateCmd — the
+// queue view is never shown for this reason. A generic failure keeps the
+// user on QueueReview with the error surfaced (non-aborting: `r` retries,
+// `esc` backs out). Success stores the parsed entries and the resolved
+// own-job identity for the view's highlight + approximate position.
+func (m Model) onQueueDone(msg queueDoneMsg) (tea.Model, tea.Cmd) {
+	m.identity = msg.identity
+	if msg.err != nil {
+		if errors.Is(msg.err, salesforce.ErrQueuePermission) {
+			m.queue = nil
+			m.queueErr = nil
+			m.notice = "no Tooling API permission to view the deploy queue; continuing without it"
+			m.validateErr = nil
+			m.state = StateValidationStart
+			return m, m.validateCmd()
+		}
+		m.queueErr = msg.err
+		m.state = StateQueueReview
+		return m, nil
+	}
+	m.queueErr = nil
+	m.queue = msg.entries
+	m.state = StateQueueReview
 	return m, nil
 }
 

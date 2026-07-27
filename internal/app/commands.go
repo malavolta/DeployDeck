@@ -21,6 +21,11 @@ import (
 // stall the whole ValidationPolling loop.
 const reportCallTimeout = 60 * time.Second
 
+// queueCallTimeout bounds a single queueCmd invocation (the identity lookup
+// plus the deploy-queue query combined, HU-009), so a hung Tooling API call
+// can never stall the QueueReview screen indefinitely.
+const queueCallTimeout = 30 * time.Second
+
 // pollInterval is how often the cherry-pick screens re-read RepoState so an
 // external `git cherry-pick --continue`/`--abort` reconciles live (HU-006
 // AC4/AC6). The model is never the source of truth — the repo is.
@@ -116,6 +121,17 @@ type reportDoneMsg struct {
 // tickMsg (the 750ms cherry-pick re-poll): validation polls at the configured
 // pollIntervalSeconds, a different, slower cadence firing a different command.
 type pollTickMsg struct{}
+
+// queueDoneMsg carries the HU-009 deploy-queue outcome: the parsed entries
+// plus the resolved own-job identity (Orgs()->FindByAlias(alias).Username),
+// or an error. onQueueDone distinguishes ErrQueuePermission (non-blocking
+// skip to ValidationStart) from a generic query failure (stays on
+// QueueReview, non-aborting).
+type queueDoneMsg struct {
+	entries  []salesforce.DeployQueueEntry
+	identity string
+	err      error
+}
 
 // --- Command constructors (every one routes through a service) ---
 
@@ -439,6 +455,32 @@ func (m Model) validateCmd() tea.Cmd {
 			UpdatedAt: now,
 		}, []byte(result.Raw))
 		return validateDoneMsg{result: result, runID: runID, runDir: runDir, err: perr}
+	}
+}
+
+// queueCmd resolves the current run's own-job identity through
+// Client.Orgs()->FindByAlias(alias).Username (zero new subprocess type: reuses
+// the existing org-list call) and queries the active DeployRequest queue
+// (HU-009), under a shared per-call timeout. Identity resolution is
+// best-effort: an Orgs() failure or a missing alias degrades to an empty
+// identity (no own-job highlight) WITHOUT blocking the queue query itself.
+func (m Model) queueCmd() tea.Cmd {
+	sf := m.deps.SF
+	alias := m.plan.SandboxAlias
+	parent := m.ctx()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parent, queueCallTimeout)
+		defer cancel()
+
+		var identity string
+		if orgs, err := sf.Orgs(ctx); err == nil {
+			if org, ok := orgs.FindByAlias(alias); ok {
+				identity = org.Username
+			}
+		}
+
+		entries, err := sf.ListDeployQueue(ctx, alias)
+		return queueDoneMsg{entries: entries, identity: identity, err: err}
 	}
 }
 

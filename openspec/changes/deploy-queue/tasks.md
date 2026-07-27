@@ -31,12 +31,12 @@ Chain strategy: pending
 
 ## Phase 2: HU-009 — `internal/app` QueueReview Real Stop (Integration)
 
-- [ ] 2.1 RED `internal/app/queue_review_test.go`: PackageReview→QueueReview→ValidationStart; permission auto-skip+notice; generic-error stays non-aborting; own-highlight+position via `Orgs()/FindByAlias.Username`; `r`/`enter`/`esc` (HU-009)[T]
-- [ ] 2.2 GREEN `internal/app/app.go`: add `queue`, `queueErr`, `identity` Model fields (HU-009)[U]
-- [ ] 2.3 GREEN `internal/app/commands.go`: `queueCmd`, `queueDoneMsg`, `queueCallTimeout` (HU-009)[U]
-- [ ] 2.4 GREEN `internal/app/update.go`: `onQueueDone` (permission/generic/success branches) wired into `Update` (HU-009)[U]
-- [ ] 2.5 GREEN `internal/app/keys.go`: `confirmPackageReview`→`StateQueueReview`+`queueCmd`; `keyQueueReview`; dispatcher case (HU-009)[U]
-- [ ] 2.6 GREEN `internal/app/view.go`: `viewQueueReview` replaces the shared PackageReview/QueueReview dead fallback (HU-009)[T]
+- [x] 2.1 RED `internal/app/queue_review_test.go`: PackageReview→QueueReview→ValidationStart; permission auto-skip+notice; generic-error stays non-aborting; own-highlight+position via `Orgs()/FindByAlias.Username`; `r`/`enter`/`esc` (HU-009)[T]
+- [x] 2.2 GREEN `internal/app/app.go`: add `queue`, `queueErr`, `identity` Model fields (HU-009)[U]
+- [x] 2.3 GREEN `internal/app/commands.go`: `queueCmd`, `queueDoneMsg`, `queueCallTimeout` (HU-009)[U]
+- [x] 2.4 GREEN `internal/app/update.go`: `onQueueDone` (permission/generic/success branches) wired into `Update` (HU-009)[U]
+- [x] 2.5 GREEN `internal/app/keys.go`: `confirmPackageReview`→`StateQueueReview`+`queueCmd`; `keyQueueReview`; dispatcher case (HU-009)[U]
+- [x] 2.6 GREEN `internal/app/view.go`: `viewQueueReview` replaces the shared PackageReview/QueueReview dead fallback (HU-009)[T]
 
 ## Phase 3: HU-012 — `internal/salesforce` CancelDeploy (Foundation)
 

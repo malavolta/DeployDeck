@@ -164,7 +164,9 @@ func TestModel_DeltaGeneration_SgdFailure_KeepsUserAndBlocksValidation(t *testin
 // --- 7.5 empty-package block + override ------------------------------------
 
 // TestModel_PackageReview_EmptyBlocksUntilOverride is tasks 7.5/7.6: an empty
-// package blocks confirm until an explicit override, then proceeds.
+// package blocks confirm until an explicit override, then proceeds — since
+// HU-009 (Phase 2), "proceeds" means entering the real QueueReview stop
+// (queueCmd fires), not ValidationStart directly.
 func TestModel_PackageReview_EmptyBlocksUntilOverride(t *testing.T) {
 	deps := Deps{Dir: "/repo", Config: validationConfig(), SF: exec_sf(t), Runs: runs.NewWriter(t.TempDir()), Now: (&fakeClock{t: time.Unix(0, 0)}).now}
 
@@ -182,7 +184,7 @@ func TestModel_PackageReview_EmptyBlocksUntilOverride(t *testing.T) {
 		t.Error("empty-package block should surface a notice")
 	}
 
-	// Explicit override, then confirm -> ValidationStart.
+	// Explicit override, then confirm -> QueueReview (HU-009's real stop).
 	next2, _ := nm.Update(keyPress("o"))
 	nm2 := next2.(Model)
 	if !nm2.emptyConfirmed {
@@ -190,32 +192,24 @@ func TestModel_PackageReview_EmptyBlocksUntilOverride(t *testing.T) {
 	}
 	next3, cmd3 := nm2.Update(keyPress("enter"))
 	nm3 := next3.(Model)
-	if nm3.State() != StateValidationStart {
-		t.Fatalf("override then confirm should reach ValidationStart, got %v", nm3.State())
+	if nm3.State() != StateQueueReview {
+		t.Fatalf("override then confirm should reach QueueReview, got %v", nm3.State())
 	}
 	if cmd3 == nil {
-		t.Error("confirming validation should fire the validate command")
+		t.Error("entering QueueReview should fire queueCmd")
 	}
 }
 
-// --- 7.7 QueueReview inert pass-through -------------------------------------
-
-// TestModel_PackageReview_Confirm_PassesThroughQueueReview is tasks 7.7/7.8: a
-// non-empty package confirm lands directly on ValidationStart (QueueReview is
-// an inert pass-through — zero queue query) and fires the validate command.
-func TestModel_PackageReview_Confirm_PassesThroughQueueReview(t *testing.T) {
-	deps := Deps{Dir: "/repo", Config: validationConfig(), SF: exec_sf(t), Runs: runs.NewWriter(t.TempDir()), Now: (&fakeClock{t: time.Unix(0, 0)}).now}
-	m := reviewedModel(t, deps, false)
-
-	next, cmd := m.Update(keyPress("enter"))
-	nm := next.(Model)
-	if nm.State() != StateValidationStart {
-		t.Fatalf("non-empty confirm should pass through QueueReview to ValidationStart, got %v", nm.State())
-	}
-	if cmd == nil {
-		t.Fatal("ValidationStart should fire the validate command")
-	}
-}
+// --- 7.7 QueueReview entry (superseded by HU-009: see queue_review_test.go) -
+//
+// QueueReview was originally an inert pass-through (tasks 7.7/7.8): confirm
+// landed directly on ValidationStart with zero queue query. HU-009 (Phase 2)
+// turns it into a real stop — confirm now enters StateQueueReview and fires
+// queueCmd; ValidationStart is reached afterward via keyQueueReview's `enter`
+// or the ErrQueuePermission auto-skip. That new behavior, plus the
+// permission/generic-error branches and own-job highlight, is covered by
+// queue_review_test.go's TestModel_PackageReview_Confirm_
+// EntersQueueReviewAndFiresQueueCmd and its siblings.
 
 // --- 7.9/7.10 validate + immediate persistence -----------------------------
 

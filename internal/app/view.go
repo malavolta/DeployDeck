@@ -6,6 +6,7 @@ import (
 
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
+	"deploydeck/internal/salesforce"
 )
 
 // View renders the current screen. Each branch mirrors a pane in
@@ -37,8 +38,10 @@ func (m Model) View() string {
 		return m.viewVerification()
 	case StateDeltaGeneration:
 		return m.viewDeltaGeneration()
-	case StatePackageReview, StateQueueReview:
+	case StatePackageReview:
 		return m.viewPackageReview()
+	case StateQueueReview:
+		return m.viewQueueReview()
 	case StateValidationStart:
 		return m.viewValidationStart()
 	case StateValidationPolling:
@@ -352,6 +355,72 @@ func (m Model) viewPackageReview() string {
 		b.WriteString(footer("Enter validar   e editar seleccion   q salir"))
 	}
 	return b.String()
+}
+
+// viewQueueReview renders HU-009's deploy-queue screen (mockup
+// docs/MOCKUPS_TUI.md "Cola De Deploys"): each active job's user, status,
+// elapsed time, and component/test progress, highlighting the current run's
+// own job (when present) with its approximate 1-based position in the
+// CreatedDate-ordered list.
+func (m Model) viewQueueReview() string {
+	var b strings.Builder
+	b.WriteString(header("Cola De Deploys: " + m.plan.SandboxAlias))
+
+	if m.queueErr != nil {
+		b.WriteString("\n  [XX] No se pudo consultar la cola de despliegues (el flujo sigue vivo):\n\n")
+		b.WriteString("  " + m.queueErr.Error() + "\n")
+		b.WriteString(footer("r reintentar   Enter continuar validacion   Esc volver"))
+		return b.String()
+	}
+
+	b.WriteString("\n  Jobs activos\n\n")
+	if len(m.queue) == 0 {
+		b.WriteString("  (sin jobs en cola)\n")
+	}
+	ownPosition := 0
+	for i, e := range m.queue {
+		mark := ""
+		if m.identity != "" && e.Username == m.identity {
+			mark = "  [propio]"
+			ownPosition = i + 1
+		}
+		kind := "Deploy"
+		if e.CheckOnly {
+			kind = "Validate"
+		}
+		b.WriteString(fmt.Sprintf("  %d. %-10s %-12s %-8s %-16s %4s  Components %d/%d  Tests %d/%d%s\n",
+			i+1, e.JobID, e.Status, kind, e.CreatedBy, m.queueElapsed(e),
+			e.Components.Deployed, e.Components.Total,
+			e.Tests.Completed, e.Tests.Total, mark))
+	}
+	if ownPosition > 0 {
+		b.WriteString(fmt.Sprintf("\n  Posicion aproximada de tu job: %d\n", ownPosition))
+	}
+
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("r refrescar   Enter continuar validacion   Esc volver"))
+	return b.String()
+}
+
+// queueElapsed renders the elapsed time since a queue entry started
+// (StartDate, falling back to CreatedDate for a job not yet started),
+// relative to the model's injected clock. A zero timestamp (unparseable or
+// missing) renders as "-" rather than a nonsensical duration.
+func (m Model) queueElapsed(e salesforce.DeployQueueEntry) string {
+	start := e.StartDate
+	if start.IsZero() {
+		start = e.CreatedDate
+	}
+	if start.IsZero() {
+		return "-"
+	}
+	elapsed := m.now().Sub(start)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return fmt.Sprintf("%dm", int(elapsed.Minutes()))
 }
 
 func (m Model) viewValidationStart() string {
