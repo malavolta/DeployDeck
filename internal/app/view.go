@@ -2,10 +2,13 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"deploydeck/internal/config"
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
+	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
 )
 
@@ -528,11 +531,12 @@ func (m Model) validationBody() string {
 	return b.String()
 }
 
-// viewRunHistory renders HU-013's run-history resume-offer surface (mockup
-// docs/MOCKUPS_TUI.md "Historial De Runs"): the past runs newest-first with the
-// selected row marked. The full browse rendering (progress cell, selected-run
-// detail panel) is added by the run-history browse screen (Phase 5). An empty
-// history renders no rows and no error.
+// viewRunHistory renders HU-013's run-history browse + resume-offer screen
+// (mockup docs/MOCKUPS_TUI.md "Historial De Runs"): the past runs newest-first
+// (date, ticket, target, progress, jobId) with the selected row marked, plus a
+// selected-run detail panel (branch, commit count, delta package path). An
+// empty history renders no rows and no error. `d` toggles an expanded detail
+// block (status/jobId/phase/pick).
 func (m Model) viewRunHistory() string {
 	var b strings.Builder
 	b.WriteString(header("Historial"))
@@ -553,11 +557,60 @@ func (m Model) viewRunHistory() string {
 		if !rec.CreatedAt.IsZero() {
 			date = rec.CreatedAt.Format("2006-01-02 15:04")
 		}
-		b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-6s\n", cursor, date, rec.Ticket, rec.Target))
+		b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-6s %-12s %s\n",
+			cursor, date, rec.Ticket, rec.Target, runProgressLabel(rec), rec.JobID))
 	}
 
-	b.WriteString(footer("Enter reanudar   q salir"))
+	if m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
+		rec := m.runs[m.runsCursor]
+		b.WriteString("\n  Run seleccionado:\n")
+		b.WriteString(fmt.Sprintf("  Branch: %s\n", git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)))
+		b.WriteString(fmt.Sprintf("  Commits: %d\n", len(rec.Commits)))
+		b.WriteString(fmt.Sprintf("  Package: %s\n", runPackagePath(m.deps.Config, rec)))
+		if m.runDetail {
+			b.WriteString("\n  Detalle:\n")
+			b.WriteString(fmt.Sprintf("  Estado: %s\n", runProgressLabel(rec)))
+			if rec.JobID != "" {
+				b.WriteString(fmt.Sprintf("  Job Id: %s\n", rec.JobID))
+			}
+			if rec.Phase != "" {
+				b.WriteString(fmt.Sprintf("  Fase: %s\n", rec.Phase))
+			}
+			if rec.PickTotal > 0 {
+				b.WriteString(fmt.Sprintf("  Pick: %d de %d\n", rec.PickIndex, rec.PickTotal))
+			}
+		}
+	}
+
+	b.WriteString(footer("Enter reanudar   d detalle   ↑/↓ navegar   q salir"))
 	return b.String()
+}
+
+// runProgressLabel is a history row's progress cell: a run WITH a jobId shows
+// its validation status (the last known job state); a run WITHOUT a job shows
+// the last flow step reached, i.e. its Phase (run-history spec: "Row Shows
+// Progress Reached", HU-013 AC docs/HISTORIAS.md:845).
+func runProgressLabel(rec runs.Record) string {
+	if rec.JobID != "" {
+		if rec.Status != "" {
+			return rec.Status
+		}
+		return "validating"
+	}
+	if rec.Phase != "" {
+		return rec.Phase
+	}
+	if rec.Status != "" {
+		return rec.Status
+	}
+	return "-"
+}
+
+// runPackagePath derives the run's delta package.xml path for the detail panel
+// (mockup docs/MOCKUPS_TUI.md:383), composed the same way deltaCmd builds the
+// sgd output dir: <deltaBaseDir>/<ticket>-to-<target>/package/package.xml.
+func runPackagePath(cfg config.Config, rec runs.Record) string {
+	return filepath.Join(deltaBaseDir(cfg), rec.Ticket+"-to-"+rec.Target, "package", "package.xml")
 }
 
 func (m Model) viewVerification() string {

@@ -386,15 +386,29 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// keyRunHistory handles HU-013's run-history resume-offer screen (mockup
-// docs/MOCKUPS_TUI.md "Historial De Runs"): `Enter` resumes the selected run
-// when it is resumable (routing into StateCherryPickConflict or
-// StateValidationPolling) and is a no-op on a terminal run, and `q`/`esc`
-// declines the resume offer, proceeding to the normal ticket-input flow
-// (run-resume spec: "User declines the resume offer"). Browse navigation
-// (↑/↓, detail toggle) is added by the run-history browse screen (Phase 5).
+// keyRunHistory handles HU-013's run-history browse + resume-offer screen
+// (mockup docs/MOCKUPS_TUI.md "Historial De Runs", footer line 386): `↑/↓`
+// (and k/j) move the selection, `d` toggles the expanded detail, `Enter`
+// resumes the selected run when it is resumable (routing into
+// StateCherryPickConflict or StateValidationPolling) and is a no-op on a
+// terminal run (the detail stays shown), and `q`/`esc` declines the resume
+// offer, proceeding to the normal ticket-input flow (run-resume spec: "User
+// declines the resume offer").
 func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "up", "k":
+		if m.runsCursor > 0 {
+			m.runsCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.runsCursor < len(m.runs)-1 {
+			m.runsCursor++
+		}
+		return m, nil
+	case "d":
+		m.runDetail = !m.runDetail
+		return m, nil
 	case "enter":
 		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
 			return m, nil

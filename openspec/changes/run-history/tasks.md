@@ -84,14 +84,14 @@ Chain strategy: pending
 
 ## Phase 5: `StateRunHistory` browse screen (run-history)
 
-- [ ] 5.1 `[T]` RED: `viewRunHistory` — lists runs newest-first (ticket/target/status/date) from `m.runs`; empty list renders no rows without error. (run-history: History Screen Lists Runs Newest First)
-- [ ] 5.2 `[T]` GREEN: add `StateRunHistory` const, `Model.runs`/`runsCursor` fields, `viewRunHistory` per `MOCKUPS_TUI.md:369-388`.
-- [ ] 5.3 `[T]` RED: row w/ `jobId` shows validation status; row w/o `jobId` shows last step reached. (run-history: Row Shows Progress Reached)
-- [ ] 5.4 `[T]` GREEN: derive per-row progress label from `Record.JobID`/`Status`/`Phase`.
-- [ ] 5.5 `[T]` RED: selecting a run shows branch/commit-count/package-path detail. (run-history: Detail View On Selection)
-- [ ] 5.6 `[T]` GREEN: render selected-run detail panel from `Record` fields.
-- [ ] 5.7 `[T]` RED: `Enter` on a resumable run calls `resumeInto`; `Enter` on a terminal-status run is a no-op (detail stays shown); `d` toggles detail; `↑/↓` moves `runsCursor`; `q`/`esc` declines → `StateTicketInput`. (run-history: Enter On A Resumable Run...; run-resume: User declines the resume offer)
-- [ ] 5.8 `[T]` GREEN: implement `keyRunHistory` (`keys.go`) wiring Enter/d/↑↓/q per mockup line 386.
+- [x] 5.1 `[T]` RED: `viewRunHistory` — lists runs newest-first (ticket/target/status/date) from `m.runs`; empty list renders no rows without error. (run-history: History Screen Lists Runs Newest First)
+- [x] 5.2 `[T]` GREEN: add `StateRunHistory` const, `Model.runs`/`runsCursor` fields, `viewRunHistory` per `MOCKUPS_TUI.md:369-388`.
+- [x] 5.3 `[T]` RED: row w/ `jobId` shows validation status; row w/o `jobId` shows last step reached. (run-history: Row Shows Progress Reached)
+- [x] 5.4 `[T]` GREEN: derive per-row progress label from `Record.JobID`/`Status`/`Phase`.
+- [x] 5.5 `[T]` RED: selecting a run shows branch/commit-count/package-path detail. (run-history: Detail View On Selection)
+- [x] 5.6 `[T]` GREEN: render selected-run detail panel from `Record` fields.
+- [x] 5.7 `[T]` RED: `Enter` on a resumable run calls `resumeInto`; `Enter` on a terminal-status run is a no-op (detail stays shown); `d` toggles detail; `↑/↓` moves `runsCursor`; `q`/`esc` declines → `StateTicketInput`. (run-history: Enter On A Resumable Run...; run-resume: User declines the resume offer)
+- [x] 5.8 `[T]` GREEN: implement `keyRunHistory` (`keys.go`) wiring Enter/d/↑↓/q per mockup line 386.
 
 ## Phase 6: `deploydeck runs prune` CLI (run-retention)
 
