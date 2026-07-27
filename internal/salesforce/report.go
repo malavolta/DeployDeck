@@ -110,11 +110,13 @@ func IsTerminal(status string) bool {
 // drive polling themselves (HU-011's ValidationPolling state,
 // internal/app) — this is a single call, not a loop, matching
 // design.md's "polling driver" decision (tea.Tick fires one ReportDeploy
-// per tick; no blocking loop lives in this package). A non-zero CLI exit
-// returns a DeployReport carrying Raw together with an error describing
-// the failure, so callers can still show the raw output while deciding
-// whether the failure is transient (retryable within the poll's deadline)
-// or terminal.
+// per tick; no blocking loop lives in this package). Terminal detection is
+// exit-code-INDEPENDENT: any output that decodes to a report with a
+// recognized status is returned as a DeployReport with a nil error, even
+// when the CLI exited non-zero (sf exits non-zero on a terminal Failed /
+// Canceled deploy while still emitting the full report). Only output that
+// is NOT a parseable report returns an error carrying Raw, which the poll
+// loop treats as a transient failure retryable within its deadline.
 func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string) (DeployReport, error) {
 	result, err := c.runner.Run(ctx, exec.CommandRequest{
 		Name: "sf",
@@ -131,16 +133,32 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 	}
 
 	raw := combineOutput(result.Stdout, result.Stderr)
-	if result.ExitCode != 0 {
-		return DeployReport{Raw: raw}, fmt.Errorf(
-			"salesforce: sf project deploy report exited %d: %s",
-			result.ExitCode, strings.TrimSpace(string(result.Stderr)),
-		)
-	}
 
+	// Decode the result envelope BEFORE consulting the exit code. `sf project
+	// deploy report --json` exits non-zero on a genuinely TERMINAL deploy
+	// (Failed / Canceled) while STILL emitting the full report under result, so
+	// keying terminal detection off the exit code would misread a real failure
+	// as a transient error and keep polling to the hard timeout with no detail.
+	// A parseable report — a decoded result carrying a (recognized, non-empty)
+	// status — is authoritative and returned as data with a nil error, whatever
+	// the exit code. Only output that is NOT a parseable report (an error
+	// envelope, empty output, or garbage) is surfaced as an error, with Raw
+	// preserved for display.
 	var decoded reportResultEnvelope
-	if err := decodeEnvelope(result.Stdout, &decoded); err != nil {
-		return DeployReport{Raw: raw}, err
+	decodeErr := decodeEnvelope(result.Stdout, &decoded)
+	if decodeErr != nil || decoded.Status == "" {
+		if result.ExitCode != 0 {
+			return DeployReport{Raw: raw}, fmt.Errorf(
+				"salesforce: sf project deploy report exited %d: %s",
+				result.ExitCode, strings.TrimSpace(string(result.Stderr)),
+			)
+		}
+		if decodeErr != nil {
+			return DeployReport{Raw: raw}, decodeErr
+		}
+		// Exit 0 with a decoded-but-empty status: fall through and return the
+		// (non-terminal) report unchanged, so the caller keeps polling — this
+		// preserves the pre-existing zero-exit behavior verbatim.
 	}
 
 	report := DeployReport{

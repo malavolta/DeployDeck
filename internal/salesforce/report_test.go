@@ -161,6 +161,87 @@ func TestClient_ReportDeploy_CLIErrorSurfacesMessageAndRaw(t *testing.T) {
 	}
 }
 
+func TestClient_ReportDeploy_NonZeroExitTerminalReportIsParsed(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000005EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	// `sf project deploy report --json` exits NON-ZERO on a genuinely terminal
+	// Failed deploy while STILL emitting the full report under result. Terminal
+	// detection must be exit-code-INDEPENDENT: this must decode to a terminal
+	// DeployReport with a nil error (NOT a transient error that would keep the
+	// poll loop running to the hard timeout with no failure detail).
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 1,
+		Stdout: []byte(`{"status":1,"result":{
+			"status":"Failed",
+			"numberComponentsTotal":3,
+			"numberComponentsDeployed":0,
+			"numberComponentErrors":3,
+			"numberTestsTotal":0,
+			"numberTestsCompleted":0,
+			"numberTestErrors":0,
+			"details":{
+				"componentFailures":[
+					{"fullName":"AccountService","componentType":"ApexClass","problem":"line 3: unexpected token"}
+				],
+				"runTestResult":{"failures":[]}
+			}
+		}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000005EAA", "UAT_SANDBOX", "/repo")
+	if err != nil {
+		t.Fatalf("a parseable terminal report must NOT be a transient error, got: %v", err)
+	}
+	if got.Status != "Failed" {
+		t.Fatalf("expected terminal Status %q regardless of exit code, got %q", "Failed", got.Status)
+	}
+	if !salesforce.IsTerminal(got.Status) {
+		t.Fatalf("Status %q should be terminal so polling stops", got.Status)
+	}
+	if got.NumberComponentErrors != 3 || len(got.ComponentFailures) != 1 {
+		t.Fatalf("terminal report detail lost on a non-zero exit: %+v", got)
+	}
+	if f := got.ComponentFailures[0]; f.Component != "AccountService" || f.Type != "ApexClass" {
+		t.Fatalf("component failure not parsed from a non-zero-exit report: %+v", f)
+	}
+}
+
+func TestClient_ReportDeploy_NonZeroExitUnparseableStillErrors(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000006EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	// A non-zero exit whose output is NOT a parseable report (an oclif error
+	// envelope with no result object) stays an error, with Raw preserved for
+	// display — only a genuine report short-circuits the error path.
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 1,
+		Stdout:   []byte(`{"status":1,"name":"GenericTimeoutError","message":"The request timed out","exitCode":1}`),
+		Stderr:   []byte("Warning: request timed out\n"),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000006EAA", "UAT_SANDBOX", "/repo")
+	if err == nil {
+		t.Fatal("a non-zero exit that is not a parseable report must still error")
+	}
+	if got.Status != "" {
+		t.Fatalf("an unparseable error must not fabricate a status, got %q", got.Status)
+	}
+	if !strings.Contains(got.Raw, "timed out") {
+		t.Fatalf("Raw must be preserved on an unparseable error, got %q", got.Raw)
+	}
+}
+
 func TestIsTerminal(t *testing.T) {
 	tests := []struct {
 		status string
