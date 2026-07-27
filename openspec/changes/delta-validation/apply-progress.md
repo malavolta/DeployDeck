@@ -442,3 +442,115 @@ Batch 3 (this FINAL batch):
 53/53 tasks.md items complete (Phases 1-9 fully done and green).
 All batches complete. The change is fully implemented, green under
 `-race`, and confirmed against the real org — ready for `sdd-verify`.
+
+## Remediation Batch — async-validation polling-loop robustness (post-review)
+
+**Mode**: Strict TDD (RED reproduce → GREEN minimal fix). **Scope**: the
+HU-011 `ValidationPolling` loop only. An adversarial review of the polling
+loop found three real robustness/resilience holes; each was reproduced with a
+failing RED test first, then fixed minimally. The SOUND parts were preserved
+and re-verified (hard timeout, terminal mapping, job-stays-active-on-quit,
+serialized run persistence, immediate jobId write).
+
+### Findings and fixes
+
+- **H1 (HIGH) — terminal detection must be exit-code-independent.**
+  `salesforce.ReportDeploy` returned early with an error on ANY non-zero CLI
+  exit, discarding the decoded report — so a genuinely terminal `Failed` /
+  `Canceled` report (sf exits non-zero on those while still emitting the full
+  result) was misread by `onReportDone` as a TRANSIENT error and polled to the
+  1-hour hard timeout with no failure detail. **Fix**: `ReportDeploy` now
+  decodes the result envelope BEFORE consulting the exit code; a parseable
+  report (a decoded result carrying a recognized, non-empty status) is returned
+  as data with a nil error regardless of exit code, so terminal detection is
+  exit-code-independent. Only output that is NOT a parseable report (error
+  envelope / empty / garbage) still returns an error carrying `Raw`.
+
+- **H2 (MEDIUM) — poll re-entrancy / tick pile-up.** `onPollTick` fired
+  `reportCmd()` AND re-armed the next `pollTickCmd()` unconditionally while
+  `onReportDone` never rescheduled, so a slow `report` let ticks accumulate into
+  multiple concurrent `sf` subprocesses hammering the org. **Fix**: polling is
+  now strictly sequential and report-driven — `onValidateDone` fires only the
+  FIRST report; `onReportDone` (non-terminal or transient error, within the
+  deadline) arms the single next tick via `scheduleNextPoll`; `onPollTick` no
+  longer re-arms itself. A new `pollInFlight` guard enforces "at most one
+  `ReportDeploy` outstanding": `onPollTick` and manual refresh (`r`) are no-ops
+  while a report is in flight, so a manual refresh can never stack a second
+  concurrent poll. The hard-timeout check is preserved in BOTH `scheduleNextPoll`
+  (before rescheduling) and `onPollTick` (before firing).
+
+- **H3 (LOW) + gaps.**
+  - *Persist raw on errored polls*: `AppendReport` sat AFTER the early return on
+    error, so a transient/errored poll's raw output was dropped. Moved before the
+    error branch (guarded on non-empty `Raw`), preserving the last known status
+    so a status-less errored poll never clobbers `run.json`'s status — matches
+    the spec's "each raw report saved".
+  - *Cancelable poll context (chosen: IMPLEMENT)*: the loop used
+    `context.Background()`, so the design/spec promise "process quit cancels ctx"
+    was false. **Justification for implementing rather than downgrading the
+    promise**: it is straightforward and self-contained in the Bubble Tea model
+    (a cancelable `pollCtx`/`pollCancel` armed on entry, cancelled on every
+    polling exit) and yields a clean, time-free RED test (`pollCtx.Err() ==
+    context.Canceled` after `q`); `os_runner` uses `exec.CommandContext`, so
+    cancellation genuinely tears down the in-flight subprocess. `reportCmd`
+    derives its per-call timeout from `pollCtx`; terminal / timeout / `q` /
+    `ctrl+c` all cancel it. This NEVER issues a `deploy cancel` — report is
+    read-only, so the SF job stays active and the run stays resumable (the
+    existing `UserExitLeavesJobActive` guard still passes unmodified).
+
+### TDD Cycle Evidence (remediation)
+
+| Finding | RED (failing test first) | GREEN (fix) | REFACTOR |
+|---|---|---|---|
+| H1 | `TestClient_ReportDeploy_NonZeroExitTerminalReportIsParsed` → FAIL: `a parseable terminal report must NOT be a transient error, got: salesforce: sf project deploy report exited 1:` (confirmed) | `report.go`: decode-before-exit-code; parseable report returned as data. Suite green; `NonZeroExitUnparseableStillErrors` guard green | none — reused `decodeEnvelope`/`combineOutput` |
+| H2 | `TestModel_ValidationPolling_PollsSequentially` + updated `TransientErrorRetries` → build FAIL `m.pollInFlight undefined` (confirmed) | `pollInFlight` guard + `scheduleNextPoll`; `onReportDone`/`onPollTick` restructured; `r` guarded. All app polling tests green | `scheduleNextPoll` extracted as the single tick-arming point |
+| H3-persist | `TestModel_ValidationPolling_PersistsRawOnTransientError` → build FAIL `m.pollInFlight undefined` (same RED run) | `AppendReport` moved before the error branch, status-preserving | none |
+| H3-ctx | `TestModel_ValidationPolling_UserExitCancelsInFlightReport` → build FAIL `pm.pollCtx undefined` (confirmed) | `pollCtx`/`pollCancel` + `cancelPoll`/`pollContext`; armed on entry, cancelled on every polling exit; `reportCmd` derives from `pollContext` | `cancelPoll`/`pollContext` extracted as named helpers |
+
+### Files Changed (remediation)
+
+| File | Action | What Was Done |
+|---|---|---|
+| `internal/salesforce/report.go` | Modified | Decode the result envelope before the exit-code check; return a parseable report (recognized non-empty status) as data with nil error regardless of exit code; error only when NOT a parseable report (keeps `Raw`). Doc comment updated |
+| `internal/salesforce/report_test.go` | Modified | +`NonZeroExitTerminalReportIsParsed` (RED) and +`NonZeroExitUnparseableStillErrors` (guard) |
+| `internal/app/app.go` | Modified | +`pollInFlight`, +`pollCtx`/`pollCancel` Model fields; +`pollContext()`/`cancelPoll()` helpers |
+| `internal/app/update.go` | Modified | `onValidateDone` arms `pollCtx` + fires first report only; `onReportDone` clears the guard, persists raw on error too, delegates rescheduling to `scheduleNextPoll`; +`scheduleNextPoll`; `onPollTick` guarded + no self re-arm; ctrl+c cancels the poll |
+| `internal/app/keys.go` | Modified | `keyValidationPolling`: `r` no-ops while in flight (no stacking); `q` cancels the poll before quitting |
+| `internal/app/commands.go` | Modified | `reportCmd` derives its per-call timeout from `pollContext()` instead of `ctx()` |
+| `internal/app/delta_validation_test.go` | Modified | +`PollsSequentially`, +`PersistsRawOnTransientError`, +`UserExitCancelsInFlightReport`; updated `TransientErrorRetries` to the sequential contract; +`context` import |
+| `openspec/changes/delta-validation/design.md` | Modified | Polling-loop note rewritten to the sequential, report-driven, exit-code-independent, quit-cancels-ctx model (promise now real) |
+
+### Work Unit Evidence (remediation)
+
+- **Focused tests**:
+  - `go test ./internal/salesforce/... -run ReportDeploy` → `ok` (all report tests, incl. the two new exit-code cases)
+  - `go test ./internal/app/... -run 'ValidationPolling|ValidationStart'` → `ok` (sequential, persist-on-error, cancel-on-exit, plus the preserved timeout/terminal/leaves-job-active tests)
+- **Runtime harness (real org)**: `DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test -run 'ValidateAndReport' ./internal/salesforce/... -count=1 -timeout 20m` → `PASS (6.71s)`; captured jobId `0Affj00000L185uCAB`, polled `status="Failed" components=0/3(err 3)`, all 3 real `componentFailures` parsed — confirms H1's exit-code-independent parsing against the live `sf` CLI with no regression.
+- **Rollback boundary**: revert the three remediation commits (`cd460cb`, `17f5d37`, `a3a526f`); the polling loop returns to its prior tick-batch behavior. No files outside `internal/salesforce`, `internal/app`, and `design.md` are touched; the SOUND parts (immediate jobId write, serialized persistence) live in untouched code paths.
+
+### Commits (remediation)
+
+13. `cd460cb` `fix(salesforce): parse terminal report regardless of exit code`
+14. `17f5d37` `fix(app): poll sequentially and persist every raw report`
+15. `a3a526f` `fix(app): cancel the in-flight report subprocess on user exit`
+
+### Final Verification (remediation), verbatim
+
+```
+$ export PATH="/usr/local/go/bin:$PATH" && go build ./... && go vet ./... && gofmt -l . && go test -race ./...
+ok  	deploydeck/cmd/deploydeck	(cached)
+ok  	deploydeck/internal/app	3.668s
+ok  	deploydeck/internal/config	(cached)
+ok  	deploydeck/internal/delta	(cached)
+ok  	deploydeck/internal/exec	(cached)
+ok  	deploydeck/internal/git	(cached)
+ok  	deploydeck/internal/prereq	(cached)
+ok  	deploydeck/internal/runs	(cached)
+ok  	deploydeck/internal/salesforce	1.558s
+```
+`go build`, `go vet`, and `gofmt -l .` produced no output (clean). Real-org
+e2e re-run: `PASS (6.71s)` — no regression.
+
+No SOUND behavior regressed: `TestModel_ValidationPolling_HardTimeout`,
+`_TerminalMapping`, `_UserExitLeavesJobActive`, `_PersistsEachReport`, and
+`TestModel_ValidationStart_PersistsRunOnJobId` all pass unmodified in intent.
