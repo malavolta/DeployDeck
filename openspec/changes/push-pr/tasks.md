@@ -35,13 +35,13 @@ Chain strategy: size-exception
 - [x] 1.4 GREEN `service_remote.go`: add `RemoteURL(ctx,dir,name)`, sibling of `HasRemote`
 
 ## Phase 2: New `internal/github` Package
-- [ ] 2.1 [U] RED `compare_url_test.go` table: SSH `github.ibm.com` (Enterprise), HTTPS `github.ibm.com`, github.com SSH+HTTPS, trailing `.git`, `ssh://git@host/org/repo.git`, unrecognized→error (AC6)
-- [ ] 2.2 GREEN `compare_url.go`: pure `CompareURL(originURL,base,head)` → `https://<host>/<org>/<repo>/compare/<base>...<head>`
-- [ ] 2.3 [U] RED `client_test.go`: `AuthStatus` 3 states via FakeRunner (Runner err→Absent, ExitCode!=0→Unauthed, 0→Authed) (AC5/AC6)
-- [ ] 2.4 GREEN `client.go`: `AuthState`, `Client` interface, `New(runner)`, `AuthStatus`
-- [ ] 2.5 [U] RED `client_test.go`: `CreatePR` FakeRunner — success→URL parsed+Raw kept; non-zero exit→error+Raw kept; exact arg-slice `pr create --base --head --title --body ""` (AC5/AC7)
-- [ ] 2.6 GREEN `client.go`: `CreatePR(ctx,base,head,title)`
-- [ ] 2.7 [U] RED+GREEN `SuggestedTitle`: `<ticket> - Promote changes to <target>` (AC4)
+- [x] 2.1 [U] RED `compare_url_test.go` table: SSH `github.ibm.com` (Enterprise), HTTPS `github.ibm.com`, github.com SSH+HTTPS, trailing `.git`, `ssh://git@host/org/repo.git`, unrecognized→error (AC6)
+- [x] 2.2 GREEN `compare_url.go`: pure `CompareURL(originURL,base,head)` → `https://<host>/<org>/<repo>/compare/<base>...<head>`
+- [x] 2.3 [U] RED `client_test.go`: `AuthStatus` 3 states via FakeRunner (Runner err→Absent, ExitCode!=0→Unauthed, 0→Authed) (AC5/AC6)
+- [x] 2.4 GREEN `client.go`: `AuthState`, `Client` interface, `New(runner)`, `AuthStatus`
+- [x] 2.5 [U] RED `client_test.go`: `CreatePR` FakeRunner — success→URL parsed+Raw kept; non-zero exit→error+Raw kept; exact arg-slice `pr create --base --head --title --body ""` (AC5/AC7)
+- [x] 2.6 GREEN `client.go`: `CreatePR(ctx,base,head,title)`
+- [x] 2.7 [U] RED+GREEN `SuggestedTitle`: `<ticket> - Promote changes to <target>` (AC4)
 
 ## Phase 3: `internal/runs` PRUrl Persistence
 - [ ] 3.1 [U] RED `writer_test.go`: `PRUrl` round-trips write/reload; prior `run.json` (no PRUrl) loads zero-valued (run-persistence delta)
