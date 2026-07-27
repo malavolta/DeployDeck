@@ -62,10 +62,10 @@ Chain strategy: size-exception
 
 ## Phase 4: HU-010 `salesforce.ValidateDeploy` (deploy-validation)
 
-- [ ] 4.1 [U] RED `internal/salesforce/validate_test.go`: composes `sf project deploy validate --manifest <pkg> --target-org <alias> --test-level <level> --async --json` (`Dir`=repo root); conditional `--post-destructive-changes`; repeated `--tests` only for `RunSpecifiedTests`; `JobID`=envelope `result.id`
-- [ ] 4.2 [U] GREEN: implement `ValidateRequest`/`ValidateResult`/`ValidateDeploy` in `validate.go`, add to `Client` interface (`client.go`, `New` unchanged)
-- [ ] 4.3 [U] RED: CLI `ExitCode!=0` → message+`Raw` surfaced, error returned (not panic), flow-continuable
-- [ ] 4.4 [U] GREEN: implement the error path
+- [x] 4.1 [U] RED `internal/salesforce/validate_test.go`: composes `sf project deploy validate --manifest <pkg> --target-org <alias> --test-level <level> --async --json` (`Dir`=repo root); conditional `--post-destructive-changes`; repeated `--tests` only for `RunSpecifiedTests`; `JobID`=envelope `result.id`
+- [x] 4.2 [U] GREEN: implement `ValidateRequest`/`ValidateResult`/`ValidateDeploy` in `validate.go`, add to `Client` interface (`client.go`, `New` unchanged)
+- [x] 4.3 [U] RED: CLI `ExitCode!=0` → message+`Raw` surfaced, error returned (not panic), flow-continuable
+- [x] 4.4 [U] GREEN: implement the error path
 
 ## Phase 5: `internal/runs` minimal writer (run-persistence)
 

@@ -24,6 +24,10 @@ type Client interface {
 	Plugins(ctx context.Context) ([]Plugin, error)
 	// Orgs runs `sf org list --json`.
 	Orgs(ctx context.Context) (OrgList, error)
+	// ValidateDeploy runs `sf project deploy validate --async --json`
+	// (HU-010): async CheckOnly validation of a delta package, returning
+	// the jobId to poll via ReportDeploy.
+	ValidateDeploy(ctx context.Context, req ValidateRequest) (ValidateResult, error)
 }
 
 // VersionInfo is the parsed `sf --version` output.
