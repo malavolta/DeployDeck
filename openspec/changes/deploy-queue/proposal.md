@@ -73,8 +73,8 @@ Feature is additive and revertible without shared-state cleanup:
 
 ## Success Criteria
 
-- [ ] Package confirm shows the active queue ordered by `CreatedDate` with own-job highlight + approx position; empty state clear; `CheckOnly` distinguishes validate vs deploy.
-- [ ] Permission error → warn + continue to validation without the queue view; generic query error → actionable error without aborting the flow.
-- [ ] From polling, `c` → typed `CANCELAR` confirm cancels only the current run's job; run persists as `Canceled` with cancel raw; cancel failure → error + run untouched.
-- [ ] Foreign jobs never offer cancel; `q` exit-leaves-job-resumable invariant unchanged.
-- [ ] `go test ./...` green (unit + fake); opt-in queue e2e passes vs `AM-DEV-EDITION`.
+- [x] Package confirm shows the active queue ordered by `CreatedDate` with own-job highlight + approx position; empty state clear; `CheckOnly` distinguishes validate vs deploy.
+- [x] Permission error → warn + continue to validation without the queue view; generic query error → actionable error without aborting the flow.
+- [x] From polling, `c` → typed `CANCELAR` confirm cancels only the current run's job; run persists as `Canceled` with cancel raw; cancel failure → error + run untouched.
+- [x] Foreign jobs never offer cancel; `q` exit-leaves-job-resumable invariant unchanged.
+- [x] `go test ./...` green (unit + fake); opt-in queue e2e passes vs `AM-DEV-EDITION`.

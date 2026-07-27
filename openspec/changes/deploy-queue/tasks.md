@@ -40,37 +40,37 @@ Chain strategy: pending
 
 ## Phase 3: HU-012 — `internal/salesforce` CancelDeploy (Foundation)
 
-- [ ] 3.1 RED `internal/salesforce/cancel_test.go`: success/failure + Raw cases (HU-012)[U]
-- [ ] 3.2 GREEN `internal/salesforce/cancel.go` + `client.go`: `CancelDeploy` added to `Client` interface, arg-slice `sf project deploy cancel --job-id <id> --target-org <alias>` (HU-012)[U]
+- [x] 3.1 RED `internal/salesforce/cancel_test.go`: success/failure + Raw cases (HU-012)[U]
+- [x] 3.2 GREEN `internal/salesforce/cancel.go` + `client.go`: `CancelDeploy` added to `Client` interface, arg-slice `sf project deploy cancel --job-id <id> --target-org <alias>` (HU-012)[U]
 
 ## Phase 4: HU-012 — `internal/runs` MarkCanceled (Foundation)
 
-- [ ] 4.1 RED `internal/runs/writer_test.go`: `MarkCanceled` writes `cancel.json` companion + sets `run.json` Status=Canceled; does not consume `report-<NNN>.json` numbering (HU-012)[U]
-- [ ] 4.2 GREEN `internal/runs/writer.go`: `Writer.MarkCanceled(runID, cancelRaw)` (HU-012)[U]
+- [x] 4.1 RED `internal/runs/writer_test.go`: `MarkCanceled` writes `cancel.json` companion + sets `run.json` Status=Canceled; does not consume `report-<NNN>.json` numbering (HU-012)[U]
+- [x] 4.2 GREEN `internal/runs/writer.go`: `Writer.MarkCanceled(runID, cancelRaw)` (HU-012)[U]
 
 ## Phase 5: HU-012 — `internal/app` Cancel Wiring (Integration)
 
-- [ ] 5.1 RED `internal/app/cancel_confirm_test.go`: ValidationPolling→CancelConfirm via `c`; typed `CANCELAR` gate wrong/backspace/esc; success→Canceled+persist; failure→stay+error unmarked; stale-message guard (HU-012)[T]
-- [ ] 5.2 GREEN `internal/app/app.go`: `StateCancelConfirm` const + `cancelInput` field (HU-012)[U]
-- [ ] 5.3 GREEN `internal/app/commands.go`: `cancelCmd`, `cancelDoneMsg`; targets exactly `m.jobID`, never `m.cancelInput` (HU-012)[U]
-- [ ] 5.4 GREEN `internal/app/update.go`: `onCancelDone` — success→`cancelPoll()`+`MarkCanceled`+`StateCanceled`; failure→stay+error; guard `state != StateCancelConfirm`; wired into `Update` (HU-012)[U]
-- [ ] 5.5 GREEN `internal/app/keys.go`: `c` case in `keyValidationPolling`→`StateCancelConfirm`; `keyCancelConfirm` (`keyTicket` idiom) gated on exact literal `CANCELAR`; dispatcher case; `q` path untouched (HU-012)[U]
-- [ ] 5.6 GREEN `internal/app/view.go`: `viewCancelConfirm`; dispatcher case (HU-012)[T]
+- [x] 5.1 RED `internal/app/cancel_confirm_test.go`: ValidationPolling→CancelConfirm via `c`; typed `CANCELAR` gate wrong/backspace/esc; success→Canceled+persist; failure→stay+error unmarked; stale-message guard (HU-012)[T]
+- [x] 5.2 GREEN `internal/app/app.go`: `StateCancelConfirm` const + `cancelInput` field (HU-012)[U]
+- [x] 5.3 GREEN `internal/app/commands.go`: `cancelCmd`, `cancelDoneMsg`; targets exactly `m.jobID`, never `m.cancelInput` (HU-012)[U]
+- [x] 5.4 GREEN `internal/app/update.go`: `onCancelDone` — success→`cancelPoll()`+`MarkCanceled`+`StateCanceled`; failure→stay+error; guard `state != StateCancelConfirm`; wired into `Update` (HU-012)[U]
+- [x] 5.5 GREEN `internal/app/keys.go`: `c` case in `keyValidationPolling`→`StateCancelConfirm`; `keyCancelConfirm` (`keyTicket` idiom) gated on exact literal `CANCELAR`; dispatcher case; `q` path untouched (HU-012)[U]
+- [x] 5.6 GREEN `internal/app/view.go`: `viewCancelConfirm`; dispatcher case (HU-012)[T]
 
 ## Phase 6: Threat-Matrix Proof (Security)
 
-- [ ] 6.1 `internal/salesforce/argcomposition_test.go`: assert `FakeRunner.Calls` carries the SOQL as one slice arg for `ListDeployQueue`, and `jobID` as a plain slice arg for `CancelDeploy` — never shell-joined/interpolated; confirms Phase 1/3 GREEN already satisfies it [U]
+- [x] 6.1 `internal/salesforce/argcomposition_test.go`: assert `FakeRunner.Calls` carries the SOQL as one slice arg for `ListDeployQueue`, and `jobID` as a plain slice arg for `CancelDeploy` — never shell-joined/interpolated; confirms Phase 1/3 GREEN already satisfies it [U]
 
 ## Phase 7: Real E2E (Verification)
 
 - [x] 7.1 `[E2E-ORG]` extend `internal/salesforce/real_org_e2e_test.go`: queue query vs `AM-DEV-EDITION` — real `DeployRequest` records parse incl. `CreatedBy.Username`, own-job identified (HU-009)
-- [ ] 7.2 `[E2E-ORG]` optional/best-effort: real cancel vs a real jobId — assert the CLI call runs, do NOT assert terminal status (timing-hard, documented, not required) (HU-012)
+- [x] 7.2 `[E2E-ORG]` optional/best-effort: real cancel vs a real jobId — assert the CLI call runs, do NOT assert terminal status (timing-hard, documented, not required) (HU-012). Implemented as `internal/salesforce/real_org_cancel_e2e_test.go`, double-gated (`DEPLOYDECK_E2E_ORG` + `DEPLOYDECK_E2E_CANCEL_JOBID`); skips by default; required behavioral coverage stays in the FakeRunner unit + app cancel-confirm tests.
 
 ## Phase 8: Final Verification (Cleanup)
 
-- [ ] 8.1 `go test -race ./...`, `go vet ./...`, `gofmt -l .` clean
-- [ ] 8.2 Confirm `internal/app/boundary_test.go` still passes (no direct `os/exec`/`internal/exec` import)
-- [ ] 8.3 Check off `proposal.md` Success Criteria items
+- [x] 8.1 `go test -race ./...`, `go vet ./...`, `gofmt -l .` clean
+- [x] 8.2 Confirm `internal/app/boundary_test.go` still passes (no direct `os/exec`/`internal/exec` import)
+- [x] 8.3 Check off `proposal.md` Success Criteria items
 
 ## Notes
 
