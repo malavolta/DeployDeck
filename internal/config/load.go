@@ -13,7 +13,8 @@ const FileName = "deploydeck.yaml"
 
 // Load reads deploydeck.yaml from dir, applying defaults for any omitted
 // fields (BranchFormat, Runs.KeepLast, Runs.KeepDays,
-// PollIntervalSeconds, PollTimeoutSeconds, Delta.OutputDir).
+// PollIntervalSeconds, PollTimeoutSeconds, and — only once the user has
+// opted into delta via a non-empty Delta.SourceDirs — Delta.OutputDir).
 func Load(dir string) (Config, error) {
 	path := filepath.Join(dir, FileName)
 
@@ -48,7 +49,11 @@ func applyDefaults(cfg *Config) {
 	if cfg.PollTimeoutSeconds == 0 {
 		cfg.PollTimeoutSeconds = DefaultPollTimeoutSeconds
 	}
-	if cfg.Delta.OutputDir == "" {
+	// Only default OutputDir once SourceDirs is non-empty: an entirely
+	// omitted delta section must stay entirely empty post-Load, or
+	// Validate's "any Delta field set requires non-empty SourceDirs" rule
+	// would self-trigger on every config that never mentions delta at all.
+	if len(cfg.Delta.SourceDirs) > 0 && cfg.Delta.OutputDir == "" {
 		cfg.Delta.OutputDir = DefaultDeltaOutputDir
 	}
 }

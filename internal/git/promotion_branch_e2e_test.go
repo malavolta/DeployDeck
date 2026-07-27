@@ -31,8 +31,10 @@ func TestHU005_PromotionBranch_E2E(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := config.Config{
-		Branches:     map[string]string{"integration": "main", "uat": "UAT"},
-		BranchFormat: config.DefaultBranchFormat,
+		Branches:            map[string]string{"integration": "main", "uat": "UAT"},
+		BranchFormat:        config.DefaultBranchFormat,
+		PollIntervalSeconds: config.DefaultPollIntervalSeconds,
+		PollTimeoutSeconds:  config.DefaultPollTimeoutSeconds,
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("cfg.Validate: unexpected error: %v", err)

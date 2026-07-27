@@ -52,10 +52,15 @@ delta:
 }
 
 // TestLoad_PollSecondsAndDeltaOutputDir_DefaultsWhenOmitted proves
-// pollIntervalSeconds/pollTimeoutSeconds default to 10/3600 and
-// delta.outputDir defaults to DefaultDeltaOutputDir when omitted, while an
-// explicit value always overrides the default (mirrors
-// TestLoad_AppliesDefaultsForOmittedFields's branchFormat/runs coverage).
+// pollIntervalSeconds/pollTimeoutSeconds always default to 10/3600, and
+// delta.outputDir defaults to DefaultDeltaOutputDir ONLY once the user has
+// opted into delta via a non-empty sourceDirs — an entirely omitted delta
+// section must stay entirely empty post-Load (never silently
+// "configured"), or Validate's "any Delta field set requires non-empty
+// sourceDirs" rule would self-trigger on every config that never mentions
+// delta at all. An explicit outputDir always overrides the default
+// (mirrors TestLoad_AppliesDefaultsForOmittedFields's branchFormat/runs
+// coverage).
 func TestLoad_PollSecondsAndDeltaOutputDir_DefaultsWhenOmitted(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -65,10 +70,21 @@ func TestLoad_PollSecondsAndDeltaOutputDir_DefaultsWhenOmitted(t *testing.T) {
 		wantDeltaOutputDir string
 	}{
 		{
-			name: "omitted poll fields and delta.outputDir get defaults",
+			name: "omitted poll fields default; delta.outputDir stays empty when delta is unconfigured",
 			yaml: `
 branches:
   integration: INT
+`,
+			wantInterval:       10,
+			wantTimeout:        3600,
+			wantDeltaOutputDir: "",
+		},
+		{
+			name: "delta configured via sourceDirs gets a default outputDir when omitted",
+			yaml: `
+delta:
+  sourceDirs:
+    - force-app
 `,
 			wantInterval:       10,
 			wantTimeout:        3600,
@@ -81,6 +97,8 @@ pollIntervalSeconds: 5
 pollTimeoutSeconds: 120
 
 delta:
+  sourceDirs:
+    - force-app
   outputDir: custom/output
 `,
 			wantInterval:       5,
@@ -107,6 +125,10 @@ delta:
 			}
 			if cfg.Delta.OutputDir != tt.wantDeltaOutputDir {
 				t.Errorf("Delta.OutputDir = %q, want %q", cfg.Delta.OutputDir, tt.wantDeltaOutputDir)
+			}
+
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() unexpected error on a Load()-produced config: %v", err)
 			}
 		})
 	}
