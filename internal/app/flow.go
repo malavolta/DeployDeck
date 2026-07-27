@@ -87,3 +87,25 @@ func commitSHAs(commits []git.DiscoveredCommit) []string {
 	}
 	return shas
 }
+
+// rehydrateSelectedCommits reconstructs a minimal SelectedCommits slice from
+// the SHAs persisted on a run record (runs.Record.Commits, written by
+// commitSHAs at branch creation) so a RESUMED run carries enough of its
+// original selection to keep the flow correct: len() drives the live "pick N
+// of M" (onPickDone/derivePickIndex recompute from len(SelectedCommits)), and
+// each SHA feeds post-pick verification (verifyCmd → VerifyPromotedContent,
+// which recomputes each commit's touched files from its SHA via git). The
+// reconstructed commits carry ONLY the SHA — Merge is false so none is skipped
+// by verifyCmd; the record never persisted the other Commit fields and the
+// resume path needs none of them. Pure; an empty slice yields nil (mirroring
+// commitSHAs' inverse convention).
+func rehydrateSelectedCommits(shas []string) []git.DiscoveredCommit {
+	if len(shas) == 0 {
+		return nil
+	}
+	commits := make([]git.DiscoveredCommit, len(shas))
+	for i, sha := range shas {
+		commits[i] = git.DiscoveredCommit{Commit: git.Commit{SHA: sha}}
+	}
+	return commits
+}

@@ -165,6 +165,12 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 		m.plan.Ticket = rec.Ticket
 		m.plan.TargetBranch = rec.Target
 		m.plan.SandboxAlias = rec.Alias
+		// Rehydrate the selected set from the persisted SHAs so the resumed run
+		// keeps its "pick N of M" (onPickDone recomputes from len) and still runs
+		// post-pick verification over the selection (verifyCmd short-circuits to a
+		// no-op on an empty set) — never zeroing progress or silently skipping the
+		// HU-006 safety check on a continued/completed resume.
+		m.plan.SelectedCommits = rehydrateSelectedCommits(rec.Commits)
 		m.pickTotal = rec.PickTotal
 		m.pickIndex = derivePickIndex(rec.PickTotal, m.repoState)
 		m.state = StateCherryPickConflict
