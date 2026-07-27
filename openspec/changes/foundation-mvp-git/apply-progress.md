@@ -915,3 +915,113 @@ nothing (clean) — proving CI (which never sets `DEPLOYDECK_E2E_ORG`) is unaffe
 | Focused test command and exact result | `DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test -run TestE2ERealOrg ./internal/prereq/... -v -count=1` → `PASS`, 4/4 subtests, `ok deploydeck/internal/prereq 4.287s`. |
 | Runtime harness command/scenario and exact result | The test itself IS the runtime harness — real `sf` CLI 2.135.7 against the live, developer-connected `AM-DEV-EDITION` org (Version/Plugins/Orgs/CheckAliases), see verbatim output above. |
 | Rollback boundary | Single new file `internal/prereq/real_org_e2e_test.go` plus this apply-progress note and one `tasks.md` line (12.4); reverting the file alone removes the real-org e2e with zero impact on any of the 170 prior tasks or CI (the file is inert without `DEPLOYDECK_E2E_ORG` set). |
+
+## Post-Hoc Addition: Real-Metadata Promotion E2E (task 12.5)
+
+**Context**: The existing HU-006 cherry-pick e2e (`internal/git/cherry_pick_e2e_test.go`) and the app
+full-flow e2e (`internal/app/flow_e2e_test.go`) prove the engine against SYNTHETIC 3-line seed files
+(`a.cls = "l1\nFEATURE\nl3\n"`, etc.). The maintainer explicitly requested a HIGH-REALISM e2e that
+promotes the ACTUAL Salesforce metadata in `test-e2e-org/` — real `AccountService.cls` /
+`AccountServiceTest.cls`, the real `Status__c` custom-field `-meta.xml`, real `package.xml` and
+`sfdx-project.json` — to gain confidence in real conflict/branch promotions, plus an opt-in real-org
+dry-run proving the promoted output is genuinely deployable. This is an ADDITION for confidence, not a
+correction: the change `foundation-mvp-git` was already complete (170/170).
+
+**What was added**:
+
+- `internal/git/promotion_real_metadata_e2e_test.go` — `TestRealMetadataPromotion_E2E`:
+  - **Part A / clean** (`PartA clean faithful promotion over real Salesforce metadata`): copies the real
+    fixture (`sfdx-project.json` + `manifest/` + `force-app/`) into a fresh `newTempRepo`, commits it as
+    the `main` baseline, branches `UAT` (target) and `feature/PROJ-100` (source) with two ticket commits
+    editing REAL metadata (add `inactiveAccounts` method to `AccountService.cls`; widen/relabel
+    `Status__c` to 80 chars), pushes to origin, then drives the REAL engine end-to-end:
+    `Discover(origin/UAT..origin/feature/PROJ-100, topo)` → `NewCommitSelectionItems`/`ValidateSelection`
+    → `CreatePromotionBranch(deploy/PROJ-100-to-UAT, real fetch+checkout)` →
+    `IsContiguousSelection`+`CherryPick` → `VerifyPromotedContent`. Asserts the promotion carries EXACTLY
+    the two selected metadata files, verification is faithful (no partial/no spurious), and the promoted
+    `.cls` really contains the PROJ-100 method.
+  - **Part A / conflict** (`PartA real conflict on AccountService.cls classified, resolved, continued,
+    verified`): UAT is advanced with a DIVERGENT edit to the SAME `AccountService.cls` header line the
+    feature commit rewrites, so the cherry-pick genuinely conflicts on real Salesforce metadata. Asserts
+    the pick STOPPED (`InProgress`), the conflict is on the real path
+    `force-app/main/default/classes/AccountService.cls` and classified `ConflictText` (real porcelain
+    `UU`), the continue-gate is closed + delta/validation blocked while unresolved, then resolves via the
+    engine's text-conflict path (write the promoted content, `git add`, `RepoState` re-read reconciles,
+    `EvaluateContinueGate` opens, gated `ContinueCherryPick` completes the sequence — the 2nd
+    `Status__c` commit applies clean), and `VerifyPromotedContent` reports faithful with zero spurious
+    files.
+  - **Part B** (`PartB sf dry-run validates the promoted tree against the real org`, opt-in): gated by
+    `DEPLOYDECK_E2E_ORG` (`t.Skip` when unset). Re-produces the same clean DeployDeck promotion, then runs
+    `sf project deploy start --source-dir force-app --dry-run --test-level NoTestRun --ignore-conflicts
+    -o <alias> --json` from the promoted checkout, parses `--json`, and asserts it validates
+    (`success`, `numberComponentErrors=0`, no `componentFailures`, exit 0). Non-destructive check-only,
+    NEVER a real deploy. `sf` is run DIRECTLY via `exec.NewOSRunner()`, NOT through DeployDeck — deploy/
+    validate is intentionally out of this slice's scope; this step proves the promotion OUTPUT is
+    real-deployable.
+- `internal/app/promotion_real_metadata_e2e_test.go` — `TestRealMetadataPromotion_AppFlow_E2E`: drives
+  the `internal/app` Model state machine (`PrereqCheck → TicketInput → Discovery → Selection →
+  TargetSelection → PlanPreview → BranchCreation → CherryPicking → PickVerification`) over the same real
+  metadata clone, asserting 2 commits discovered, branch `deploy/PROJ-100-to-UAT` registered, and the
+  promotion verified faithful (`OK`) with delta allowed at the scope edge.
+
+**Honesty check — no DeployDeck bug found**: Part A surfaced NO real bug on real metadata. The text
+conflict on the real `.cls` was detected and classified correctly (`ConflictText`, real `UU` on the real
+Salesforce path); verification neither false-passed nor false-failed (faithful when the resolution
+reproduces the selected content, and — verified separately by the sibling
+`TestService_VerifyPromotedContent_DetectsPartialPromotion` — it still reports a partial warning on a
+DIVERGENT resolution); `package.xml`/`sfdx-project.json` were carried without spurious-file noise. No
+test was weakened to pass.
+
+**Real-org fact (Part B)**: the `sf` dry-run against `AM-DEV-EDITION` validated the promoted tree on the
+first attempt with `--test-level NoTestRun` (valid for a non-production Developer Edition org, so it does
+not fail on the 75%-coverage requirement while still compiling all Apex incl. `AccountServiceTest`
+against the org). No sf-invocation adjustment beyond the initial choice was needed.
+
+### Verbatim Runs
+
+**1. Part A (var unset — Part B SKIPs)** — `go test -run 'RealMetadata|Promotion' ./... -v -count=1`:
+
+```
+=== RUN   TestRealMetadataPromotion_AppFlow_E2E
+--- PASS: TestRealMetadataPromotion_AppFlow_E2E (0.95s)
+ok  	deploydeck/internal/app	1.778s
+=== RUN   TestRealMetadataPromotion_E2E
+=== RUN   TestRealMetadataPromotion_E2E/PartA_clean_faithful_promotion_over_real_Salesforce_metadata
+=== RUN   TestRealMetadataPromotion_E2E/PartA_real_conflict_on_AccountService.cls_classified,_resolved,_continued,_verified
+=== RUN   TestRealMetadataPromotion_E2E/PartB_sf_dry-run_validates_the_promoted_tree_against_the_real_org
+    promotion_real_metadata_e2e_test.go:176: set DEPLOYDECK_E2E_ORG=<alias> to run the opt-in real-org dry-run validation (local only)
+--- PASS: TestRealMetadataPromotion_E2E (2.43s)
+    --- PASS: TestRealMetadataPromotion_E2E/PartA_clean_faithful_promotion_over_real_Salesforce_metadata (1.02s)
+    --- PASS: TestRealMetadataPromotion_E2E/PartA_real_conflict_on_AccountService.cls_classified,_resolved,_continued,_verified (1.41s)
+    --- SKIP: TestRealMetadataPromotion_E2E/PartB_sf_dry-run_validates_the_promoted_tree_against_the_real_org (0.00s)
+ok  	deploydeck/internal/git	11.574s
+```
+
+**2. Part B (real org)** — `DEPLOYDECK_E2E_ORG=AM-DEV-EDITION go test -run 'RealMetadata|Promotion' ./... -v -count=1 -timeout 20m`:
+
+```
+=== RUN   TestRealMetadataPromotion_AppFlow_E2E
+--- PASS: TestRealMetadataPromotion_AppFlow_E2E (0.94s)
+ok  	deploydeck/internal/app	1.270s
+=== RUN   TestRealMetadataPromotion_E2E
+=== RUN   TestRealMetadataPromotion_E2E/PartB_sf_dry-run_validates_the_promoted_tree_against_the_real_org
+    promotion_real_metadata_e2e_test.go:205: running (non-destructive, out of DeployDeck scope): sf [project deploy start --source-dir force-app --dry-run --test-level NoTestRun --ignore-conflicts -o AM-DEV-EDITION --json] in /var/folders/.../001
+    promotion_real_metadata_e2e_test.go:232: sf dry-run validated the DeployDeck-promoted tree against AM-DEV-EDITION (status="Succeeded", componentErrors=0) — promoted metadata is deployable
+--- PASS: TestRealMetadataPromotion_E2E (7.92s)
+    --- PASS: TestRealMetadataPromotion_E2E/PartA_clean_faithful_promotion_over_real_Salesforce_metadata (1.11s)
+    --- PASS: TestRealMetadataPromotion_E2E/PartA_real_conflict_on_AccountService.cls_classified,_resolved,_continued,_verified (1.37s)
+    --- PASS: TestRealMetadataPromotion_E2E/PartB_sf_dry-run_validates_the_promoted_tree_against_the_real_org (5.44s)
+ok  	deploydeck/internal/git	16.807s
+```
+
+**3. Full regression, var unset** — `go test ./... && go vet ./... && gofmt -l .`: all packages `ok`
+(`internal/git 42.931s`, `internal/app 2.062s`, rest cached `ok`), `go vet ./...` clean, `gofmt -l .`
+printed nothing.
+
+### Work Unit Evidence (task 12.5)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `go test -run 'RealMetadata|Promotion' ./internal/git/... ./internal/app/... -v -count=1` → `PASS`; `internal/git` Part A 2/2 + Part B SKIP (var unset), `internal/app` AppFlow PASS. With `DEPLOYDECK_E2E_ORG=AM-DEV-EDITION`, Part B PASS (`status="Succeeded", componentErrors=0`). |
+| Runtime harness command/scenario and exact result | The e2e IS the runtime harness — real `git` over a temp repo seeded from the real `test-e2e-org` metadata (Discover→CherryPick→conflict→resolve→continue→verify) and, opt-in, real `sf` CLI 2.135.7 `--dry-run` against the live `AM-DEV-EDITION` org. See verbatim output above. |
+| Rollback boundary | Two new test files (`internal/git/promotion_real_metadata_e2e_test.go`, `internal/app/promotion_real_metadata_e2e_test.go`) plus this note and one `tasks.md` line (12.5). Reverting the two files alone removes the real-metadata e2e with zero impact on any of the 170 prior tasks or CI (Part A self-skips under `-short`; Part B is inert without `DEPLOYDECK_E2E_ORG`). No production code touched. |
