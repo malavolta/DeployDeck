@@ -45,20 +45,20 @@ Chain strategy: size-exception
 
 ## Phase 2: HU-007 `internal/delta` (delta-generation)
 
-- [ ] 2.1 [U] RED `internal/delta/service_test.go`: `Generate` composes ONE `sf sgd source delta --from <From> --to <To> --output-dir <dir> --generate-delta` + one repeated `--source-dir` per configured dir + conditional `--ignore-file`/`--ignore-destructive-file`; `Dir`=repo root, `--from`/`--to` literal refs (`FakeRunner` arg capture — threat-matrix arg-composition + git-repo-selection rows)
-- [ ] 2.2 [U] GREEN: implement `Request`/`Result` + arg composition in `service.go`
-- [ ] 2.3 [U] RED: locates `<out>/package/package.xml` always; `<out>/destructiveChanges/destructiveChanges.xml` only when present; `Raw` always captured
-- [ ] 2.4 [U] GREEN: implement artifact discovery
-- [ ] 2.5 [U] RED: sgd `ExitCode!=0` → error carrying `Raw`, zero `Result`, no artifact paths returned (downstream validation never triggered)
-- [ ] 2.6 [U] GREEN: implement the failure path
-- [ ] 2.7 [I] `internal/delta` real-sgd integration on a temp repo seeded from `test-e2e-org` fixture metadata: multi `--source-dir` merges into one `package.xml`, deletes → `destructiveChanges.xml`, artifacts under `.deploydeck/manifest/delta/<ticket>-to-<target>/`, working tree stays clean (`-short`-skippable, plugin required)
+- [x] 2.1 [U] RED `internal/delta/service_test.go`: `Generate` composes ONE `sf sgd source delta --from <From> --to <To> --output-dir <dir> --generate-delta` + one repeated `--source-dir` per configured dir + conditional `--ignore-file`/`--ignore-destructive-file`; `Dir`=repo root, `--from`/`--to` literal refs (`FakeRunner` arg capture — threat-matrix arg-composition + git-repo-selection rows)
+- [x] 2.2 [U] GREEN: implement `Request`/`Result` + arg composition in `service.go`
+- [x] 2.3 [U] RED: locates `<out>/package/package.xml` always; `<out>/destructiveChanges/destructiveChanges.xml` only when present; `Raw` always captured
+- [x] 2.4 [U] GREEN: implement artifact discovery
+- [x] 2.5 [U] RED: sgd `ExitCode!=0` → error carrying `Raw`, zero `Result`, no artifact paths returned (downstream validation never triggered)
+- [x] 2.6 [U] GREEN: implement the failure path
+- [x] 2.7 [I] `internal/delta` real-sgd integration on a temp repo seeded from `test-e2e-org` fixture metadata: multi `--source-dir` merges into one `package.xml`, deletes → `destructiveChanges.xml`, artifacts under `.deploydeck/manifest/delta/<ticket>-to-<target>/`, working tree stays clean (`-short`-skippable, plugin required)
 
 ## Phase 3: HU-008 `Summarize` (package-summary)
 
-- [ ] 3.1 [U] RED `internal/delta/package_test.go`: `ParsePackage`/`ParseDestructive` parse fixture XML into `Package`
-- [ ] 3.2 [U] GREEN: implement `ParsePackage`/`ParseDestructive` (`encoding/xml`)
-- [ ] 3.3 [U] RED `internal/delta/summarize_test.go` (table-driven): per-type counts; `Empty` warn; destructive kept separate with no additive-count inflation; sensitive `{Profile,PermissionSet,Flow,CustomObject,CustomField}` warning; `OutsideSourceDirs` from `changedFiles`
-- [ ] 3.4 [U] GREEN: implement `Summarize` → `PackageSummary`
+- [x] 3.1 [U] RED `internal/delta/package_test.go`: `ParsePackage`/`ParseDestructive` parse fixture XML into `Package`
+- [x] 3.2 [U] GREEN: implement `ParsePackage`/`ParseDestructive` (`encoding/xml`)
+- [x] 3.3 [U] RED `internal/delta/summarize_test.go` (table-driven): per-type counts; `Empty` warn; destructive kept separate with no additive-count inflation; sensitive `{Profile,PermissionSet,Flow,CustomObject,CustomField}` warning; `OutsideSourceDirs` from `changedFiles`
+- [x] 3.4 [U] GREEN: implement `Summarize` → `PackageSummary`
 
 ## Phase 4: HU-010 `salesforce.ValidateDeploy` (deploy-validation)
 
