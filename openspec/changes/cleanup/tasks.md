@@ -131,8 +131,8 @@ Group gate: `go build ./... && go vet ./... && go test ./internal/app/... -short
 
 File: `internal/app/hu017_cleanup_e2e_test.go` (real temp git + bare remote + `.deploydeck/runs/` fs, `-short`-skip, no org). Mirrors `docs/HISTORIAS.md:1108-1114`.
 
-- [ ] 5.1 RED: `TestHU017_E2E_FullCleanupFlow` — seed original branch, pushed+local-only orphans (differing ages), old+recent runs; finish→restore; inline confirm deletes current branch (local+remote-if-pushed); `b` lists orphans w/ age+push-status; unpushed delete refused without `BORRAR`, deletes with it; `p` prunes outside `keepLast`/`keepDays`, keeps recent.
-- [ ] 5.2 RED (MANDATORY variant): `TestHU017_E2E_AbortMidSequence_NoRestore` — abort mid-conflict, quit; no restore, `CHERRY_PICK_HEAD` intact, resume still offered.
-- [ ] 5.3 GREEN: none — both prove Groups 1–4; rerun to confirm; fix any cross-group wiring gap in the owning group's files, not here.
+- [x] 5.1 RED: `TestHU017_E2E_FullCleanupFlow` — seed original branch, pushed+local-only orphans (differing ages), old+recent runs; finish→restore; inline confirm deletes current branch (local+remote-if-pushed); `b` lists orphans w/ age+push-status; unpushed delete refused without `BORRAR`, deletes with it; `p` prunes outside `keepLast`/`keepDays`, keeps recent.
+- [x] 5.2 RED (MANDATORY variant): `TestHU017_E2E_AbortMidSequence_NoRestore` — abort mid-conflict, quit; no restore, `CHERRY_PICK_HEAD` intact, resume still offered.
+- [x] 5.3 GREEN: none — both prove Groups 1–4; rerun to confirm; fix any cross-group wiring gap in the owning group's files, not here.
 
 Group gate: `go build ./... && go vet ./... && go test ./internal/app/... ./internal/git/... -short`; full run (no `-short`) before merge.
