@@ -45,6 +45,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyPushPreparation(msg)
 	case StateAborted:
 		return m.keyAborted(msg)
+	case StateBranchCleanup:
+		return m.keyBranchCleanup(msg)
 	case StateError, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, m.quitCmd()
@@ -173,6 +175,117 @@ func (m Model) confirmDeleteCurrent() (tea.Model, tea.Cmd) {
 	return m, m.quitCmd()
 }
 
+// keyBranchCleanup handles HU-017's StateBranchCleanup batch screen, routed
+// by cleanupPhase. cleanupLoading is inert (the list-load result hasn't
+// landed). cleanupBrowsing offers nav (↑/↓/k/j), `d` (per-row delete — fires
+// unpushedCountCmd for the selected row, gating confirm/strongConfirm exactly
+// like keySucceeded/keyAborted's inline delete: onUnpushedCount is REUSED
+// unchanged, so the same count>0-requires-BORRAR rule applies here too), `p`
+// (retention-prune, behind cleanupPruneConfirm), and `q`/`esc` (back to
+// StateTicketInput). cleanupConfirm/cleanupStrongConfirm mirror
+// keyDeleteConfirm's exact typed-BORRAR idiom (same deleteConfirmWord, same
+// m.deleteConfirm buffer — safe to share since a Model is never on both a
+// terminal screen and StateBranchCleanup at once) but confirm into
+// confirmDeleteOrphan (the SELECTED ROW) rather than confirmDeleteCurrent
+// (the run's own branch via quitCmd). cleanupPruneConfirm is a plain
+// single-key y/n gate (deleting only policy-selected run.json directories,
+// never a git branch — no BORRAR warranted).
+func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.cleanupPhase {
+	case cleanupLoading:
+		return m, nil
+	case cleanupConfirm:
+		switch msg.String() {
+		case "y":
+			return m.confirmDeleteOrphan()
+		case "n", "esc":
+			m.cleanupPhase = cleanupBrowsing
+			return m, nil
+		}
+		return m, nil
+	case cleanupStrongConfirm:
+		switch msg.String() {
+		case "enter":
+			if m.deleteConfirm != deleteConfirmWord {
+				m.cleanupNotice = "escribe BORRAR exactamente para confirmar el borrado"
+				return m, nil
+			}
+			m.cleanupNotice = ""
+			return m.confirmDeleteOrphan()
+		case "esc":
+			m.deleteConfirm = ""
+			m.cleanupNotice = ""
+			m.cleanupPhase = cleanupBrowsing
+			return m, nil
+		case "backspace":
+			if n := len(m.deleteConfirm); n > 0 {
+				m.deleteConfirm = m.deleteConfirm[:n-1]
+			}
+			return m, nil
+		default:
+			if msg.Type == tea.KeyRunes {
+				m.deleteConfirm += string(msg.Runes)
+			}
+			return m, nil
+		}
+	case cleanupPruneConfirm:
+		switch msg.String() {
+		case "y":
+			m.cleanupPhase = cleanupBrowsing
+			return m, m.pruneRunsCmd()
+		case "n", "esc":
+			m.cleanupPhase = cleanupBrowsing
+			return m, nil
+		}
+		return m, nil
+	default: // cleanupBrowsing
+		switch msg.String() {
+		case "up", "k":
+			if m.cleanupCursor > 0 {
+				m.cleanupCursor--
+			}
+			return m, nil
+		case "down", "j":
+			if m.cleanupCursor < len(m.cleanupBranches)-1 {
+				m.cleanupCursor++
+			}
+			return m, nil
+		case "d":
+			if m.cleanupCursor < 0 || m.cleanupCursor >= len(m.cleanupBranches) {
+				return m, nil
+			}
+			m.cleanupNotice = ""
+			return m, m.unpushedCountCmd(m.cleanupBranches[m.cleanupCursor].Name)
+		case "p":
+			m.cleanupNotice = ""
+			m.cleanupPhase = cleanupPruneConfirm
+			return m, nil
+		case "q", "esc":
+			m.state = StateTicketInput
+			m.cleanupPhase = cleanupIdle
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// confirmDeleteOrphan lands an explicit per-row delete confirmation (normal
+// or strong) on StateBranchCleanup: unlike confirmDeleteCurrent (which
+// defers to quitCmd because it deletes the CHECKED-OUT branch), the selected
+// row is never the current branch, so deleteOrphanCmd fires directly — no
+// restore/checkout choreography needed. An out-of-range cursor (list
+// reloaded/emptied out from under a stale confirm) is a safe no-op.
+func (m Model) confirmDeleteOrphan() (tea.Model, tea.Cmd) {
+	m.deleteConfirm = ""
+	if m.cleanupCursor < 0 || m.cleanupCursor >= len(m.cleanupBranches) {
+		m.cleanupPhase = cleanupBrowsing
+		return m, nil
+	}
+	row := m.cleanupBranches[m.cleanupCursor]
+	m.cleanupPhase = cleanupBrowsing
+	return m, m.deleteOrphanCmd(row.Name, row.Pushed)
+}
+
 // keyPushPreparation handles HU-014's push + PR-preparation sub-flow (mockup
 // docs/MOCKUPS_TUI.md "Push Y PR"), routing by pushPhase. The two external
 // side effects are each gated behind an explicit confirmation: `p` on
@@ -251,6 +364,24 @@ func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "b":
+		// HU-017: enter the branch-cleanup batch screen (branch-cleanup spec:
+		// "Orphan Deploy Branches Listed For Batch Cleanup") — but ONLY on an
+		// EMPTY ticket buffer. tea.KeyMsg.String() for a typed rune 'b'
+		// equals "b" too, so without this guard the shortcut would swallow
+		// every literal 'b' typed into a ticket ID (e.g. "WEB-1"),
+		// clobbering normal ticket entry. Once ANY text has been typed, 'b'
+		// falls through to the default branch below like every other rune.
+		if m.ticket != "" {
+			m.ticket += "b"
+			return m, nil
+		}
+		m.cleanupPhase = cleanupLoading
+		m.cleanupNotice = ""
+		m.cleanupBranches = nil
+		m.cleanupCursor = 0
+		m.state = StateBranchCleanup
+		return m, m.listDeployBranchesCmd()
 	case "enter":
 		if m.ticket == "" {
 			m.notice = "enter a ticket to search"

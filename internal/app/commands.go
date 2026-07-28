@@ -156,6 +156,41 @@ type queueDoneMsg struct {
 	err      error
 }
 
+// cleanupRow is one StateBranchCleanup screen row: an orphan git.DeployBranch
+// plus its best-effort "likely merged"/"abandoned"/"unknown" advisory label
+// (mergedLabel) — never a delete gate, see branch-cleanup spec's "Merged-Vs-
+// Abandoned Is A Best-Effort Label Only".
+type cleanupRow struct {
+	git.DeployBranch
+	MergedLabel string
+}
+
+// deployBranchesMsg carries HU-017's listDeployBranchesCmd result: the
+// orphan-filtered, merge-labeled row list, or a load error (surfaced as a
+// cleanupNotice, never a crash — mirrors every other best-effort list load in
+// this file).
+type deployBranchesMsg struct {
+	branches []cleanupRow
+	err      error
+}
+
+// deleteDoneMsg carries HU-017's per-row deleteOrphanCmd outcome (local, +
+// remote iff Pushed) for the StateBranchCleanup screen. Unlike the terminal
+// screens' inline delete (which defers its delete to run INSIDE quitCmd,
+// since it deletes the CURRENT branch), a batch-screen row is never the
+// checked-out branch, so it can be deleted directly and reported here.
+type deleteDoneMsg struct {
+	err error
+}
+
+// pruneDoneMsg carries HU-017's retention-prune outcome (branch-cleanup spec:
+// "Run Retention Applied From The Cleanup Surface") — the removed run IDs (as
+// returned by the UNCHANGED runs.Writer.Prune), or an error.
+type pruneDoneMsg struct {
+	removed []string
+	err     error
+}
+
 // originalBranchMsg carries the HU-017 startup branch capture (or an error,
 // which onOriginalBranch treats as a best-effort no-op — quitCmd's
 // shouldRestore guard already skips restore on an empty originalBranch).
@@ -224,6 +259,67 @@ type prCreatedMsg struct {
 	url string
 	raw string
 	err error
+}
+
+// selectOrphans is the pure HU-017 orphan-correlation rule (branch-cleanup
+// spec: "Orphan Deploy Branches Listed For Batch Cleanup" — "not tied to a
+// live in-progress run"). A DeployBranch is EXCLUDED (not an orphan) only
+// when BOTH: inProgress is true (RepoState is the single source of truth for
+// whether ANY run is live right now — mirroring shouldRestore's own
+// InProgress read) AND some record's own cherry-pick-phase run renders (via
+// the SAME git.RenderBranchName the rest of the app uses to derive a
+// promotion branch name from Ticket+Target) to that branch's Name. Every
+// other branch — including one belonging to an already-terminal run, or one
+// whose rendered name doesn't match any record — is an orphan.
+func selectOrphans(branches []git.DeployBranch, records []runs.Record, format string, inProgress bool) []git.DeployBranch {
+	live := map[string]bool{}
+	if inProgress {
+		for _, rec := range records {
+			if isCherryPickPhase(rec.Phase) {
+				live[git.RenderBranchName(format, rec.Ticket, rec.Target)] = true
+			}
+		}
+	}
+
+	var orphans []git.DeployBranch
+	for _, b := range branches {
+		if live[b.Name] {
+			continue
+		}
+		orphans = append(orphans, b)
+	}
+	return orphans
+}
+
+// resolveMergeTarget finds the Target of the run.Record whose rendered branch
+// name (git.RenderBranchName(format, rec.Ticket, rec.Target) — the SAME
+// correlation selectOrphans uses) matches name. ok is false when no record
+// correlates, e.g. an orphan whose originating run was pruned or never
+// persisted (branch-cleanup spec: "Merged-Vs-Abandoned Is A Best-Effort Label
+// Only" — "unknown when target can't be determined").
+func resolveMergeTarget(records []runs.Record, format, name string) (string, bool) {
+	for _, rec := range records {
+		if git.RenderBranchName(format, rec.Ticket, rec.Target) == name {
+			return rec.Target, true
+		}
+	}
+	return "", false
+}
+
+// mergedLabel classifies an orphan branch's best-effort "likely merged" vs
+// "abandoned" advisory label from IsMergedInto's result (branch-cleanup spec:
+// "Merged-Vs-Abandoned Is A Best-Effort Label Only" — this label NEVER gates
+// deletion, see keyBranchCleanup's unconditional unpushedCountCmd gate). An
+// unresolved target (ok==false) or an ancestor-check error both degrade to
+// "unknown" rather than guessing.
+func mergedLabel(ok, merged bool, err error) string {
+	if !ok || err != nil {
+		return "unknown"
+	}
+	if merged {
+		return "likely merged"
+	}
+	return "abandoned"
 }
 
 // shouldRestore is the pure HU-017 restore-on-quit guard (design.md "Quit-
@@ -872,6 +968,93 @@ func (m Model) preparePRCmd() tea.Cmd {
 			msg.compareURL = compareURL
 		}
 		return msg
+	}
+}
+
+// listDeployBranchesCmd runs HU-017's StateBranchCleanup list load: ONE
+// git.Service.ListDeployBranches call plus a best-effort runs.List() read,
+// correlated via selectOrphans (excluding a live in-progress run's own
+// branch) into the orphan set, then labeled via IsMergedInto — one ancestor
+// check per orphan, run ONLY when resolveMergeTarget finds a correlating
+// record's Target (branch-cleanup spec: "or 'unknown' when target can't be
+// determined"). A nil Git degrades to an explicit error (never a panic); a
+// nil Runs writer or a runs.List() failure degrades to no records — every
+// branch is then treated as an orphan and every label as "unknown", mirroring
+// this file's other best-effort degrades.
+func (m Model) listDeployBranchesCmd() tea.Cmd {
+	g := m.deps.Git
+	writer := m.deps.Runs
+	dir := m.deps.Dir
+	format := m.deps.Config.BranchFormat
+	inProgress := m.repoState.InProgress
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if g == nil {
+			return deployBranchesMsg{err: errors.New("app: no git service configured")}
+		}
+		branches, err := g.ListDeployBranches(ctx, dir)
+		if err != nil {
+			return deployBranchesMsg{err: err}
+		}
+
+		var records []runs.Record
+		if writer != nil {
+			records, _ = writer.List()
+		}
+
+		orphans := selectOrphans(branches, records, format, inProgress)
+		rows := make([]cleanupRow, len(orphans))
+		for i, b := range orphans {
+			target, ok := resolveMergeTarget(records, format, b.Name)
+			var merged bool
+			var merr error
+			if ok {
+				merged, merr = g.IsMergedInto(ctx, dir, b.Name, target)
+			}
+			rows[i] = cleanupRow{DeployBranch: b, MergedLabel: mergedLabel(ok, merged, merr)}
+		}
+		return deployBranchesMsg{branches: rows}
+	}
+}
+
+// deleteOrphanCmd deletes ONE StateBranchCleanup row's branch — local always,
+// remote iff pushed — through the SAME git.Service primitives quitCmd's
+// inline current-branch delete uses (DeleteLocalBranch/DeleteRemoteBranch).
+// Unlike quitCmd's delete, this branch is never the one checked out, so no
+// restore/checkout choreography is needed: it is deleted directly.
+func (m Model) deleteOrphanCmd(name string, pushed bool) tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if err := g.DeleteLocalBranch(ctx, dir, name); err != nil {
+			return deleteDoneMsg{err: err}
+		}
+		if pushed {
+			if err := g.DeleteRemoteBranch(ctx, dir, name); err != nil {
+				return deleteDoneMsg{err: err}
+			}
+		}
+		return deleteDoneMsg{}
+	}
+}
+
+// pruneRunsCmd invokes the EXISTING, UNCHANGED run-retention mechanism
+// (branch-cleanup spec: "Run Retention Applied From The Cleanup Surface" —
+// "MUST NOT redefine, reimplement, or change it") from the StateBranchCleanup
+// screen, using the same injected clock (m.now()) every other timed command
+// in this file uses.
+func (m Model) pruneRunsCmd() tea.Cmd {
+	writer := m.deps.Runs
+	keepLast := m.deps.Config.Runs.KeepLast
+	keepDays := m.deps.Config.Runs.KeepDays
+	now := m.now()
+	return func() tea.Msg {
+		if writer == nil {
+			return pruneDoneMsg{err: errors.New("app: no runs writer configured")}
+		}
+		removed, err := writer.Prune(keepLast, keepDays, now)
+		return pruneDoneMsg{removed: removed, err: err}
 	}
 }
 

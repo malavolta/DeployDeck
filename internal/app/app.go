@@ -117,6 +117,16 @@ const (
 	// composes the injected git.Service + github.Client and, like every other
 	// screen, never execs directly (boundary_test.go holds).
 	StatePushPreparation
+	// StateBranchCleanup is HU-017's batch cleanup screen (branch-cleanup
+	// spec: "Orphan Deploy Branches Listed For Batch Cleanup"), reached from
+	// StateTicketInput via the distinct `b` key. It lists every orphan
+	// deploy/* branch (git.Service.ListDeployBranches, correlated against
+	// runs.List() by selectOrphans to exclude a live in-progress run's own
+	// branch) with age/push-status/merged-label, offering per-row delete
+	// (reusing the SAME unpushed-gate + BORRAR strong-confirm machinery
+	// Group 3's inline current-branch delete uses) and a retention-prune
+	// action (deps.Runs.Prune, UNCHANGED). q/esc return to StateTicketInput.
+	StateBranchCleanup
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
@@ -141,6 +151,23 @@ const (
 	// (case-sensitive, via the dedicated m.deleteConfirm buffer) — the
 	// branch has unpushed commits (design.md "Strong-confirm reuse").
 	cleanupStrongConfirm
+	// cleanupLoading is StateBranchCleanup's initial sub-state: the `b` key
+	// (or a post-delete reload) fired listDeployBranchesCmd and its result
+	// hasn't landed yet. Appended here rather than interleaved with the
+	// Group 3 consts above, so their existing values are NEVER renumbered.
+	cleanupLoading
+	// cleanupBrowsing is StateBranchCleanup once the list has loaded: nav
+	// (↑/↓/k/j), `d` (per-row delete, gated exactly like the terminal
+	// screens' inline delete), `p` (retention-prune, gated behind
+	// cleanupPruneConfirm), and `q`/`esc` (back to StateTicketInput) are all
+	// live here.
+	cleanupBrowsing
+	// cleanupPruneConfirm is StateBranchCleanup's retention-prune
+	// confirmation (branch-cleanup spec: "Run Retention Applied From The
+	// Cleanup Surface"), reached via `p`. A single 'y'/'n' gate — pruning
+	// deletes only already-decided-by-policy run.json directories, never a
+	// git branch, so it does not warrant the typed BORRAR strong confirm.
+	cleanupPruneConfirm
 )
 
 // pushPhase is StatePushPreparation's sub-state machine (HU-014). It gates the
@@ -266,8 +293,21 @@ type Model struct {
 	// deleteConfirm (HU-017) is the dedicated typed-BORRAR buffer for
 	// cleanupStrongConfirm — a DEDICATED field, deliberately never HU-012's
 	// cancelInput, so a stray CANCELAR/cancel buffer can never delete a
-	// branch and vice versa (design.md "Strong-confirm reuse").
+	// branch and vice versa (design.md "Strong-confirm reuse"). Group 4's
+	// StateBranchCleanup per-row strong-confirm reuses this SAME field/word
+	// (never both active at once — see cleanupPhase's doc comment).
 	deleteConfirm string
+
+	// StateBranchCleanup (HU-017 Group 4): cleanupBranches is the loaded,
+	// orphan-only (selectOrphans-filtered) row list, each carrying its
+	// best-effort merged/abandoned label; cleanupCursor is the selected row;
+	// cleanupNotice is a DEDICATED transient message for this screen —
+	// separate from the generic m.notice — so a stale load/delete/prune
+	// error can never bleed onto (or be silently cleared by) an unrelated
+	// screen's own notice.
+	cleanupBranches []cleanupRow
+	cleanupCursor   int
+	cleanupNotice   string
 
 	// CherryPicking / Conflict
 	contiguous      bool

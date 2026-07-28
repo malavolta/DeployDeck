@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"deploydeck/internal/config"
 	"deploydeck/internal/git"
@@ -56,6 +57,8 @@ func (m Model) View() string {
 		return m.viewRunHistory()
 	case StatePushPreparation:
 		return m.viewPushPreparation()
+	case StateBranchCleanup:
+		return m.viewBranchCleanup()
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
@@ -725,6 +728,79 @@ func runProgressLabel(rec runs.Record) string {
 // sgd output dir: <deltaBaseDir>/<ticket>-to-<target>/package/package.xml.
 func runPackagePath(cfg config.Config, rec runs.Record) string {
 	return filepath.Join(deltaBaseDir(cfg), rec.Ticket+"-to-"+rec.Target, "package", "package.xml")
+}
+
+// viewBranchCleanup renders HU-017's StateBranchCleanup batch screen,
+// structurally mirroring viewRunHistory: the orphan deploy/* rows (cursor,
+// name, age, pushed/local-only, merged-label) plus the active
+// confirm/strongConfirm/pruneConfirm prompt (mirroring viewCancelConfirm's
+// typed-buffer echo) or the loading/empty/error state.
+func (m Model) viewBranchCleanup() string {
+	var b strings.Builder
+	b.WriteString(header("Limpieza De Ramas"))
+
+	if m.cleanupPhase == cleanupLoading {
+		b.WriteString("\n  Cargando ramas deploy/*...\n")
+		b.WriteString(footer("q salir"))
+		return b.String()
+	}
+
+	if m.cleanupNotice != "" {
+		b.WriteString("\n  " + m.cleanupNotice + "\n")
+	}
+
+	if len(m.cleanupBranches) == 0 {
+		if m.cleanupNotice == "" {
+			b.WriteString("\n  (sin ramas huerfanas)\n")
+		}
+		b.WriteString(footer("p retencion de runs   q salir"))
+		return b.String()
+	}
+
+	b.WriteString("\n")
+	for i, row := range m.cleanupBranches {
+		cursor := " "
+		if i == m.cleanupCursor {
+			cursor = ">"
+		}
+		push := "local"
+		if row.Pushed {
+			push = "pushed"
+		}
+		b.WriteString(fmt.Sprintf("  %s %-30s %-6s %-7s %s\n",
+			cursor, row.Name, branchAge(m.now(), row.LastCommit), push, row.MergedLabel))
+	}
+
+	switch m.cleanupPhase {
+	case cleanupConfirm:
+		b.WriteString("\n  Borrar la rama seleccionada?\n")
+		b.WriteString(footer("y confirmar   n cancelar"))
+	case cleanupStrongConfirm:
+		b.WriteString("\n  Esta rama tiene commits sin pushear. Escribe BORRAR para confirmar:\n")
+		b.WriteString("  " + m.deleteConfirm + "_\n")
+		b.WriteString(footer("Enter confirmar   Esc cancelar"))
+	case cleanupPruneConfirm:
+		b.WriteString(fmt.Sprintf("\n  Aplicar retencion de runs (keepLast=%d, keepDays=%d)?\n",
+			m.deps.Config.Runs.KeepLast, m.deps.Config.Runs.KeepDays))
+		b.WriteString(footer("y confirmar   n cancelar"))
+	default:
+		b.WriteString(footer("d borrar   p retencion de runs   ↑/↓ navegar   q salir"))
+	}
+	return b.String()
+}
+
+// branchAge renders the whole-day age of a branch's last commit relative to
+// now — a zero LastCommit (e.g. an unresolved for-each-ref parse) renders as
+// "-" rather than a nonsensical duration, mirroring queueElapsed's same guard.
+func branchAge(now, last time.Time) string {
+	if last.IsZero() {
+		return "-"
+	}
+	days := int(now.Sub(last).Hours() / 24)
+	if days < 0 {
+		days = 0
+	}
+	return fmt.Sprintf("%dd", days)
 }
 
 func (m Model) viewVerification() string {

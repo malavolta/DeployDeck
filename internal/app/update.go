@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,6 +36,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onOriginalBranch(msg)
 	case unpushedMsg:
 		return m.onUnpushedCount(msg)
+	case deployBranchesMsg:
+		return m.onDeployBranches(msg)
+	case deleteDoneMsg:
+		return m.onDeleteDone(msg)
+	case pruneDoneMsg:
+		return m.onPruneDone(msg)
 	case discoverDoneMsg:
 		return m.onDiscoverDone(msg)
 	case rePromoteSeededMsg:
@@ -135,11 +142,60 @@ func (m Model) onOriginalBranch(msg originalBranchMsg) (tea.Model, tea.Cmd) {
 func (m Model) onUnpushedCount(msg unpushedMsg) (tea.Model, tea.Cmd) {
 	m.deleteConfirm = ""
 	m.notice = ""
+	m.cleanupNotice = ""
 	if msg.err != nil || msg.count > 0 {
 		m.cleanupPhase = cleanupStrongConfirm
 	} else {
 		m.cleanupPhase = cleanupConfirm
 	}
+	return m, nil
+}
+
+// onDeployBranches lands HU-017's listDeployBranchesCmd result: an error
+// surfaces as a cleanupNotice (never a crash) with an empty list — indistinguishable
+// in the view from a genuinely empty orphan set, both rendering the same
+// explicit empty state; success populates cleanupBranches at cursor 0. Either
+// way cleanupPhase settles on cleanupBrowsing, so the screen is never stuck
+// on cleanupLoading.
+func (m Model) onDeployBranches(msg deployBranchesMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.cleanupNotice = "no se pudieron listar las ramas: " + msg.err.Error()
+		m.cleanupBranches = nil
+		m.cleanupCursor = 0
+		m.cleanupPhase = cleanupBrowsing
+		return m, nil
+	}
+	m.cleanupNotice = ""
+	m.cleanupBranches = msg.branches
+	m.cleanupCursor = 0
+	m.cleanupPhase = cleanupBrowsing
+	return m, nil
+}
+
+// onDeleteDone lands HU-017's per-row deleteOrphanCmd outcome. A failure
+// surfaces as a cleanupNotice with the list left untouched (the caller can
+// retry); success reloads the list (listDeployBranchesCmd) so the deleted
+// branch disappears and any externally-changed state reconciles, mirroring
+// resumeDetectCmd's repo-is-source-of-truth posture.
+func (m Model) onDeleteDone(msg deleteDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.cleanupNotice = "no se pudo borrar la rama: " + msg.err.Error()
+		return m, nil
+	}
+	m.cleanupNotice = ""
+	m.cleanupPhase = cleanupLoading
+	return m, m.listDeployBranchesCmd()
+}
+
+// onPruneDone lands HU-017's retention-prune outcome (branch-cleanup spec:
+// "Run Retention Applied From The Cleanup Surface"), reporting the pruned
+// count via cleanupNotice. A failure surfaces its own error the same way.
+func (m Model) onPruneDone(msg pruneDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.cleanupNotice = "no se pudo aplicar la retencion: " + msg.err.Error()
+		return m, nil
+	}
+	m.cleanupNotice = fmt.Sprintf("%d run(s) eliminados por retencion", len(msg.removed))
 	return m, nil
 }
 

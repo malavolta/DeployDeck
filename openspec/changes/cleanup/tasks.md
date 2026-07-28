@@ -104,26 +104,26 @@ Group gate: `go build ./... && go vet ./... && go test ./internal/app/... -short
 
 Files: `internal/app/app.go`, `internal/app/keys.go`, `internal/app/commands.go`, `internal/app/update.go`, `internal/app/view.go`; tests: `internal/app/branch_cleanup_test.go`.
 
-- [ ] 4.1 RED (pure): `TestSelectOrphans_ExcludesInProgressRun` — a `deploy/*` tied to a live in-progress run (via `runs.List()` correlation) excluded; others included.
-- [ ] 4.2 GREEN: `commands.go` pure `selectOrphans(branches []git.DeployBranch, runs []runs.Record, inProgress bool) []git.DeployBranch`.
-- [ ] 4.3 RED: `TestKeyTicket_B_EntersBranchCleanupAndLoads`.
-- [ ] 4.4 GREEN: `app.go` add `StateBranchCleanup`; `keys.go` `keyTicket` adds `case "b"`.
-- [ ] 4.5 RED: `TestKeyBranchCleanup_QEsc_ReturnsToTicketInput`.
-- [ ] 4.6 GREEN: `keys.go` new `keyBranchCleanup` wired in `handleKey`; `app.go` extends `cleanupPhase` (loading|browsing|confirm|strongConfirm|pruneConfirm) + `cleanupBranches`, `cleanupCursor`, `cleanupNotice`.
-- [ ] 4.7 RED: `TestListDeployBranchesCmd_LoadsAndSetsBrowsing`.
-- [ ] 4.8 GREEN: `commands.go` `listDeployBranchesCmd`/`deployBranchesMsg`; `update.go` handler.
-- [ ] 4.9 RED: `TestKeyBranchCleanup_Nav_MovesCursor`.
-- [ ] 4.10 GREEN: nav case in `keyBranchCleanup`.
-- [ ] 4.11 RED: `TestKeyBranchCleanup_D_UnpushedGatesStrongConfirm` / `_PushedGatesNormalConfirm` (per-row `unpushedCountCmd`).
-- [ ] 4.12 GREEN: `d` case reusing Group 3's strong/normal-confirm machinery, generalized to the selected row.
-- [ ] 4.13 RED: `TestDeleteOrphanCmd_DeletesLocalAndRemoteIfPushed_ThenReloads`; declining leaves the list untouched.
-- [ ] 4.14 GREEN: `commands.go` `deleteOrphanCmd`/`deleteDoneMsg`; `update.go` handler reloads via `listDeployBranchesCmd`.
-- [ ] 4.15 RED: `TestMergedLabel_NeverBypassesConfirm` — "likely merged" row still needs the same gate; a false "not merged" only adds an extra confirm, never force-deletes.
-- [ ] 4.16 GREEN: `IsMergedInto` wired for row labeling only (view display) — delete path untouched (proves 4.12's gate is unconditional).
-- [ ] 4.17 RED: `TestKeyBranchCleanup_P_FiresPruneRunsCmd_ThenNotice` — asserts `deps.Runs.Prune(cfg.Runs.KeepLast, cfg.Runs.KeepDays, m.now())` called UNCHANGED.
-- [ ] 4.18 GREEN: `commands.go` `pruneRunsCmd`/`pruneDoneMsg`; `keys.go` `p` + confirm; `update.go` handler.
-- [ ] 4.19 RED: `TestViewBranchCleanup_RendersAgeAndPushStatus` — string-contains per row (age, pushed/local-only, merged-label).
-- [ ] 4.20 GREEN: `view.go` `viewBranchCleanup` + `View()`'s `case StateBranchCleanup`.
+- [x] 4.1 RED (pure): `TestSelectOrphans_ExcludesInProgressRun` — a `deploy/*` tied to a live in-progress run (via `runs.List()` correlation) excluded; others included.
+- [x] 4.2 GREEN: `commands.go` pure `selectOrphans(branches []git.DeployBranch, runs []runs.Record, format string, inProgress bool) []git.DeployBranch` (gained a `format` param beyond the task's literal signature — see apply-progress deviation note: RenderBranchName-based correlation needs it).
+- [x] 4.3 RED: `TestKeyTicket_B_EntersBranchCleanupAndLoads`.
+- [x] 4.4 GREEN: `app.go` add `StateBranchCleanup`; `keys.go` `keyTicket` adds `case "b"` (guarded to an empty ticket buffer — see deviation note).
+- [x] 4.5 RED: `TestKeyBranchCleanup_QEsc_ReturnsToTicketInput`.
+- [x] 4.6 GREEN: `keys.go` new `keyBranchCleanup` wired in `handleKey`; `app.go` extends `cleanupPhase` (loading|browsing|confirm|strongConfirm|pruneConfirm) + `cleanupBranches`, `cleanupCursor`, `cleanupNotice`.
+- [x] 4.7 RED: `TestListDeployBranchesCmd_LoadsAndSetsBrowsing` (+ `_ExcludesLiveRun`, `_GitErrorSurfaces` triangulation).
+- [x] 4.8 GREEN: `commands.go` `listDeployBranchesCmd`/`deployBranchesMsg`; `update.go` handler `onDeployBranches`.
+- [x] 4.9 RED: `TestKeyBranchCleanup_Nav_MovesCursor`.
+- [x] 4.10 GREEN: nav case in `keyBranchCleanup`.
+- [x] 4.11 RED: `TestKeyBranchCleanup_D_UnpushedGatesStrongConfirm` / `_PushedGatesNormalConfirm` (per-row `unpushedCountCmd`).
+- [x] 4.12 GREEN: `d` case reusing Group 3's `unpushedCountCmd`/`onUnpushedCount` UNCHANGED + the same `deleteConfirmWord`/`m.deleteConfirm` idiom, generalized to the selected row via a new `confirmDeleteOrphan` (kept distinct from `confirmDeleteCurrent`/`keyDeleteConfirm` rather than literally shared — see deviation note).
+- [x] 4.13 RED: `TestDeleteOrphanCmd_DeletesLocalAndRemoteIfPushed_ThenReloads` (+ `_LocalOnly_WhenUnpushed`); declining (`TestKeyBranchCleanup_NormalConfirm_NDeclinesLeavingListUntouched`) leaves the list untouched.
+- [x] 4.14 GREEN: `commands.go` `deleteOrphanCmd`/`deleteDoneMsg`; `update.go` handler `onDeleteDone` reloads via `listDeployBranchesCmd`.
+- [x] 4.15 RED: `TestMergedLabel_NeverBypassesConfirm` — "likely merged"/"abandoned"/"unknown" rows all still need the same gate; mutation-tested (see apply-progress).
+- [x] 4.16 GREEN: `IsMergedInto` wired for row labeling only inside `listDeployBranchesCmd` (target resolved via new `resolveMergeTarget` correlating `runs.List()` by rendered branch name) — delete path (`confirmDeleteOrphan`/`deleteOrphanCmd`) never reads `MergedLabel`, proving 4.12's gate is unconditional.
+- [x] 4.17 RED: `TestKeyBranchCleanup_P_FiresPruneRunsCmd_ThenNotice` — asserts `deps.Runs.Prune(cfg.Runs.KeepLast, cfg.Runs.KeepDays, m.now())` called UNCHANGED, behind `cleanupPruneConfirm`.
+- [x] 4.18 GREEN: `commands.go` `pruneRunsCmd`/`pruneDoneMsg`; `keys.go` `p` + confirm; `update.go` handler `onPruneDone`.
+- [x] 4.19 RED: `TestViewBranchCleanup_RendersAgeAndPushStatus` — string-contains per row (age, pushed/local-only, merged-label).
+- [x] 4.20 GREEN: `view.go` `viewBranchCleanup` + `View()`'s `case StateBranchCleanup`.
 
 Group gate: `go build ./... && go vet ./... && go test ./internal/app/... -short`.
 
