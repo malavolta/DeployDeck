@@ -5,9 +5,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -25,8 +27,13 @@ import (
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
+	"deploydeck/internal/update"
 	"deploydeck/internal/version"
 )
+
+// githubAPIBaseURL is the production GitHub API root defaultCheckUpdate
+// queries for the latest release tag.
+const githubAPIBaseURL = "https://api.github.com"
 
 // Deps carries the constructed application dependencies injected into the
 // Cobra command tree.
@@ -224,21 +231,45 @@ func defaultRunTUI(dir string) error {
 
 	runner := exec.NewOSRunner()
 	deps := app.Deps{
-		Git:        git.New(runner),
-		SF:         salesforce.New(runner),
-		Delta:      delta.New(runner),
-		GH:         github.New(runner),
-		Runs:       runs.NewWriter(dir),
-		Config:     cfg,
-		Dir:        dir,
-		NewChecker: defaultChecker,
-		Edit:       editHandoff,
+		Git:         git.New(runner),
+		SF:          salesforce.New(runner),
+		Delta:       delta.New(runner),
+		GH:          github.New(runner),
+		Runs:        runs.NewWriter(dir),
+		Config:      cfg,
+		Dir:         dir,
+		NewChecker:  defaultChecker,
+		Edit:        editHandoff,
+		CheckUpdate: defaultCheckUpdate,
 		// Now is left nil: production uses the real time.Now clock.
 	}
 
 	program := tea.NewProgram(app.New(deps))
 	_, err = program.Run()
 	return err
+}
+
+// defaultCheckUpdate composes the real internal/update.Checker against the
+// production GitHub API and internal/version.Version, mirroring
+// defaultChecker/defaultRunTUI's composition-root pattern (HU-019). It is the
+// real service wired into app.Deps.CheckUpdate; internal/app never imports
+// net/http/internal/update/internal/version directly (ADR-2).
+func defaultCheckUpdate(ctx context.Context) (bool, string, error) {
+	checker := update.Checker{BaseURL: githubAPIBaseURL, HTTPClient: &http.Client{}}
+	latest, err := checker.Latest(ctx)
+	return decideUpdate(latest, err)
+}
+
+// decideUpdate is the pure decision logic defaultCheckUpdate delegates to
+// after fetching the latest release tag: a fetch error degrades silently
+// (update-notification: Silent Skip on Check Failure), otherwise it defers
+// to update.HasNewer comparing the current internal/version.Version against
+// latest (which also no-nags on a "dev" build or a malformed tag).
+func decideUpdate(latest string, fetchErr error) (bool, string, error) {
+	if fetchErr != nil {
+		return false, "", fetchErr
+	}
+	return update.HasNewer(version.Version, latest), latest, nil
 }
 
 // editHandoff returns a tea.Cmd that suspends the TUI and opens $EDITOR on
