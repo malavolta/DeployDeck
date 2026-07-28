@@ -72,6 +72,8 @@ func (m Model) viewBody() string {
 		return m.viewCancelConfirm()
 	case StateRunHistory:
 		return m.viewRunHistory()
+	case StateQuickDeploy:
+		return m.viewQuickDeploy()
 	case StatePushPreparation:
 		return m.viewPushPreparation()
 	case StateBranchCleanup:
@@ -522,6 +524,52 @@ func (m Model) viewCancelConfirm() string {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
 	b.WriteString(footer("Enter confirmar   Esc volver"))
+	return b.String()
+}
+
+// viewQuickDeploy renders HU-015's quick-deploy screen (quick-deploy spec:
+// "Suggested Command Displayed, Not Executed By Default"): it ALWAYS shows
+// the suggested `sf project deploy quick` command for the SELECTED ROW's own
+// JobID/target-org alias, regardless of whether execution is currently
+// gated on. When quickDeployExecAllowed is false for this row (AllowExecution
+// off, or a blocked production target), a note explains the screen is
+// suggest-only for the current configuration — the command above is shown
+// but never run. Otherwise it echoes the typed DESPLEGAR confirmation
+// prompt. A failed quick deploy surfaces its error (m.quickErr, the run left
+// unmarked, mirroring viewCancelConfirm's cancelErr display).
+func (m Model) viewQuickDeploy() string {
+	var b strings.Builder
+	b.WriteString(header("Quick Deploy"))
+
+	if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+		b.WriteString("\n  (sin run seleccionado)\n")
+		b.WriteString(footer("q/Esc volver"))
+		return b.String()
+	}
+	rec := m.runs[m.runsCursor]
+	isProd := git.IsProductionTarget(m.deps.Config, rec.Target)
+	allowed := quickDeployExecAllowed(m.deps.Config, isProd)
+
+	b.WriteString(fmt.Sprintf("\n  Job Id: %s\n", rec.JobID))
+	b.WriteString(fmt.Sprintf("  Org:    %s\n", rec.Alias))
+	b.WriteString("\n  Comando sugerido:\n")
+	b.WriteString(fmt.Sprintf("  sf project deploy quick --job-id %s --target-org %s\n", rec.JobID, rec.Alias))
+
+	if !allowed {
+		b.WriteString("\n  [i] Modo solo sugerido: la ejecucion esta deshabilitada (allowExecution/allowProduction). El comando anterior NO se ejecuta.\n")
+	} else {
+		b.WriteString(fmt.Sprintf("\n  Escribe %s para confirmar la ejecucion:\n", quickDeployConfirmWord))
+		b.WriteString("  " + m.quickConfirm + "_\n")
+	}
+
+	if m.quickErr != nil {
+		b.WriteString("\n  [XX] El quick deploy fallo (el run NO se marca como desplegado):\n")
+		b.WriteString("  " + m.quickErr.Error() + "\n")
+	}
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("Enter confirmar   q/Esc volver"))
 	return b.String()
 }
 

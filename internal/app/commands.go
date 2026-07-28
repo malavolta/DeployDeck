@@ -251,6 +251,16 @@ type cancelDoneMsg struct {
 	err    error
 }
 
+// quickDeployDoneMsg carries the HU-015 quick-deploy outcome: the raw
+// response (persisted verbatim as quick.json on success) or an error.
+// onQuickDeployDone best-effort marks the run via MarkQuickDeployed on
+// success, or surfaces the error WITHOUT marking the run on failure
+// (mirrors cancelDoneMsg's shape and onCancelDone's guard posture).
+type quickDeployDoneMsg struct {
+	result salesforce.QuickDeployResult
+	err    error
+}
+
 // pushDoneMsg carries the HU-014 push outcome: nil on a successful
 // `git push -u origin <branch>`, or the error (which keeps the user on the
 // push-confirm screen, flow alive).
@@ -967,6 +977,26 @@ func (m Model) cancelCmd() tea.Cmd {
 	return func() tea.Msg {
 		result, err := sf.CancelDeploy(ctx, jobID, alias)
 		return cancelDoneMsg{result: result, err: err}
+	}
+}
+
+// quickDeployCmd runs HU-015's `sf project deploy quick` through the
+// Salesforce shim, for the SELECTED HISTORY ROW's own job ONLY: jobID and
+// alias are captured HERE, synchronously, from m.runs[m.runsCursor] — never
+// m.jobID/m.plan.SandboxAlias, which belong to whatever run is currently
+// in-flight, not the historical row being quick-deployed. keyQuickDeploy only
+// calls this once every gate (quickDeployExecAllowed + the typed DESPLEGAR
+// confirmation) has already passed. Persistence (MarkQuickDeployed) and
+// staying on StateQuickDeploy happen in onQuickDeployDone.
+func (m Model) quickDeployCmd() tea.Cmd {
+	sf := m.deps.SF
+	rec := m.runs[m.runsCursor]
+	jobID := rec.JobID
+	alias := rec.Alias
+	ctx := m.ctx()
+	return func() tea.Msg {
+		result, err := sf.QuickDeploy(ctx, jobID, alias)
+		return quickDeployDoneMsg{result: result, err: err}
 	}
 }
 

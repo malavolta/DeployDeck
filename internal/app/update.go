@@ -74,6 +74,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onValidateDone(msg)
 	case cancelDoneMsg:
 		return m.onCancelDone(msg)
+	case quickDeployDoneMsg:
+		return m.onQuickDeployDone(msg)
 	case reportDoneMsg:
 		return m.onReportDone(msg)
 	case pollTickMsg:
@@ -524,6 +526,7 @@ func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 			CreatedAt:   now,
 			UpdatedAt:   now,
 			SourceRunID: m.sourceRunID,
+			TestLevel:   m.plan.TestLevel,
 		})
 	}
 
@@ -784,6 +787,36 @@ func (m Model) onCancelDone(msg cancelDoneMsg) (tea.Model, tea.Cmd) {
 		_ = m.deps.Runs.MarkCanceled(m.runID, []byte(msg.result.Raw))
 	}
 	m.state = StateCanceled
+	return m, nil
+}
+
+// onQuickDeployDone lands the HU-015 quick-deploy outcome. It is GUARDED to
+// act only while StateQuickDeploy (mirrors onCancelDone's late-message
+// guard): a late/duplicate quickDeployDoneMsg arriving after the user already
+// backed out (esc/q to StateRunHistory) is dropped, so it can never re-mark a
+// run the user is no longer looking at. On failure it surfaces the error and
+// stays on StateQuickDeploy (the run left unmarked, mirroring
+// onCancelDone's failure branch). On success it best-effort marks the
+// SELECTED ROW via MarkQuickDeployed (quick.json + QuickDeployedAt, ADR-4:
+// Status is deliberately never touched) and stays on StateQuickDeploy with a
+// notice — there is no new terminal state (design "single StateQuickDeploy
+// to minimize footprint"); esc already returns to StateRunHistory.
+func (m Model) onQuickDeployDone(msg quickDeployDoneMsg) (tea.Model, tea.Cmd) {
+	if m.state != StateQuickDeploy {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.quickErr = msg.err
+		m.state = StateQuickDeploy
+		return m, nil
+	}
+	m.quickErr = nil
+	if m.deps.Runs != nil && m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
+		rec := m.runs[m.runsCursor]
+		_ = m.deps.Runs.MarkQuickDeployed(rec.RunID, []byte(msg.result.Raw))
+	}
+	m.notice = "quick deploy ejecutado y registrado"
+	m.state = StateQuickDeploy
 	return m, nil
 }
 

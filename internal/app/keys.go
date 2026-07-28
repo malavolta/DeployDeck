@@ -3,6 +3,7 @@ package app
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
+	"deploydeck/internal/config"
 	"deploydeck/internal/git"
 	"deploydeck/internal/github"
 	"deploydeck/internal/runs"
@@ -39,6 +40,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyCancelConfirm(msg)
 	case StateRunHistory:
 		return m.keyRunHistory(msg)
+	case StateQuickDeploy:
+		return m.keyQuickDeploy(msg)
 	case StateSucceeded:
 		return m.keySucceeded(msg)
 	case StatePushPreparation:
@@ -782,6 +785,24 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.startRePromoteInto(rec)
+	case "x":
+		// HU-015: open the quick-deploy view for the selected row, gated on
+		// runs.QuickDeployEligible — an out-of-range cursor or an ineligible
+		// row (any predicate failing) is a strict no-op, mirroring the r gate
+		// above. Never alters Enter/d/r (run-history spec: "Enter, d, and r
+		// remain unaffected").
+		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+			return m, nil
+		}
+		rec := m.runs[m.runsCursor]
+		eligible, _ := runs.QuickDeployEligible(rec, m.now())
+		if !eligible {
+			return m, nil
+		}
+		m.state = StateQuickDeploy
+		m.quickConfirm = ""
+		m.quickErr = nil
+		return m, nil
 	case "q", "esc":
 		// Decline the offer: proceed to the normal flow rather than resuming.
 		m.state = StateTicketInput
@@ -800,6 +821,17 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ineligible-status row.
 func isRePromoteEligible(rec runs.Record) bool {
 	return (rec.Status == "Succeeded" || rec.Status == "SucceededPartial") && len(rec.Commits) > 0
+}
+
+// quickDeployExecAllowed is HU-015's pure execution gate (quick-deploy spec:
+// "Production Target Blocked Without Explicit Configuration" + "Suggest-Only
+// By Default"): execution is permitted only when AllowExecution is true AND
+// the target is EITHER non-production OR AllowProduction is explicitly true.
+// isProd is computed by the caller via git.IsProductionTarget — this
+// function holds no target/branch knowledge of its own, keeping it a
+// trivially testable pure predicate.
+func quickDeployExecAllowed(cfg config.Config, isProd bool) bool {
+	return cfg.QuickDeploy.AllowExecution && (!isProd || cfg.QuickDeploy.AllowProduction)
 }
 
 // cancelConfirmWord is the exact, case-sensitive literal the user must type to
@@ -838,6 +870,59 @@ func (m Model) keyCancelConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		if msg.Type == tea.KeyRunes {
 			m.cancelInput += string(msg.Runes)
+		}
+		return m, nil
+	}
+}
+
+// quickDeployConfirmWord is HU-015's exact, case-sensitive literal the user
+// must type to authorize a quick deploy — its OWN word on its OWN dedicated
+// m.quickConfirm field (ADR-2, deliberately never HU-012's
+// cancelInput/CANCELAR), so a stray cancel buffer can never authorize a
+// quick deploy, and vice versa.
+const quickDeployConfirmWord = "DESPLEGAR"
+
+// keyQuickDeploy handles HU-015's StateQuickDeploy screen, reusing the
+// keyCancelConfirm typed-input idiom (backspace/KeyRunes buffer build) for
+// m.quickConfirm. `enter` fires quickDeployCmd ONLY when ALL THREE gates
+// pass: quickDeployExecAllowed(cfg, isProd) (AllowExecution AND non-prod-or-
+// AllowProduction) AND the typed text exactly equals quickDeployConfirmWord
+// — any gate failing surfaces a notice and stays put, never executing
+// (quick-deploy spec: "Production target blocked", "Missing confirmation
+// blocks execution", "Suggest-only by default"). `q`/`esc` back out to
+// StateRunHistory, clearing the confirm buffer and any surfaced error.
+func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+			return m, nil
+		}
+		rec := m.runs[m.runsCursor]
+		isProd := git.IsProductionTarget(m.deps.Config, rec.Target)
+		if !quickDeployExecAllowed(m.deps.Config, isProd) {
+			m.notice = "quick deploy no autorizado: revisa la configuracion allowExecution/allowProduction"
+			return m, nil
+		}
+		if m.quickConfirm != quickDeployConfirmWord {
+			m.notice = "escribe DESPLEGAR exactamente para confirmar el quick deploy"
+			return m, nil
+		}
+		m.notice = ""
+		return m, m.quickDeployCmd()
+	case "q", "esc":
+		m.quickConfirm = ""
+		m.quickErr = nil
+		m.notice = ""
+		m.state = StateRunHistory
+		return m, nil
+	case "backspace":
+		if n := len(m.quickConfirm); n > 0 {
+			m.quickConfirm = m.quickConfirm[:n-1]
+		}
+		return m, nil
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.quickConfirm += string(msg.Runes)
 		}
 		return m, nil
 	}

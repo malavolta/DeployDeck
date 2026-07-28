@@ -127,6 +127,19 @@ const (
 	// Group 3's inline current-branch delete uses) and a retention-prune
 	// action (deps.Runs.Prune, UNCHANGED). q/esc return to StateTicketInput.
 	StateBranchCleanup
+	// StateQuickDeploy is HU-015's opt-in quick-deploy surface, reached from
+	// StateRunHistory via the distinct `x` key on a row that is
+	// quick-deploy-eligible (runs.QuickDeployEligible). It always shows the
+	// suggested `sf project deploy quick --job-id <rec.JobID> --target-org
+	// <rec.Alias>` command for the selected row (never auto-run); execution is
+	// reachable ONLY when quickDeployExecAllowed(cfg, isProd) gates true AND the
+	// user types the exact DEDICATED strong-confirm literal DESPLEGAR into
+	// m.quickConfirm (ADR-2: a field/word deliberately separate from HU-012's
+	// cancelInput/CANCELAR — a stray buffer can never cross-fire the wrong
+	// destructive action). q/esc return to StateRunHistory. Appended last so
+	// every prior State's value is never renumbered (HU-017's cleanupPhase
+	// const precedent).
+	StateQuickDeploy
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
@@ -404,6 +417,16 @@ type Model struct {
 	// CancelConfirm (HU-012)
 	cancelInput string // typed confirmation buffer; cancel fires only when == "CANCELAR"
 	cancelErr   error  // failed-cancel error, surfaced on StateCancelConfirm (run left unmarked)
+
+	// QuickDeploy (HU-015): quickConfirm is the DEDICATED typed-DESPLEGAR
+	// buffer for StateQuickDeploy — deliberately never HU-012's cancelInput
+	// (ADR-2: a stray CANCELAR/cancel buffer must never authorize a quick
+	// deploy, and vice versa). quickErr surfaces a failed quickDeployCmd
+	// (the run is left unmarked, mirroring cancelErr). The selected run
+	// itself is read live from m.runs[m.runsCursor] — the cursor never moves
+	// while on StateQuickDeploy, so no separate "which run" field is needed.
+	quickConfirm string
+	quickErr     error
 
 	// Validation (HU-010/011)
 	jobID        string
