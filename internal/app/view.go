@@ -772,8 +772,13 @@ func (m Model) viewBranchCleanup() string {
 	}
 
 	switch m.cleanupPhase {
+	case cleanupCounting:
+		// Review H-1: the unpushed-count query for the captured target is in
+		// flight; cursor-move keys are inert until it lands.
+		b.WriteString(fmt.Sprintf("\n  Comprobando commits sin pushear en %s...\n", m.cleanupDeleteTarget))
+		b.WriteString(footer("Esc cancelar"))
 	case cleanupConfirm:
-		b.WriteString("\n  Borrar la rama seleccionada?\n")
+		b.WriteString(fmt.Sprintf("\n  Borrar la rama %s?\n", m.cleanupDeleteTarget))
 		b.WriteString(footer("y confirmar   n cancelar"))
 	case cleanupStrongConfirm:
 		b.WriteString("\n  Esta rama tiene commits sin pushear. Escribe BORRAR para confirmar:\n")

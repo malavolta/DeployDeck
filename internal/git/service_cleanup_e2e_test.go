@@ -67,7 +67,8 @@ func TestService_CurrentBranch_DetachedReturnsHEAD(t *testing.T) {
 func TestService_Checkout_SwitchesToExistingBranch(t *testing.T) {
 	dir := newTempRepo(t)
 	runner := exec.NewOSRunner()
-	svc := git.New(runner)
+	recorder := &callRecordingRunner{inner: runner}
+	svc := git.New(recorder)
 
 	runGit(t, runner, dir, "checkout", "-b", "feature/DD-2")
 	runGit(t, runner, dir, "checkout", "main")
@@ -79,6 +80,14 @@ func TestService_Checkout_SwitchesToExistingBranch(t *testing.T) {
 	got := trimNewline(string(runGit(t, runner, dir, "symbolic-ref", "--short", "HEAD").Stdout))
 	if got != "feature/DD-2" {
 		t.Errorf("HEAD after Checkout = %q, want %q", got, "feature/DD-2")
+	}
+
+	// L-2 (defense-in-depth): the branch operand is separated from options with a
+	// trailing `--`, disambiguating it as a ref (never a pathspec) — proven here
+	// to STILL switch branches, so the hardening does not change semantics.
+	wantCall := "git checkout feature/DD-2 --"
+	if !containsCall(recorder.calls, wantCall) {
+		t.Errorf("expected the end-of-options checkout form %q, got calls: %v", wantCall, recorder.calls)
 	}
 }
 
@@ -104,7 +113,8 @@ func TestService_Checkout_UnknownBranchErrors(t *testing.T) {
 func TestService_DeleteLocalBranch_RemovesBranch(t *testing.T) {
 	dir := newTempRepo(t)
 	runner := exec.NewOSRunner()
-	svc := git.New(runner)
+	recorder := &callRecordingRunner{inner: runner}
+	svc := git.New(recorder)
 
 	runGit(t, runner, dir, "checkout", "-b", "feature/DD-3")
 	writeAndCommit(t, runner, dir, "unmerged.txt", "wip\n", "chore: unmerged work")
@@ -125,6 +135,14 @@ func TestService_DeleteLocalBranch_RemovesBranch(t *testing.T) {
 	if result.ExitCode == 0 {
 		t.Errorf("expected feature/DD-3 to no longer resolve locally, but it still does")
 	}
+
+	// L-2 (defense-in-depth): the branch operand follows the `--` end-of-options
+	// separator, so a branch name that begins with `-` can never be misread as a
+	// flag — proven here to STILL delete the branch.
+	wantCall := "git branch -D -- feature/DD-3"
+	if !containsCall(recorder.calls, wantCall) {
+		t.Errorf("expected the end-of-options delete form %q, got calls: %v", wantCall, recorder.calls)
+	}
 }
 
 // TestService_DeleteRemoteBranch_RemovesOriginRef is task 1.7 (RED):
@@ -134,7 +152,8 @@ func TestService_DeleteLocalBranch_RemovesBranch(t *testing.T) {
 func TestService_DeleteRemoteBranch_RemovesOriginRef(t *testing.T) {
 	localDir, remoteDir, _ := newTempRepoWithRemote(t)
 	runner := exec.NewOSRunner()
-	svc := git.New(runner)
+	recorder := &callRecordingRunner{inner: runner}
+	svc := git.New(recorder)
 
 	runGit(t, runner, localDir, "checkout", "-b", "deploy/DD-4")
 	writeAndCommit(t, runner, localDir, "feature.txt", "feature\n", "chore: add feature")
@@ -147,6 +166,14 @@ func TestService_DeleteRemoteBranch_RemovesOriginRef(t *testing.T) {
 	result := runGit(t, runner, localDir, "ls-remote", "--heads", remoteDir, "deploy/DD-4")
 	if got := strings.TrimSpace(string(result.Stdout)); got != "" {
 		t.Errorf("expected origin/deploy/DD-4 to be deleted, but ls-remote still reports it: %q", got)
+	}
+
+	// L-2 (defense-in-depth): the refspec operand follows the `--` end-of-options
+	// separator on the destructive remote delete too — proven here to STILL
+	// delete the origin ref.
+	wantCall := "git push origin --delete -- deploy/DD-4"
+	if !containsCall(recorder.calls, wantCall) {
+		t.Errorf("expected the end-of-options remote-delete form %q, got calls: %v", wantCall, recorder.calls)
 	}
 }
 

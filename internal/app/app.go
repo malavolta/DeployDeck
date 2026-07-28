@@ -168,6 +168,14 @@ const (
 	// deletes only already-decided-by-policy run.json directories, never a
 	// git branch, so it does not warrant the typed BORRAR strong confirm.
 	cleanupPruneConfirm
+	// cleanupCounting is StateBranchCleanup's in-flight per-row unpushed-count
+	// window (review H-1): pressing `d` CAPTURES the target row
+	// (cleanupDeleteTarget) and parks here while unpushedCountCmd runs. Cursor-
+	// move keys are inert here — and stay inert through the confirm phases — so
+	// the confirm that lands can never bind to a DIFFERENT row than the one `d`
+	// captured (the cursor-move TOCTOU). Appended last so the existing values
+	// are never renumbered.
+	cleanupCounting
 )
 
 // pushPhase is StatePushPreparation's sub-state machine (HU-014). It gates the
@@ -308,6 +316,16 @@ type Model struct {
 	cleanupBranches []cleanupRow
 	cleanupCursor   int
 	cleanupNotice   string
+	// cleanupDeleteTarget (HU-017, review H-1) is the branch NAME captured the
+	// instant `d` is pressed on the batch screen, with cleanupDeleteTargetPushed
+	// its push status. confirmDeleteOrphan deletes THIS captured branch — never
+	// the live m.cleanupBranches[m.cleanupCursor], which the cursor-move TOCTOU
+	// could have shifted to a different (possibly unpushed) row. onUnpushedCount
+	// also drops any count whose branch no longer matches this target (a stale
+	// result from a prior d/esc), so the confirm strength is always the one
+	// computed for the captured branch.
+	cleanupDeleteTarget       string
+	cleanupDeleteTargetPushed bool
 
 	// CherryPicking / Conflict
 	contiguous      bool

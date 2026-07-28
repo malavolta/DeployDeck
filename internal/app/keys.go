@@ -194,12 +194,25 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.cleanupPhase {
 	case cleanupLoading:
 		return m, nil
+	case cleanupCounting:
+		// Review H-1: a per-row unpushed count is in flight for the CAPTURED
+		// target (cleanupDeleteTarget). Ignore cursor-move and delete keys so
+		// the confirm that lands can only ever bind to the captured row, never
+		// one the cursor was moved to. esc cancels the pending delete.
+		if msg.String() == "esc" {
+			m.cleanupPhase = cleanupBrowsing
+			m.cleanupDeleteTarget = ""
+			m.cleanupDeleteTargetPushed = false
+		}
+		return m, nil
 	case cleanupConfirm:
 		switch msg.String() {
 		case "y":
 			return m.confirmDeleteOrphan()
 		case "n", "esc":
 			m.cleanupPhase = cleanupBrowsing
+			m.cleanupDeleteTarget = ""
+			m.cleanupDeleteTargetPushed = false
 			return m, nil
 		}
 		return m, nil
@@ -216,6 +229,8 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleteConfirm = ""
 			m.cleanupNotice = ""
 			m.cleanupPhase = cleanupBrowsing
+			m.cleanupDeleteTarget = ""
+			m.cleanupDeleteTargetPushed = false
 			return m, nil
 		case "backspace":
 			if n := len(m.deleteConfirm); n > 0 {
@@ -254,8 +269,16 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.cleanupCursor < 0 || m.cleanupCursor >= len(m.cleanupBranches) {
 				return m, nil
 			}
+			// Review H-1: CAPTURE the target row the instant d is pressed, then
+			// park in cleanupCounting so cursor-move keys can't shift the
+			// selection out from under the in-flight count. confirmDeleteOrphan
+			// deletes THIS captured branch, never the live cursor row.
+			row := m.cleanupBranches[m.cleanupCursor]
 			m.cleanupNotice = ""
-			return m, m.unpushedCountCmd(m.cleanupBranches[m.cleanupCursor].Name)
+			m.cleanupDeleteTarget = row.Name
+			m.cleanupDeleteTargetPushed = row.Pushed
+			m.cleanupPhase = cleanupCounting
+			return m, m.unpushedCountCmd(row.Name)
 		case "p":
 			m.cleanupNotice = ""
 			m.cleanupPhase = cleanupPruneConfirm
@@ -263,6 +286,8 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q", "esc":
 			m.state = StateTicketInput
 			m.cleanupPhase = cleanupIdle
+			m.cleanupDeleteTarget = ""
+			m.cleanupDeleteTargetPushed = false
 			return m, nil
 		}
 	}
@@ -273,17 +298,24 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // or strong) on StateBranchCleanup: unlike confirmDeleteCurrent (which
 // defers to quitCmd because it deletes the CHECKED-OUT branch), the selected
 // row is never the current branch, so deleteOrphanCmd fires directly — no
-// restore/checkout choreography needed. An out-of-range cursor (list
+// restore/checkout choreography needed.
+//
+// Review H-1: it deletes the branch CAPTURED when `d` was pressed
+// (cleanupDeleteTarget / cleanupDeleteTargetPushed), NEVER the live
+// m.cleanupBranches[m.cleanupCursor] — the cursor-move TOCTOU could otherwise
+// point at a different (possibly unpushed) row than the one whose unpushed
+// gate decided this confirm strength. An empty captured target (list
 // reloaded/emptied out from under a stale confirm) is a safe no-op.
 func (m Model) confirmDeleteOrphan() (tea.Model, tea.Cmd) {
 	m.deleteConfirm = ""
-	if m.cleanupCursor < 0 || m.cleanupCursor >= len(m.cleanupBranches) {
-		m.cleanupPhase = cleanupBrowsing
+	target, pushed := m.cleanupDeleteTarget, m.cleanupDeleteTargetPushed
+	m.cleanupPhase = cleanupBrowsing
+	m.cleanupDeleteTarget = ""
+	m.cleanupDeleteTargetPushed = false
+	if target == "" {
 		return m, nil
 	}
-	row := m.cleanupBranches[m.cleanupCursor]
-	m.cleanupPhase = cleanupBrowsing
-	return m, m.deleteOrphanCmd(row.Name, row.Pushed)
+	return m, m.deleteOrphanCmd(target, pushed)
 }
 
 // keyPushPreparation handles HU-014's push + PR-preparation sub-flow (mockup

@@ -41,17 +41,25 @@ func (s *Service) CurrentBranch(ctx context.Context, dir string) (string, error)
 	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
-// Checkout runs a PLAIN `git checkout <branch>` (never `-b`) — switching to
-// an EXISTING branch. Creating a new branch is CreatePromotionBranch's job
+// Checkout runs `git checkout <branch> --` (never `-b`) — switching to an
+// EXISTING branch. Creating a new branch is CreatePromotionBranch's job
 // (HU-005); this method is the restore/navigation primitive quitCmd and the
 // branch-cleanup screen use.
+//
+// The trailing `--` end-of-options separator is defense-in-depth (review L-2):
+// it disambiguates <branch> as a REF rather than a pathspec (`git checkout
+// <name> --` still switches HEAD onto the branch — proven by the real-git
+// TestService_Checkout_SwitchesToExistingBranch — whereas the `--` must go
+// AFTER the operand here: `git checkout -- <branch>` would flip to pathspec
+// mode and fail to switch). It cannot be placed before the operand the way
+// `branch -D`/`push --delete` accept it, so the ref stays first.
 func (s *Service) Checkout(ctx context.Context, dir, branch string) error {
 	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return err
 	}
 
-	req := newRequest(root, "checkout", branch)
+	req := newRequest(root, "checkout", branch, "--")
 	result, err := s.runner.Run(ctx, req)
 	if err != nil {
 		return fmt.Errorf("git: checking out %q in %s: %w", branch, root, err)
@@ -70,13 +78,18 @@ func (s *Service) Checkout(ctx context.Context, dir, branch string) error {
 // re-checking merge status itself — `-d`'s own safety check would double-
 // gate and, worse, mis-refuse a squash/rebase-merged branch (new SHA means
 // `--is-ancestor` false-negatives there too).
+//
+// The `--` end-of-options separator before the branch operand is
+// defense-in-depth (review L-2): a branch name that begins with `-` can never
+// be misread as a flag. `git branch -D -- <branch>` still force-deletes the
+// branch (proven by the real-git TestService_DeleteLocalBranch_RemovesBranch).
 func (s *Service) DeleteLocalBranch(ctx context.Context, dir, branch string) error {
 	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return err
 	}
 
-	req := newRequest(root, "branch", "-D", branch)
+	req := newRequest(root, "branch", "-D", "--", branch)
 	result, err := s.runner.Run(ctx, req)
 	if err != nil {
 		return fmt.Errorf("git: deleting local branch %q in %s: %w", branch, root, err)
@@ -92,13 +105,19 @@ func (s *Service) DeleteLocalBranch(ctx context.Context, dir, branch string) err
 // branch's ref on origin. Callers only call this when the branch is known
 // pushed (Pushed on DeployBranch / currentPushed on Model) — deleting a ref
 // that was never pushed is simply a git error, not a special case here.
+//
+// The `--` end-of-options separator before the refspec operand is
+// defense-in-depth (review L-2), mirroring DeleteLocalBranch: a ref name that
+// begins with `-` can never be misread as a flag. `git push origin --delete --
+// <branch>` still deletes the origin ref (proven by the real-git
+// TestService_DeleteRemoteBranch_RemovesOriginRef).
 func (s *Service) DeleteRemoteBranch(ctx context.Context, dir, branch string) error {
 	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return err
 	}
 
-	req := newRequest(root, "push", "origin", "--delete", branch)
+	req := newRequest(root, "push", "origin", "--delete", "--", branch)
 	result, err := s.runner.Run(ctx, req)
 	if err != nil {
 		return fmt.Errorf("git: deleting origin/%s in %s: %w", branch, root, err)

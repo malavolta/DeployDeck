@@ -72,6 +72,54 @@ func TestSelectOrphans_TerminalPhaseRunNeverExcludes(t *testing.T) {
 	}
 }
 
+// TestSelectOrphans_ExcludesNonTerminalValidatingRun is the H-2 remediation
+// (RED): a run that finished cherry-picking and is async-validating on the org
+// (JobID set, non-terminal Status) is a LIVE run — its deploy/* branch MUST be
+// excluded from the orphan set even when repoState.InProgress==false and no
+// cherry-pick phase is active (branch-cleanup spec: "orphan = not tied to a
+// live in-progress run"). Before H-2, selectOrphans only excluded a live
+// cherry-pick-phase branch, so an async-validating run's branch was mislabeled
+// deletable.
+func TestSelectOrphans_ExcludesNonTerminalValidatingRun(t *testing.T) {
+	format := config.DefaultBranchFormat
+	branches := []git.DeployBranch{
+		{Name: "deploy/PROJ-1-to-UAT"}, // async-validating (non-terminal) -> live
+		{Name: "deploy/PROJ-2-to-UAT"}, // terminal Succeeded -> orphan
+	}
+	for _, status := range []string{"InProgress", "Queued", "Pending", ""} {
+		t.Run("non-terminal status "+status, func(t *testing.T) {
+			records := []runs.Record{
+				{Ticket: "PROJ-1", Target: "UAT", JobID: "JOB-1", Status: status, Phase: "validating"},
+				{Ticket: "PROJ-2", Target: "UAT", JobID: "JOB-2", Status: "Succeeded", Phase: "done"},
+			}
+			// inProgress=false on purpose: the repo is NOT mid cherry-pick, yet
+			// the async-validating run's branch must still be excluded.
+			orphans := selectOrphans(branches, records, format, false)
+			if len(orphans) != 1 || orphans[0].Name != "deploy/PROJ-2-to-UAT" {
+				t.Fatalf("expected PROJ-1 (non-terminal jobId=%q) excluded and PROJ-2 (terminal) listed, got %v", status, orphans)
+			}
+		})
+	}
+}
+
+// TestSelectOrphans_TerminalValidationRunStaysListed triangulates H-2: a run
+// with a JobID but a TERMINAL status ({Succeeded, SucceededPartial, Failed,
+// Canceled}, via salesforce.IsTerminal) is NOT live — its branch remains an
+// orphan, so the existing terminal-run cases keep working.
+func TestSelectOrphans_TerminalValidationRunStaysListed(t *testing.T) {
+	format := config.DefaultBranchFormat
+	branches := []git.DeployBranch{{Name: "deploy/PROJ-1-to-UAT"}}
+	for _, status := range []string{"Succeeded", "SucceededPartial", "Failed", "Canceled"} {
+		t.Run(status, func(t *testing.T) {
+			records := []runs.Record{{Ticket: "PROJ-1", Target: "UAT", JobID: "JOB-1", Status: status, Phase: "done"}}
+			orphans := selectOrphans(branches, records, format, false)
+			if len(orphans) != 1 {
+				t.Fatalf("a terminal (%s) validation run's branch must stay listable, got %v", status, orphans)
+			}
+		})
+	}
+}
+
 // --- resolveMergeTarget / mergedLabel: merge-label target resolution -------
 
 // TestResolveMergeTarget is a unit test for the pure correlation resolveMergeTarget
@@ -382,11 +430,14 @@ func TestKeyBranchCleanup_D_PushedGatesNormalConfirm(t *testing.T) {
 	m.cleanupPhase = cleanupBrowsing
 	m.cleanupBranches = []cleanupRow{{DeployBranch: git.DeployBranch{Name: branch}}}
 
-	_, cmd := m.Update(keyPress("d"))
+	// d captures the target; the count result must be landed on the POST-d
+	// model (which holds cleanupDeleteTarget) — onUnpushedCount drops a count
+	// whose branch does not match the captured target (review H-1).
+	nd, cmd := m.Update(keyPress("d"))
 	msg := run(t, cmd)
 	umsg := msg.(unpushedMsg)
 
-	next, _ := m.Update(umsg)
+	next, _ := nd.(Model).Update(umsg)
 	if next.(Model).cleanupPhase != cleanupConfirm {
 		t.Fatalf("count==0 should gate the normal confirmation, got %v", next.(Model).cleanupPhase)
 	}
@@ -405,6 +456,175 @@ func TestKeyBranchCleanup_D_NoopWhenListEmpty(t *testing.T) {
 	}
 }
 
+// --- H-1: cursor-move TOCTOU — d captures the row, freezes the cursor -------
+
+// TestKeyBranchCleanup_D_CapturesTarget_FreezesCursor_DeletesCaptured is the
+// H-1 remediation (RED): pressing `d` on row0 (pushed, 0 unpushed) CAPTURES
+// row0 as the delete target and enters cleanupCounting, where cursor-move keys
+// are no-ops. Even after an attempted move to row1 (unpushed), the confirm
+// binds to the CAPTURED row0 and deletes row0 — NEVER row1 (which the pre-fix
+// cursor TOCTOU would have force-deleted, bypassing BORRAR).
+func TestKeyBranchCleanup_D_CapturesTarget_FreezesCursor_DeletesCaptured(t *testing.T) {
+	row0 := "deploy/PROJ-0-to-UAT" // pushed, 0 unpushed
+	row1 := "deploy/PROJ-1-to-UAT" // unpushed
+	fr := execpkg.NewFakeRunner()
+	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
+	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "origin/" + row0}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha")})
+	fr.When("git", []string{"rev-list", "origin/" + row0 + ".." + row0, "--count"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("0\n")})
+	fr.When("git", []string{"branch", "-D", "--", row0}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"push", "origin", "--delete", "--", row0}, execpkg.CommandResult{ExitCode: 0})
+
+	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
+	m.state = StateBranchCleanup
+	m.cleanupPhase = cleanupBrowsing
+	m.cleanupBranches = []cleanupRow{
+		{DeployBranch: git.DeployBranch{Name: row0, Pushed: true}},
+		{DeployBranch: git.DeployBranch{Name: row1, Pushed: false}},
+	}
+	m.cleanupCursor = 0
+
+	// d captures row0 and enters the counting phase.
+	next, cmd := m.Update(keyPress("d"))
+	nm := next.(Model)
+	if nm.cleanupPhase != cleanupCounting {
+		t.Fatalf("d should enter cleanupCounting while the count is in flight, got %v", nm.cleanupPhase)
+	}
+	if nm.cleanupDeleteTarget != row0 {
+		t.Fatalf("d should capture row0 as the delete target, got %q", nm.cleanupDeleteTarget)
+	}
+	if cmd == nil {
+		t.Fatal("d should fire unpushedCountCmd for the captured row")
+	}
+
+	// Cursor-move keys must be inert while counting.
+	moved := advance(t, nm, keyPress("down"))
+	if moved.cleanupCursor != 0 {
+		t.Fatalf("cursor-move keys must be no-ops while counting, got cursor %d", moved.cleanupCursor)
+	}
+
+	// The count for the CAPTURED row0 lands (0 unpushed -> normal confirm).
+	umsg := run(t, cmd).(unpushedMsg)
+	if umsg.branch != row0 {
+		t.Fatalf("the count message must carry the captured branch, got %q", umsg.branch)
+	}
+	confirmed := advance(t, moved, umsg)
+	if confirmed.cleanupPhase != cleanupConfirm {
+		t.Fatalf("count==0 on the captured row should gate the normal confirm, got %v", confirmed.cleanupPhase)
+	}
+
+	// y deletes the CAPTURED row0, never row1.
+	_, cmd2 := confirmed.Update(keyPress("y"))
+	if cmd2 == nil {
+		t.Fatal("y should fire the delete for the captured target")
+	}
+	if _, ok := run(t, cmd2).(deleteDoneMsg); !ok {
+		t.Fatalf("expected deleteDoneMsg from the delete command")
+	}
+	if !calledWith(fr, "git", "branch", "-D", "--", row0) {
+		t.Fatalf("must delete the CAPTURED row0; calls: %v", fr.Calls)
+	}
+	if calledWith(fr, "git", "branch", "-D", "--", row1) {
+		t.Fatal("must NEVER delete row1 (the row the cursor tried to move to)")
+	}
+}
+
+// TestConfirmDeleteOrphan_DeletesCapturedTarget_NotCursorRow is H-1's core
+// safety assertion (RED): when the captured target is an UNPUSHED branch but
+// the cursor now points at a different, PUSHED row, the strong (BORRAR)
+// confirmation deletes the CAPTURED unpushed branch — proving the delete reads
+// cleanupDeleteTarget/cleanupDeleteTargetPushed, never the live cursor row.
+func TestConfirmDeleteOrphan_DeletesCapturedTarget_NotCursorRow(t *testing.T) {
+	captured := "deploy/PROJ-9-to-UAT"  // unpushed, captured by d
+	cursorRow := "deploy/PROJ-2-to-UAT" // pushed, where the cursor now sits
+	fr := execpkg.NewFakeRunner()
+	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
+	fr.When("git", []string{"branch", "-D", "--", captured}, execpkg.CommandResult{ExitCode: 0})
+
+	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
+	m.state = StateBranchCleanup
+	m.cleanupBranches = []cleanupRow{
+		{DeployBranch: git.DeployBranch{Name: cursorRow, Pushed: true}},
+	}
+	m.cleanupCursor = 0 // points at the PUSHED cursorRow
+	m.cleanupDeleteTarget = captured
+	m.cleanupDeleteTargetPushed = false // captured target was unpushed
+	m.cleanupPhase = cleanupStrongConfirm
+	m = typeString(m, "BORRAR")
+
+	next, cmd := m.Update(keyPress("enter"))
+	if cmd == nil {
+		t.Fatal("BORRAR should fire the delete for the captured target")
+	}
+	if _, ok := run(t, cmd).(deleteDoneMsg); !ok {
+		t.Fatalf("expected deleteDoneMsg")
+	}
+	if !calledWith(fr, "git", "branch", "-D", "--", captured) {
+		t.Fatalf("must delete the CAPTURED (unpushed) branch; calls: %v", fr.Calls)
+	}
+	if calledWith(fr, "git", "branch", "-D", "--", cursorRow) {
+		t.Fatal("must NEVER delete the row the cursor happens to sit on")
+	}
+	// The captured target was unpushed, so no remote delete is attempted.
+	if calledWith(fr, "git", "push", "origin", "--delete", "--", captured) {
+		t.Fatal("an unpushed captured target must not attempt a remote delete")
+	}
+	_ = next
+}
+
+// TestOnUnpushedCount_DropsStaleCountForDifferentBranch is H-1's stale-drop
+// assertion (RED): a count landing for a branch that is no longer the captured
+// target (a prior d+esc, then a new d on another row) must be dropped — never
+// gating the confirm strength of the current target.
+func TestOnUnpushedCount_DropsStaleCountForDifferentBranch(t *testing.T) {
+	m := New(Deps{Dir: "/repo", Config: testConfig()})
+	m.state = StateBranchCleanup
+	m.cleanupPhase = cleanupCounting
+	m.cleanupDeleteTarget = "deploy/PROJ-2-to-UAT" // the CURRENT captured target
+
+	// A stale count for a DIFFERENT branch lands.
+	next, cmd := m.Update(unpushedMsg{branch: "deploy/PROJ-0-to-UAT", count: 7})
+	nm := next.(Model)
+	if nm.cleanupPhase != cleanupCounting {
+		t.Fatalf("a stale count for a different branch must be dropped (phase unchanged), got %v", nm.cleanupPhase)
+	}
+	if cmd != nil {
+		t.Error("dropping a stale count must not fire a command")
+	}
+}
+
+// TestOnUnpushedCount_DroppedWhenOffDeleteScreens is the M-2 remediation
+// (RED): onUnpushedCount must only apply its result while the model is on a
+// delete-capable screen (StateSucceeded, StateAborted, StateBranchCleanup). A
+// count that lands after the user left those screens — e.g. a d+esc on the
+// cleanup screen with an in-flight count, then a normal promotion — must be
+// dropped, never setting cleanupPhase on an unrelated screen.
+func TestOnUnpushedCount_DroppedWhenOffDeleteScreens(t *testing.T) {
+	cases := []struct {
+		name  string
+		state State
+	}{
+		{"ticket input", StateTicketInput},
+		{"validation polling", StateValidationPolling},
+		{"commit selection", StateCommitSelection},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(Deps{Dir: "/repo", Config: testConfig()})
+			m.state = tc.state
+			m.cleanupPhase = cleanupIdle
+
+			next, cmd := m.Update(unpushedMsg{branch: "deploy/PROJ-2-to-UAT", count: 5})
+			nm := next.(Model)
+			if nm.cleanupPhase != cleanupIdle {
+				t.Fatalf("a stale count off the delete screens must be dropped (phase stays idle), got %v", nm.cleanupPhase)
+			}
+			if cmd != nil {
+				t.Error("dropping a stale count must not fire a command")
+			}
+		})
+	}
+}
+
 // --- 4.13/4.14: deleteOrphanCmd + confirm wiring + reload -------------------
 
 // branchCleanupStrongConfirmModel parks a Model on StateBranchCleanup mid a
@@ -415,12 +635,16 @@ func branchCleanupStrongConfirmModel(t *testing.T) (Model, *execpkg.FakeRunner, 
 	branch := "deploy/PROJ-2-to-UAT"
 	fr := execpkg.NewFakeRunner()
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.state = StateBranchCleanup
 	m.cleanupBranches = []cleanupRow{{DeployBranch: git.DeployBranch{Name: branch}}}
 	m.cleanupCursor = 0
+	// Review H-1: confirmDeleteOrphan deletes the CAPTURED target, populated by
+	// `d`; set it directly here since this helper parks mid strong-confirm.
+	m.cleanupDeleteTarget = branch
+	m.cleanupDeleteTargetPushed = false
 	m.cleanupPhase = cleanupStrongConfirm
 	return m, fr, branch
 }
@@ -461,7 +685,7 @@ func TestKeyBranchCleanup_StrongConfirm_BORRAR_TypedGate(t *testing.T) {
 		if _, ok := msg.(deleteDoneMsg); !ok {
 			t.Fatalf("expected deleteDoneMsg, got %T", msg)
 		}
-		if !calledWith(fr, "git", "branch", "-D", branch) {
+		if !calledWith(fr, "git", "branch", "-D", "--", branch) {
 			t.Fatalf("expected the selected row's local branch deleted; calls: %v", fr.Calls)
 		}
 		nm := next.(Model)
@@ -542,8 +766,8 @@ func TestDeleteOrphanCmd_DeletesLocalAndRemoteIfPushed_ThenReloads(t *testing.T)
 	branch := "deploy/PROJ-2-to-UAT"
 	fr := execpkg.NewFakeRunner()
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"push", "origin", "--delete", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"push", "origin", "--delete", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	msg := run(t, m.deleteOrphanCmd(branch, true))
@@ -554,10 +778,10 @@ func TestDeleteOrphanCmd_DeletesLocalAndRemoteIfPushed_ThenReloads(t *testing.T)
 	if dmsg.err != nil {
 		t.Fatalf("deleteOrphanCmd errored: %v", dmsg.err)
 	}
-	if !calledWith(fr, "git", "branch", "-D", branch) {
+	if !calledWith(fr, "git", "branch", "-D", "--", branch) {
 		t.Fatalf("expected local delete; calls: %v", fr.Calls)
 	}
-	if !calledWith(fr, "git", "push", "origin", "--delete", branch) {
+	if !calledWith(fr, "git", "push", "origin", "--delete", "--", branch) {
 		t.Fatalf("expected remote delete for a pushed row; calls: %v", fr.Calls)
 	}
 }
@@ -568,14 +792,14 @@ func TestDeleteOrphanCmd_LocalOnly_WhenUnpushed(t *testing.T) {
 	branch := "deploy/PROJ-3-to-UAT"
 	fr := execpkg.NewFakeRunner()
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	msg := run(t, m.deleteOrphanCmd(branch, false))
 	if _, ok := msg.(deleteDoneMsg); !ok {
 		t.Fatalf("expected deleteDoneMsg, got %T", msg)
 	}
-	if calledWith(fr, "git", "push", "origin", "--delete", branch) {
+	if calledWith(fr, "git", "push", "origin", "--delete", "--", branch) {
 		t.Fatalf("an unpushed row must never attempt a remote delete; calls: %v", fr.Calls)
 	}
 }
@@ -846,14 +1070,17 @@ func TestViewBranchCleanup_ConfirmPrompts(t *testing.T) {
 		m := New(Deps{Dir: "/repo", Config: testConfig()})
 		m.state = StateBranchCleanup
 		m.cleanupBranches = []cleanupRow{{DeployBranch: git.DeployBranch{Name: "deploy/DD-2"}}}
+		// The confirm prompts render the CAPTURED target (review H-1), populated
+		// by `d`; set it directly here since these tests park mid-confirm.
+		m.cleanupDeleteTarget = "deploy/DD-2"
 		return m
 	}
 
 	t.Run("normal confirm", func(t *testing.T) {
 		m := base()
 		m.cleanupPhase = cleanupConfirm
-		if !strings.Contains(m.View(), "Borrar") {
-			t.Errorf("normal confirm should prompt to delete:\n%s", m.View())
+		if !strings.Contains(m.View(), "Borrar") || !strings.Contains(m.View(), "deploy/DD-2") {
+			t.Errorf("normal confirm should prompt to delete the captured branch:\n%s", m.View())
 		}
 	})
 

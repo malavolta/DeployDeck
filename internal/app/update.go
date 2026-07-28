@@ -133,13 +133,39 @@ func (m Model) onOriginalBranch(msg originalBranchMsg) (tea.Model, tea.Cmd) {
 }
 
 // onUnpushedCount lands HU-017's unpushedCountCmd result, fired by
-// keySucceeded/keyAborted's `d` (design.md "Unpushed gate"). Any real
-// unpushed commit — or a resolution failure, treated conservatively as
-// "cannot confirm pushed" — requires the strong typed-BORRAR confirmation;
-// a fully pushed branch (count == 0) only needs the normal 'y' confirm. The
-// deleteConfirm buffer and any stale notice are reset here so a PRIOR failed
-// attempt on a different branch can never leak into a new one.
+// keySucceeded/keyAborted's `d` (the run's own branch) or keyBranchCleanup's
+// `d` (a captured orphan row). Any real unpushed commit — or a resolution
+// failure, treated conservatively as "cannot confirm pushed" — requires the
+// strong typed-BORRAR confirmation; a fully pushed branch (count == 0) only
+// needs the normal 'y' confirm. The deleteConfirm buffer and any stale notice
+// are reset here so a PRIOR failed attempt on a different branch can never leak
+// into a new one.
+//
+// Two staleness guards protect the destructive gate:
+//   - Review M-2: the result is applied ONLY while the model is on a
+//     delete-capable screen (StateSucceeded / StateAborted / StateBranchCleanup).
+//     A count landing after the user left those screens (e.g. a d+esc on the
+//     cleanup screen followed by a normal promotion) is dropped, so it can
+//     never leave a terminal screen routing stray keys into keyDeleteConfirm.
+//   - Review H-1: the count is authoritative only for the branch it was
+//     requested FOR. The target is the batch screen's CAPTURED row
+//     (cleanupDeleteTarget) or, on a terminal screen, the run's own
+//     plan.PromotionBranch. A count for any other branch (moved cursor, prior
+//     d+esc) is dropped rather than gating the confirm strength of a DIFFERENT
+//     branch.
 func (m Model) onUnpushedCount(msg unpushedMsg) (tea.Model, tea.Cmd) {
+	var target string
+	switch m.state {
+	case StateBranchCleanup:
+		target = m.cleanupDeleteTarget
+	case StateSucceeded, StateAborted:
+		target = m.plan.PromotionBranch
+	default:
+		return m, nil
+	}
+	if msg.branch != target {
+		return m, nil
+	}
 	m.deleteConfirm = ""
 	m.notice = ""
 	m.cleanupNotice = ""
@@ -149,6 +175,21 @@ func (m Model) onUnpushedCount(msg unpushedMsg) (tea.Model, tea.Cmd) {
 		m.cleanupPhase = cleanupConfirm
 	}
 	return m, nil
+}
+
+// resetCleanupState clears any in-flight inline/batch delete confirmation so a
+// stale cleanupPhase can never leak onto a freshly-entered terminal screen
+// (review M-2): a late unpushed-count landing after the user left the cleanup
+// screen must not leave a terminal screen routing stray keys into
+// keyDeleteConfirm (which could delete plan.PromotionBranch at a wrong-branch
+// confirm strength). Called on every transition INTO a terminal state.
+func (m Model) resetCleanupState() Model {
+	m.cleanupPhase = cleanupIdle
+	m.pendingDeleteCurrent = false
+	m.deleteConfirm = ""
+	m.cleanupDeleteTarget = ""
+	m.cleanupDeleteTargetPushed = false
+	return m
 }
 
 // onDeployBranches lands HU-017's listDeployBranchesCmd result: an error
@@ -588,6 +629,9 @@ func (m Model) onAborted(msg abortedMsg) (tea.Model, tea.Cmd) {
 		rec.Phase = "aborted"
 		rec.UpdatedAt = m.now()
 	})
+	// Review M-2: reset any leaked delete-confirmation state on entry into the
+	// terminal StateAborted screen (symmetric with onReportDone's terminal path).
+	m = m.resetCleanupState()
 	m.state = StateAborted
 	return m, nil
 }
@@ -780,6 +824,9 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 		// Leaving polling: cancel the session context so no read-only report
 		// subprocess lingers past the terminal screen.
 		m.cancelPoll()
+		// Review M-2: reset any leaked delete-confirmation state on entry into
+		// the terminal screen so a stray key can't funnel into keyDeleteConfirm.
+		m = m.resetCleanupState()
 		m.state = terminalState(msg.report.Status)
 		return m, nil
 	}

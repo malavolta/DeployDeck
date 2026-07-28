@@ -206,8 +206,13 @@ type originalBranchMsg struct {
 // confirmation rather than a silent skip, since this gates a destructive
 // action.
 type unpushedMsg struct {
-	count int
-	err   error
+	// branch is the branch the count was requested FOR (review H-1). It is
+	// carried so onUnpushedCount can drop a stale result whose target has since
+	// changed (a moved cursor / a prior d+esc), rather than binding the confirm
+	// strength of one branch to a count computed for another.
+	branch string
+	count  int
+	err    error
 }
 
 // resumeDetectMsg is the HU-013 startup resume-detection result: the live
@@ -263,21 +268,36 @@ type prCreatedMsg struct {
 
 // selectOrphans is the pure HU-017 orphan-correlation rule (branch-cleanup
 // spec: "Orphan Deploy Branches Listed For Batch Cleanup" — "not tied to a
-// live in-progress run"). A DeployBranch is EXCLUDED (not an orphan) only
-// when BOTH: inProgress is true (RepoState is the single source of truth for
-// whether ANY run is live right now — mirroring shouldRestore's own
-// InProgress read) AND some record's own cherry-pick-phase run renders (via
-// the SAME git.RenderBranchName the rest of the app uses to derive a
-// promotion branch name from Ticket+Target) to that branch's Name. Every
-// other branch — including one belonging to an already-terminal run, or one
-// whose rendered name doesn't match any record — is an orphan.
+// live in-progress run"). A DeployBranch is EXCLUDED (not an orphan) when
+// SOME record whose rendered name (via the SAME git.RenderBranchName the rest
+// of the app uses to derive a promotion branch from Ticket+Target) matches the
+// branch is still LIVE, in EITHER of two independent senses:
+//
+//   - Async-validating on the org: the record carries a JobID and a
+//     NON-TERMINAL Status (i.e. NOT one of salesforce.IsTerminal's
+//     {Succeeded, SucceededPartial, Failed, Canceled}). Such a run finished
+//     cherry-picking but its deploy branch is still tied to a running deploy
+//     job — so it is live regardless of RepoState.InProgress or cherry-pick
+//     phase (review H-2: before this, a jobId-bearing InProgress/Queued run
+//     whose RepoState.InProgress==false was mislabeled a deletable orphan).
+//   - Mid cherry-pick: inProgress is true (RepoState is the single source of
+//     truth for whether ANY pick is live right now) AND the record is in a
+//     cherry-pick phase.
+//
+// Every other branch — one belonging to an already-terminal run, or one whose
+// rendered name matches no record — is an orphan.
 func selectOrphans(branches []git.DeployBranch, records []runs.Record, format string, inProgress bool) []git.DeployBranch {
 	live := map[string]bool{}
-	if inProgress {
-		for _, rec := range records {
-			if isCherryPickPhase(rec.Phase) {
-				live[git.RenderBranchName(format, rec.Ticket, rec.Target)] = true
-			}
+	for _, rec := range records {
+		name := git.RenderBranchName(format, rec.Ticket, rec.Target)
+		// A run mid async-validation (jobId set, status not terminal) is live,
+		// independent of repoState.InProgress and cherry-pick phase.
+		if rec.JobID != "" && !salesforce.IsTerminal(rec.Status) {
+			live[name] = true
+		}
+		// A live in-progress cherry-pick's own branch.
+		if inProgress && isCherryPickPhase(rec.Phase) {
+			live[name] = true
 		}
 	}
 
@@ -782,7 +802,7 @@ func (m Model) unpushedCountCmd(branch string) tea.Cmd {
 	ctx := m.ctx()
 	return func() tea.Msg {
 		count, err := g.UnpushedCommitCount(ctx, dir, branch)
-		return unpushedMsg{count: count, err: err}
+		return unpushedMsg{branch: branch, count: count, err: err}
 	}
 }
 
@@ -812,40 +832,62 @@ func (m Model) unpushedCountCmd(branch string) tea.Cmd {
 //
 // HU-017 inline delete: when m.pendingDeleteCurrent is set (an explicit
 // normal/strong delete confirmation already landed), quitCmd ALSO deletes
-// the current run's own branch — but ONLY after the restore Checkout above
-// has actually succeeded, since a branch can't be deleted while it's
-// checked out (branch-cleanup spec: "Current Run's Temp Branch Deleted With
-// Confirmation"). The branch is ALWAYS m.plan.PromotionBranch — never
-// m.branchName, which stays empty on a resumed run (resumeInto never sets
-// it, only reconstructs plan.PromotionBranch) — and the remote ref is also
-// deleted iff m.currentPushed. If the restore guard above skips the
-// checkout for any reason (mid-conflict, no original branch, ...), the
-// delete is skipped too: it is inherently impossible to delete the branch
-// you're still standing on.
+// the current run's own branch. The branch is ALWAYS m.plan.PromotionBranch —
+// never m.branchName, which stays empty on a resumed run (resumeInto never
+// sets it, only reconstructs plan.PromotionBranch) — and the remote ref is
+// also deleted iff m.currentPushed.
+//
+// The delete is DECOUPLED from the restore checkout (review M-1): it fires
+// whenever it is confirmed and we are not currently standing on the target
+// branch, EVEN WHEN the restore was skipped (a resumed run where
+// current==original, a detached/gone original, ...). It is only the
+// current==target residual — still standing on the branch because restore
+// couldn't move HEAD off it — that stays a SAFE no-op (`git branch -D` of the
+// checked-out branch is refused anyway, and we never force a checkout to an
+// invalid branch). Mid-conflict (RepoState.InProgress) still skips BOTH
+// restore and delete: the branch holding CHERRY_PICK_HEAD is never safe to
+// delete, and HU-013 resume-detection must stay intact.
 func (m Model) quitCmd() tea.Cmd {
-	if m.deps.Git == nil || m.repoState.InProgress ||
-		m.originalBranch == "" || m.originalBranch == "HEAD" {
+	if m.deps.Git == nil || m.repoState.InProgress {
+		return tea.Quit
+	}
+	del, name, pushed := m.pendingDeleteCurrent, m.plan.PromotionBranch, m.currentPushed
+	// A restore is only warranted with a concrete, non-detached original branch
+	// to return to. The delete no longer depends on this being true.
+	canRestore := m.originalBranch != "" && m.originalBranch != "HEAD"
+	if !canRestore && !del {
 		return tea.Quit
 	}
 	g, dir, ctx, original := m.deps.Git, m.deps.Dir, m.ctx(), m.originalBranch
-	del, name, pushed := m.pendingDeleteCurrent, m.plan.PromotionBranch, m.currentPushed
 	return func() tea.Msg {
 		current, err := g.CurrentBranch(ctx, dir)
-		if err != nil || current == original {
-			// Either the live branch can't be confirmed, or it already
-			// matches the original — nothing to restore either way.
+		if err != nil {
+			// The live branch can't be confirmed — do nothing destructive
+			// (neither restore nor delete) rather than act on an unknown branch.
 			return tea.Quit()
 		}
-		exists, err := g.BranchExists(ctx, dir, original)
-		if err != nil {
-			exists = false
-		}
-		if shouldRestore(m.repoState.InProgress, original, current, exists) {
-			if g.Checkout(ctx, dir, original) == nil && del {
-				_ = g.DeleteLocalBranch(ctx, dir, name)
-				if pushed {
-					_ = g.DeleteRemoteBranch(ctx, dir, name)
+
+		// Restore the original branch when warranted (unchanged guard). Only
+		// attempt it when we are actually off the original branch.
+		if canRestore && current != original {
+			exists := false
+			if e, berr := g.BranchExists(ctx, dir, original); berr == nil {
+				exists = e
+			}
+			if shouldRestore(false, original, current, exists) {
+				if g.Checkout(ctx, dir, original) == nil {
+					current = original // HEAD is now on the original branch
 				}
+			}
+		}
+
+		// Delete the current run's own branch when confirmed — INDEPENDENT of
+		// whether the restore above happened. Refused as a safe no-op only when
+		// we are still standing on that very branch, or there is no branch name.
+		if del && name != "" && current != name {
+			_ = g.DeleteLocalBranch(ctx, dir, name)
+			if pushed {
+				_ = g.DeleteRemoteBranch(ctx, dir, name)
 			}
 		}
 		return tea.Quit()

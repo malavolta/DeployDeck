@@ -152,7 +152,7 @@ func TestQuitCmd_RestoresOriginalBranch_OnTerminalQuit(t *testing.T) {
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("deploy/PROJ-1-to-UAT")})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.originalBranch = "main"
@@ -166,7 +166,7 @@ func TestQuitCmd_RestoresOriginalBranch_OnTerminalQuit(t *testing.T) {
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("quitCmd should ultimately return tea.QuitMsg, got %T", msg)
 	}
-	if !calledWith(fr, "git", "checkout", "main") {
+	if !calledWith(fr, "git", "checkout", "main", "--") {
 		t.Fatalf("quitCmd should restore the original branch via Checkout(main); calls: %v", fr.Calls)
 	}
 }
@@ -233,7 +233,7 @@ func TestQuitCmd_NoopWhenOriginalGoneDetachedOrCurrent(t *testing.T) {
 			if _, ok := msg.(tea.QuitMsg); !ok {
 				t.Fatalf("quitCmd should still return tea.QuitMsg, got %T", msg)
 			}
-			if calledWith(fr, "git", "checkout", tt.originalBranch) {
+			if calledWith(fr, "git", "checkout", tt.originalBranch, "--") {
 				t.Fatalf("%s must never checkout; calls: %v", tt.name, fr.Calls)
 			}
 		})

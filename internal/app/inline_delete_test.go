@@ -9,7 +9,81 @@ import (
 	execpkg "deploydeck/internal/exec"
 	"deploydeck/internal/git"
 	"deploydeck/internal/runs"
+	"deploydeck/internal/salesforce"
 )
+
+// --- M-2: cross-screen cleanupPhase leak reset on terminal entry ------------
+
+// TestOnReportDone_TerminalEntryResetsStaleCleanupState is the M-2 remediation
+// (RED): entering a terminal state (here StateSucceeded via a Succeeded report)
+// MUST reset any leaked delete-confirmation state, so a stray key on the
+// terminal screen can never funnel into keyDeleteConfirm and delete
+// plan.PromotionBranch at a wrong-branch confirm strength.
+func TestOnReportDone_TerminalEntryResetsStaleCleanupState(t *testing.T) {
+	m := New(Deps{Dir: "/repo", Config: testConfig()})
+	m.state = StateValidationPolling
+	// Simulate the M-2 leak: a stale non-idle cleanupPhase + pending delete
+	// bled over from an earlier d+esc on the cleanup screen.
+	m.cleanupPhase = cleanupStrongConfirm
+	m.pendingDeleteCurrent = true
+	m.deleteConfirm = "BOR"
+	m.cleanupDeleteTarget = "deploy/PROJ-1-to-UAT"
+	m.plan = git.DeploymentPlan{PromotionBranch: "deploy/PROJ-1-to-UAT"}
+
+	next, _ := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "Succeeded"}})
+	nm := next.(Model)
+	if nm.State() != StateSucceeded {
+		t.Fatalf("a Succeeded report should reach StateSucceeded, got %v", nm.State())
+	}
+	if nm.cleanupPhase != cleanupIdle {
+		t.Fatalf("entering a terminal state must reset the stale cleanupPhase, got %v", nm.cleanupPhase)
+	}
+	if nm.pendingDeleteCurrent {
+		t.Error("terminal entry must reset pendingDeleteCurrent")
+	}
+	if nm.cleanupDeleteTarget != "" {
+		t.Error("terminal entry must reset cleanupDeleteTarget")
+	}
+
+	// A stray 'y' must now be inert: cleanupIdle routes keySucceeded normally,
+	// where 'y' is not a bound key, so no delete/quit command fires.
+	fr := execpkg.NewFakeRunner() // uncanned: any git call fails loudly
+	nm.deps.Git = git.New(fr)
+	nm.deps.Dir = "/repo"
+	next2, cmd := nm.Update(keyPress("y"))
+	if next2.(Model).State() != StateSucceeded {
+		t.Error("a stray y on a freshly-entered terminal must not change state")
+	}
+	if cmd != nil {
+		t.Error("a stray y must not fire a delete/quit command")
+	}
+	if len(fr.Calls) != 0 {
+		t.Errorf("a stray y must not invoke any git call, got %v", fr.Calls)
+	}
+}
+
+// TestOnAborted_ResetsStaleCleanupState is M-2's StateAborted companion: the
+// same reset happens when the flow reaches StateAborted.
+func TestOnAborted_ResetsStaleCleanupState(t *testing.T) {
+	m := New(Deps{Dir: "/repo", Config: testConfig()})
+	m.state = StateCherryPickConflict
+	m.cleanupPhase = cleanupStrongConfirm
+	m.pendingDeleteCurrent = true
+	m.deleteConfirm = "BOR"
+	m.cleanupDeleteTarget = "deploy/PROJ-1-to-UAT"
+
+	next, _ := m.Update(abortedMsg{})
+	nm := next.(Model)
+	if nm.State() != StateAborted {
+		t.Fatalf("a confirmed abort should reach StateAborted, got %v", nm.State())
+	}
+	if nm.cleanupPhase != cleanupIdle {
+		t.Fatalf("entering StateAborted must reset the stale cleanupPhase, got %v", nm.cleanupPhase)
+	}
+	if nm.pendingDeleteCurrent || nm.cleanupDeleteTarget != "" {
+		t.Error("entering StateAborted must reset pendingDeleteCurrent and cleanupDeleteTarget")
+	}
+}
 
 // --- 3.1: onPushDone sets currentPushed on success --------------------------
 
@@ -218,8 +292,8 @@ func TestInlineDelete_ResumedRun_TargetsPlanPromotionBranch_NotBranchName(t *tes
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(wantBranch)})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"branch", "-D", wantBranch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", wantBranch}, execpkg.CommandResult{ExitCode: 0})
 	m.deps.Git = git.New(fr)
 	m.deps.Dir = "/repo"
 	m.originalBranch = "main"
@@ -230,10 +304,10 @@ func TestInlineDelete_ResumedRun_TargetsPlanPromotionBranch_NotBranchName(t *tes
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
 	}
-	if !calledWith(fr, "git", "branch", "-D", wantBranch) {
+	if !calledWith(fr, "git", "branch", "-D", "--", wantBranch) {
 		t.Fatalf("delete should target plan.PromotionBranch %q (never the empty branchName); calls: %v", wantBranch, fr.Calls)
 	}
-	if calledWith(fr, "git", "branch", "-D", "") {
+	if calledWith(fr, "git", "branch", "-D", "--", "") {
 		t.Fatal("delete must never target the empty branchName")
 	}
 }
@@ -250,8 +324,8 @@ func strongConfirmModel(t *testing.T) (Model, *execpkg.FakeRunner, string) {
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(branch)})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.originalBranch = "main"
@@ -335,7 +409,7 @@ func TestStrongConfirm_BORRAR_TypedGate(t *testing.T) {
 		if _, ok := msg.(tea.QuitMsg); !ok {
 			t.Fatalf("expected tea.QuitMsg, got %T", msg)
 		}
-		if !calledWith(fr, "git", "branch", "-D", branch) {
+		if !calledWith(fr, "git", "branch", "-D", "--", branch) {
 			t.Fatalf("expected the local branch to be deleted; calls: %v", fr.Calls)
 		}
 		if !next.(Model).pendingDeleteCurrent {
@@ -375,8 +449,8 @@ func TestConfirmDelete_SetsPendingDeleteCurrent_ThenQuits(t *testing.T) {
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(branch)})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.originalBranch = "main"
@@ -399,7 +473,7 @@ func TestConfirmDelete_SetsPendingDeleteCurrent_ThenQuits(t *testing.T) {
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
 	}
-	if !calledWith(fr, "git", "branch", "-D", branch) {
+	if !calledWith(fr, "git", "branch", "-D", "--", branch) {
 		t.Fatalf("expected the local branch to be deleted; calls: %v", fr.Calls)
 	}
 }
@@ -445,9 +519,9 @@ func TestQuitCmd_DeletesCurrentBranch_LocalAndRemoteIfPushed(t *testing.T) {
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(branch)})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"push", "origin", "--delete", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"push", "origin", "--delete", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.originalBranch = "main"
@@ -459,11 +533,79 @@ func TestQuitCmd_DeletesCurrentBranch_LocalAndRemoteIfPushed(t *testing.T) {
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
 	}
-	if !calledWith(fr, "git", "branch", "-D", branch) {
+	if !calledWith(fr, "git", "branch", "-D", "--", branch) {
 		t.Fatalf("expected local delete; calls: %v", fr.Calls)
 	}
-	if !calledWith(fr, "git", "push", "origin", "--delete", branch) {
+	if !calledWith(fr, "git", "push", "origin", "--delete", "--", branch) {
 		t.Fatalf("a pushed branch should also delete the remote ref; calls: %v", fr.Calls)
+	}
+}
+
+// TestQuitCmd_DeletesConfirmedBranch_EvenWhenRestoreSkipped is the M-1
+// remediation (RED): a resumed run reaching a terminal state can have
+// current==originalBranch — the deploy branch was never checked out this
+// session (resumeInto reconstructs plan.PromotionBranch but leaves HEAD on the
+// original branch). A CONFIRMED inline delete MUST still fire even though the
+// restore checkout is skipped (original already equals current). Before M-1
+// the delete was nested under `if Checkout()==nil`, so it was silently dropped
+// whenever restore was skipped, leaking the branch with no feedback.
+func TestQuitCmd_DeletesConfirmedBranch_EvenWhenRestoreSkipped(t *testing.T) {
+	branch := "deploy/PROJ-1-to-UAT"
+	fr := execpkg.NewFakeRunner()
+	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
+	// HEAD already sits on the original branch: no deploy branch was checked out.
+	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("main")})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
+	// Deliberately NO checkout canned: a restore must NOT be attempted, and the
+	// delete must NOT depend on the checkout having run.
+
+	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
+	m.originalBranch = "main"
+	m.plan = git.DeploymentPlan{PromotionBranch: branch}
+	m.pendingDeleteCurrent = true
+	m.currentPushed = false
+
+	msg := run(t, m.quitCmd())
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", msg)
+	}
+	if !calledWith(fr, "git", "branch", "-D", "--", branch) {
+		t.Fatalf("a confirmed delete must fire even when restore is skipped (current==original); calls: %v", fr.Calls)
+	}
+	if calledWith(fr, "git", "checkout", "main", "--") {
+		t.Fatalf("no restore checkout should happen when current already equals original; calls: %v", fr.Calls)
+	}
+}
+
+// TestQuitCmd_ConfirmedDelete_NoopWhenStillOnTargetBranch is M-1's negative
+// companion: when the restore could NOT move HEAD off the deploy branch (e.g.
+// the original branch is gone) so current still equals the delete target, the
+// delete is a SAFE no-op — `git branch -D` of the checked-out branch is refused
+// anyway, and we never force a checkout to an invalid branch.
+func TestQuitCmd_ConfirmedDelete_NoopWhenStillOnTargetBranch(t *testing.T) {
+	branch := "deploy/PROJ-1-to-UAT"
+	fr := execpkg.NewFakeRunner()
+	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
+	// Still standing on the deploy branch; the original branch no longer resolves.
+	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(branch)})
+	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 1})
+	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "origin/main"}, execpkg.CommandResult{ExitCode: 1})
+
+	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
+	m.originalBranch = "main"
+	m.plan = git.DeploymentPlan{PromotionBranch: branch}
+	m.pendingDeleteCurrent = true
+	m.currentPushed = true
+
+	msg := run(t, m.quitCmd())
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", msg)
+	}
+	if calledWith(fr, "git", "branch", "-D", "--", branch) {
+		t.Fatalf("must never -D the branch we are still standing on; calls: %v", fr.Calls)
+	}
+	if calledWith(fr, "git", "checkout", "main", "--") {
+		t.Fatalf("must never checkout an original branch that no longer resolves; calls: %v", fr.Calls)
 	}
 }
 
@@ -476,8 +618,8 @@ func TestQuitCmd_DeletesLocalOnly_WhenUnpushed(t *testing.T) {
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(branch)})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
-	fr.When("git", []string{"branch", "-D", branch}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"branch", "-D", "--", branch}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.originalBranch = "main"
@@ -489,10 +631,10 @@ func TestQuitCmd_DeletesLocalOnly_WhenUnpushed(t *testing.T) {
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
 	}
-	if !calledWith(fr, "git", "branch", "-D", branch) {
+	if !calledWith(fr, "git", "branch", "-D", "--", branch) {
 		t.Fatalf("expected local delete; calls: %v", fr.Calls)
 	}
-	if calledWith(fr, "git", "push", "origin", "--delete", branch) {
+	if calledWith(fr, "git", "push", "origin", "--delete", "--", branch) {
 		t.Fatalf("an unpushed branch must never attempt a remote delete; calls: %v", fr.Calls)
 	}
 }
@@ -507,7 +649,7 @@ func TestQuitCmd_NoDeleteWhenPendingDeleteCurrentUnset(t *testing.T) {
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("/repo")})
 	fr.When("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(branch)})
 	fr.When("git", []string{"rev-parse", "--verify", "--quiet", "main"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sha1")})
-	fr.When("git", []string{"checkout", "main"}, execpkg.CommandResult{ExitCode: 0})
+	fr.When("git", []string{"checkout", "main", "--"}, execpkg.CommandResult{ExitCode: 0})
 
 	m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig()})
 	m.originalBranch = "main"
@@ -518,7 +660,7 @@ func TestQuitCmd_NoDeleteWhenPendingDeleteCurrentUnset(t *testing.T) {
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
 	}
-	if calledWith(fr, "git", "branch", "-D", branch) {
+	if calledWith(fr, "git", "branch", "-D", "--", branch) {
 		t.Fatalf("an unconfirmed quit must never delete the branch; calls: %v", fr.Calls)
 	}
 }
