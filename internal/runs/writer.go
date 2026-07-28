@@ -278,6 +278,37 @@ func (w *Writer) MarkPRCreated(runID, prURL string) error {
 	return writeJSON(filepath.Join(dir, "run.json"), rec)
 }
 
+// MarkQuickDeployed records a successful quick deploy (HU-015): it writes the
+// raw `sf project deploy quick` response verbatim as a quick.json companion —
+// mirroring exactly how MarkCanceled persists cancel.json — and sets
+// QuickDeployedAt on run.json to a fresh time.Now(). Unlike MarkCanceled it
+// deliberately does NOT overwrite Status: quick-deploying an already
+// "Succeeded" run must preserve that successful-validation provenance
+// (design.md ADR-4), which re-promote eligibility depends on — mirroring
+// MarkPRCreated's shape of setting only its own additive field. An unknown
+// runID (no run.json, e.g. a run never created via Create) is an explicit
+// error, never a silent no-op.
+func (w *Writer) MarkQuickDeployed(runID string, quickRaw []byte) error {
+	dir := w.runDir(runID)
+
+	rec, err := w.readRecord(dir)
+	if err != nil {
+		return err
+	}
+
+	rec.QuickDeployedAt = time.Now()
+	if err := writeJSON(filepath.Join(dir, "run.json"), rec); err != nil {
+		return err
+	}
+
+	quickPath := filepath.Join(dir, "quick.json")
+	if err := os.WriteFile(quickPath, quickRaw, 0o644); err != nil {
+		return fmt.Errorf("runs: writing %s: %w", quickPath, err)
+	}
+
+	return nil
+}
+
 // readRecord loads run.json from a run's directory. A missing/unreadable
 // run.json (e.g. an unknown runID never created via Create) is an explicit
 // error, never a silent zero Record.

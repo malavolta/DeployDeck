@@ -111,3 +111,43 @@ func TestThreatMatrix_CancelDeploy_JobIDIsOneDiscreteArg(t *testing.T) {
 		}
 	}
 }
+
+// TestThreatMatrix_QuickDeploy_JobIDIsOneDiscreteArg proves the jobId is a
+// single discrete arg after --job-id — even when it carries shell
+// metacharacters, it is passed through untouched (arg-slice, never a shell).
+func TestThreatMatrix_QuickDeploy_JobIDIsOneDiscreteArg(t *testing.T) {
+	// An adversarial jobId that WOULD be dangerous under any shell
+	// interpolation. It must survive as exactly one literal arg.
+	const adversarialJobID = `0Af000; rm -rf / && echo "$(whoami)"`
+
+	fr := exec.NewFakeRunner()
+	fr.When("sf", []string{
+		"project", "deploy", "quick",
+		"--job-id", adversarialJobID,
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0}`)})
+
+	if _, err := salesforce.New(fr).QuickDeploy(context.Background(), adversarialJobID, "UAT_SANDBOX"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fr.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(fr.Calls))
+	}
+	args := fr.Calls[0].Args
+
+	if got := argAfter(args, "--job-id"); got != adversarialJobID {
+		t.Fatalf("jobId must be ONE untouched discrete arg after --job-id; got %q", got)
+	}
+	// The metacharacter-laden jobId must not have been split, dropped, or fused
+	// with the target org: the discrete arg list is exactly the composed form.
+	want := []string{"project", "deploy", "quick", "--job-id", adversarialJobID, "--target-org", "UAT_SANDBOX", "--json"}
+	if len(args) != len(want) {
+		t.Fatalf("expected %d discrete args (jobId not split/interpolated), got %d: %v", len(want), len(args), args)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("arg[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}

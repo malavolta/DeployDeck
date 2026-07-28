@@ -540,6 +540,83 @@ func TestWriter_MarkPRCreated_UnknownRunIDErrors(t *testing.T) {
 	}
 }
 
+// --- HU-015: MarkQuickDeployed -----------------------------------------
+
+// TestWriter_MarkQuickDeployed_WritesQuickJSONKeepsStatusSetsQuickDeployedAt
+// is task 3.1 (RED): MarkQuickDeployed writes the raw quick-deploy response
+// verbatim as a quick.json companion (mirroring MarkCanceled's cancel.json),
+// sets QuickDeployedAt to a fresh time, and — unlike MarkCanceled — does NOT
+// overwrite Status, preserving the "Succeeded" provenance (ADR-4; design.md
+// "MarkQuickDeployed companion-file shape"). Spec: quick-deploy "Opt-In
+// Execution Runs Quick Deploy And Registers The Action".
+func TestWriter_MarkQuickDeployed_WritesQuickJSONKeepsStatusSetsQuickDeployedAt(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{
+		RunID:     "TICKET-15-to-UAT-20260727120000",
+		Ticket:    "TICKET-15",
+		Target:    "UAT",
+		Alias:     "UAT_SANDBOX",
+		JobID:     "0Af000000000015EAA",
+		Status:    "Succeeded",
+		TestLevel: "RunLocalTests",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	dir, err := w.Create(rec, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error creating run: %v", err)
+	}
+
+	quickRaw := []byte(`{"status":0,"result":{"id":"0Af000000000015EAA","status":"Succeeded"}}`)
+	if err := w.MarkQuickDeployed(rec.RunID, quickRaw); err != nil {
+		t.Fatalf("unexpected error on MarkQuickDeployed: %v", err)
+	}
+
+	// quick.json companion holds the raw quick-deploy response verbatim.
+	gotQuick, err := os.ReadFile(filepath.Join(dir, "quick.json"))
+	if err != nil {
+		t.Fatalf("expected quick.json to exist: %v", err)
+	}
+	if string(gotQuick) != string(quickRaw) {
+		t.Fatalf("expected quick.json to hold the raw quick-deploy response verbatim, got %q", gotQuick)
+	}
+
+	// run.json Status is UNCHANGED (still "Succeeded"), QuickDeployedAt is
+	// set, identity fields preserved.
+	runData, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		t.Fatalf("expected run.json to exist: %v", err)
+	}
+	var gotRec runs.Record
+	if err := json.Unmarshal(runData, &gotRec); err != nil {
+		t.Fatalf("run.json is not valid JSON: %v", err)
+	}
+	if gotRec.Status != "Succeeded" {
+		t.Fatalf("expected run.json Status to remain %q (provenance preserved), got %q", "Succeeded", gotRec.Status)
+	}
+	if gotRec.QuickDeployedAt.IsZero() {
+		t.Fatal("expected QuickDeployedAt to be set (non-zero)")
+	}
+	if gotRec.RunID != rec.RunID || gotRec.JobID != rec.JobID || gotRec.Ticket != rec.Ticket {
+		t.Fatalf("expected identifying fields preserved, got %+v", gotRec)
+	}
+}
+
+// TestWriter_MarkQuickDeployed_UnknownRunIDErrors is task 3.2 (RED):
+// MarkQuickDeployed errors on an unknown runID rather than a silent no-op,
+// mirroring MarkCanceled's and MarkPRCreated's unknown-runID behavior.
+func TestWriter_MarkQuickDeployed_UnknownRunIDErrors(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	err := w.MarkQuickDeployed("does-not-exist", []byte(`{}`))
+	if err == nil {
+		t.Fatal("expected an error for an unknown runID, got nil")
+	}
+}
+
 // --- HU-013: additive Record growth + List/Load/Save/Prune -----------------
 
 // mustSave is a small seeding helper for the tests below: it calls Save and

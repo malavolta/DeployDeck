@@ -49,6 +49,15 @@ type Client interface {
 	// both preserve Raw; error handling mirrors ValidateDeploy so the flow
 	// survives a CLI error without crashing.
 	CancelDeploy(ctx context.Context, jobID, targetOrg string) (CancelResult, error)
+	// QuickDeploy runs `sf project deploy quick --job-id <id> --target-org
+	// <alias> --json` (HU-015): it re-runs a prior successful validation's
+	// job as an actual deploy, reusing that job's already-passed test
+	// results within Salesforce's quick-deploy window. jobID is always an
+	// eligible run's own job (never another run's, never user-typed) and is
+	// passed as a discrete slice arg, never shell-interpolated. Success and
+	// failure both preserve Raw; error handling mirrors CancelDeploy so the
+	// flow survives a CLI error without crashing.
+	QuickDeploy(ctx context.Context, jobID, targetOrg string) (QuickDeployResult, error)
 }
 
 // VersionInfo is the parsed `sf --version` output.
