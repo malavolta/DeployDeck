@@ -1,0 +1,82 @@
+# .goreleaser.yaml — DeployDeck release configuration (goreleaser v2 schema)
+#
+# ACTIVATION-GATED: this file is validated in CI (`goreleaser check` +
+# `goreleaser release --snapshot --clean`) on every PR, but REAL publication
+# (pushing to a Homebrew tap / Scoop bucket, or a real `git tag` release) is
+# NOT active yet. See docs/ACTIVATION-CHECKLIST.md for the prerequisites:
+# real module/repo path, homebrew-tap + scoop-bucket auxiliary repositories,
+# a write-scoped token wired as a secret, and the public/private repo
+# decision. Until those exist, `brews:`/`scoops:` below are placeholders and
+# `.github/workflows/release.yml` (triggered by a real `v*` tag) will fail or
+# no-op on the publish step rather than silently succeed.
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: deploydeck
+    main: ./cmd/deploydeck
+    binary: deploydeck
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Keep it simple: build every GOOS x GOARCH combination above, including
+    # windows/arm64. Nothing in DeployDeck's dependency set (Bubble Tea,
+    # Cobra, stdlib) is platform-restricted, so there is no reason to ignore
+    # a cell here.
+    ldflags:
+      - -s -w
+        -X deploydeck/internal/version.Version={{.Version}}
+        -X deploydeck/internal/version.Commit={{.Commit}}
+        -X deploydeck/internal/version.Date={{.Date}}
+
+archives:
+  - id: deploydeck
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+
+# ACTIVATION-GATED: replace <OWNER> below once the homebrew-tap repo exists
+# under the real GitHub org/user (see docs/ACTIVATION-CHECKLIST.md step b).
+# Publishing here requires a write-scoped token (step c) supplied to
+# goreleaser-action as HOMEBREW_TAP_TOKEN in .github/workflows/release.yml.
+# `goreleaser check`/`--snapshot` validate this stanza's shape without
+# pushing anywhere.
+brews:
+  - name: deploydeck
+    repository:
+      owner: "<OWNER>" # PLACEHOLDER — set at activation checklist step (a)/(b)
+      name: homebrew-tap # PLACEHOLDER — repo does not exist yet
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/<OWNER>/deploydeck" # PLACEHOLDER
+    description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
+    license: "MIT" # PLACEHOLDER — confirm actual license at activation
+
+# ACTIVATION-GATED: replace <OWNER> below once the scoop-bucket repo exists.
+# Same token/repo prerequisites as brews above (steps b/c).
+scoops:
+  - name: deploydeck
+    repository:
+      owner: "<OWNER>" # PLACEHOLDER — set at activation checklist step (a)/(b)
+      name: scoop-bucket # PLACEHOLDER — repo does not exist yet
+      token: "{{ .Env.SCOOP_TOKEN }}"
+    homepage: "https://github.com/<OWNER>/deploydeck" # PLACEHOLDER
+    description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
+    license: "MIT" # PLACEHOLDER — confirm actual license at activation

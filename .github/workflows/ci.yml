@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: build / vet / test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race
+        # Real-org e2e tests self-skip: they gate on the DEPLOYDECK_E2E_ORG
+        # env var (unset here), so this step never touches a real Salesforce
+        # org or a real GitHub token.
+
+  goreleaser-check:
+    name: goreleaser check + snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+
+      - name: Validate .goreleaser.yaml
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
+      - name: Snapshot dry-run (no publish)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Assert dist/ artifacts
+        run: |
+          set -euo pipefail
+          echo "Full dist/ tree:"
+          find dist -type f | sort
+
+          test -f dist/checksums.txt || { echo "missing dist/checksums.txt"; exit 1; }
+
+          # macOS (darwin) amd64 + arm64, Linux amd64 + arm64, Windows amd64+arm64 archives.
+          for pattern in \
+            "dist/deploydeck_*darwin*amd64*.tar.gz" \
+            "dist/deploydeck_*darwin*arm64*.tar.gz" \
+            "dist/deploydeck_*linux*amd64*.tar.gz" \
+            "dist/deploydeck_*linux*arm64*.tar.gz" \
+            "dist/deploydeck_*windows*amd64*.zip"; do
+            matches=$(ls $pattern 2>/dev/null | wc -l)
+            if [ "$matches" -lt 1 ]; then
+              echo "expected at least one file matching: $pattern"
+              exit 1
+            fi
+          done
+
+          # Homebrew formula + Scoop manifest are rendered locally by goreleaser
+          # even in --snapshot mode (only the git push to the tap/bucket repo is
+          # skipped). Exact sub-path is goreleaser-version-dependent, so search
+          # recursively rather than pinning a directory.
+          formula=$(find dist -iname 'deploydeck.rb' | head -n1)
+          manifest=$(find dist -iname 'deploydeck.json' | head -n1)
+          if [ -z "$formula" ]; then
+            echo "expected a rendered Homebrew formula (deploydeck.rb) somewhere under dist/"
+            exit 1
+          fi
+          if [ -z "$manifest" ]; then
+            echo "expected a rendered Scoop manifest (deploydeck.json) somewhere under dist/"
+            exit 1
+          fi
+          echo "Found formula: $formula"
+          echo "Found manifest: $manifest"

@@ -1,0 +1,54 @@
+name: Release
+
+# ACTIVATION-GATED: this workflow triggers on a real `v*` tag push. An
+# accidental tag push today would NOT fail closed early — goreleaser builds
+# the binaries, creates a real GitHub Release, and uploads the archives
+# first, and only THEN fails on the brews/scoops publish steps once it hits
+# the placeholder homebrew-tap/scoop-bucket repos (`<OWNER>` in
+# .goreleaser.yaml). That is real, user-visible publication of a release
+# with placeholder metadata, not a safe no-op.
+#
+# The `if:` guard below keeps the release job inert (skipped) until the
+# repository variable `RELEASE_ACTIVATED` is explicitly set to `true`. Do
+# not remove this guard, and do not set the variable, until every step in
+# docs/ACTIVATION-CHECKLIST.md is complete (real module path, homebrew-tap +
+# scoop-bucket repos, write-scoped HOMEBREW_TAP_TOKEN/SCOOP_TOKEN secrets).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: goreleaser release
+    runs-on: ubuntu-latest
+    # Inert until activation: flip the `RELEASE_ACTIVATED` repository
+    # variable to "true" only after completing docs/ACTIVATION-CHECKLIST.md.
+    if: vars.RELEASE_ACTIVATED == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ACTIVATION-GATED PLACEHOLDER secrets — do not exist in this repo
+          # yet. Required only once homebrew-tap/scoop-bucket repos exist
+          # (docs/ACTIVATION-CHECKLIST.md steps b/c). goreleaser's brews/scoops
+          # publish steps will fail without them; that failure is expected
+          # and safe until activation is complete.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SCOOP_TOKEN: ${{ secrets.SCOOP_TOKEN }}

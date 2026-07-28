@@ -4,8 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
+
+// maxResponseBodyBytes bounds how much of the Releases API response Latest
+// will read, so a hostile or huge response cannot exhaust memory.
+const maxResponseBodyBytes = 1 << 20 // 1 MiB
 
 // ownerRepo identifies the GitHub repository whose Releases API is queried
 // for the latest tag. It is a PLACEHOLDER — set at activation checklist
@@ -38,6 +43,10 @@ type releaseResponse struct {
 // (including 401 for a private repository) — callers treat every error
 // identically per update-notification's Silent Skip discipline.
 func (c Checker) Latest(ctx context.Context) (string, error) {
+	if c.HTTPClient == nil {
+		return "", fmt.Errorf("update: no HTTP client configured")
+	}
+
 	url := c.BaseURL + "/repos/" + ownerRepo + "/releases/latest"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -56,7 +65,7 @@ func (c Checker) Latest(ctx context.Context) (string, error) {
 	}
 
 	var rel releaseResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&rel); err != nil {
 		return "", fmt.Errorf("update: decoding response: %w", err)
 	}
 

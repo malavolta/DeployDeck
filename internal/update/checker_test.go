@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +70,41 @@ func TestChecker_Latest_Timeout(t *testing.T) {
 	_, err := c.Latest(ctx)
 	if err == nil {
 		t.Fatal("Latest() expected a non-nil error when the context times out, got nil")
+	}
+}
+
+// TestChecker_Latest_NilHTTPClient proves Latest returns an error instead of
+// panicking when HTTPClient is nil (adversarial review Finding 1: Checker is
+// an exported, injectable type, so a caller can construct it without a
+// client — that must degrade to an error, not crash the caller's goroutine).
+func TestChecker_Latest_NilHTTPClient(t *testing.T) {
+	c := update.Checker{BaseURL: "http://example.invalid", HTTPClient: nil}
+	_, err := c.Latest(context.Background())
+	if err == nil {
+		t.Fatal("Latest() expected a non-nil error when HTTPClient is nil, got nil")
+	}
+}
+
+// TestChecker_Latest_LargeBody proves Latest caps how much of the response
+// body it reads, so a hostile/huge response cannot exhaust memory
+// (adversarial review Finding 2). The handler streams a JSON body whose
+// "padding" field alone is twice the read cap; a decoder reading an
+// unbounded body would still decode "tag_name" successfully (no error),
+// while a capped decoder truncates mid-value and must fail.
+func TestChecker_Latest_LargeBody(t *testing.T) {
+	huge := strings.Repeat("A", 2<<20) // 2 MiB, twice the intended 1 MiB cap
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.3","padding":"`))
+		_, _ = w.Write([]byte(huge))
+		_, _ = w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+
+	c := update.Checker{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	_, err := c.Latest(context.Background())
+	if err == nil {
+		t.Fatal("Latest() expected a non-nil error when the response body exceeds the size cap, got nil")
 	}
 }

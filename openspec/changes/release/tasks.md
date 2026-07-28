@@ -78,10 +78,56 @@ Chain strategy: pending
 
 No local test signal exists for this group (`goreleaser` not installed; no `actionlint`-equivalent). Every task below is verified ONLY by its CI job — do not invent a local goreleaser/actionlint test.
 
-- [ ] 5.1 CI-validated, no local test — Create `.goreleaser.yaml`: builds macOS amd64+arm64/Linux amd64+arm64/Windows amd64; `ldflags: -s -w -X deploydeck/internal/version.Version={{.Version}} -X deploydeck/internal/version.Commit={{.Commit}} -X deploydeck/internal/version.Date={{.Date}}`; archives tar.gz (+zip on Windows); checksums; `brews:`/`scoops:` stanzas with a clearly-commented **PLACEHOLDER** owner/repo, activation-gated. Verification: `goreleaser check` (CI job). → `release-pipeline`: goreleaser Configuration Validity + Injected Version Matches Build ldflags; AC2's "formula/manifest actually updated" marked documented-not-exercised.
-- [ ] 5.2 CI-validated, no local test — Create `.github/workflows/ci.yml`: job 1 (`pull_request`+`push`) `setup-go@1.26`, `go build ./...`, `go vet ./...`, `go test ./... -race`; job 2 runs `goreleaser check` + `goreleaser release --snapshot --clean`, asserting `dist/` contains the macOS/Linux/Windows binaries + Homebrew formula + Scoop manifest, no publish. → `release-pipeline`: CI Build/Vet/Test on Every PR + Snapshot Build Produces Versioned Multi-Platform Artifacts.
-- [ ] 5.3 CI-validated, no local test — Create `.github/workflows/release.yml`: on `push: tags: v*`, checkout + `setup-go` + goreleaser-action, write-token secret **PLACEHOLDER** (activation-gated — will only truly publish once `origin` + aux repos + token exist). → `release-pipeline`: Real Publication Activation Prerequisites (documented, not exercised); AC3 marked documented-not-exercised.
-- [ ] 5.4 CI-validated, no local test — Create root `README.md`: install (`go install .../deploydeck@vX` placeholder path), update-check/banner behavior, `deploydeck --version` usage. → `release-versioning`/`update-notification` doc coverage.
-- [ ] 5.5 CI-validated, no local test — Create `docs/ACTIVATION-CHECKLIST.md`: (a) real module path once `origin` exists; (b) create `homebrew-tap`/`scoop-bucket` repos; (c) provision + wire the write-token secret; (d) public/private repo decision + install-docs impact; (e) cut the first real semver tag. Explicitly flag AC2's "actually updated" clause and all of AC3 as **infra-gated, documented-not-exercised** — never silently marked done. → `release-pipeline`: Real Publication Activation Prerequisites.
-- [ ] 5.6 CI-validated, no local test — Modify `openspec/config.yaml` `testing.ci.scope` addendum reflecting the new `ci.yml` (build/vet/test + goreleaser check/snapshot on every PR; real e2e stays local-only/opt-in, unchanged).
-- [ ] 5.7 Group E verification — CI job only: `ci.yml` build/vet/test + `goreleaser check` + `goreleaser release --snapshot --clean` (asserts `dist/`). No local `go build`/`go vet`/`go test` gate applies beyond what Groups A-D already cover.
+- [x] 5.1 CI-validated, no local test — Create `.goreleaser.yaml`: builds macOS amd64+arm64/Linux amd64+arm64/Windows amd64; `ldflags: -s -w -X deploydeck/internal/version.Version={{.Version}} -X deploydeck/internal/version.Commit={{.Commit}} -X deploydeck/internal/version.Date={{.Date}}`; archives tar.gz (+zip on Windows); checksums; `brews:`/`scoops:` stanzas with a clearly-commented **PLACEHOLDER** owner/repo, activation-gated. Verification: `goreleaser check` (CI job). → `release-pipeline`: goreleaser Configuration Validity + Injected Version Matches Build ldflags; AC2's "formula/manifest actually updated" marked documented-not-exercised.
+- [x] 5.2 CI-validated, no local test — Create `.github/workflows/ci.yml`: job 1 (`pull_request`+`push`) `setup-go@1.26`, `go build ./...`, `go vet ./...`, `go test ./... -race`; job 2 runs `goreleaser check` + `goreleaser release --snapshot --clean`, asserting `dist/` contains the macOS/Linux/Windows binaries + Homebrew formula + Scoop manifest, no publish. → `release-pipeline`: CI Build/Vet/Test on Every PR + Snapshot Build Produces Versioned Multi-Platform Artifacts.
+- [x] 5.3 CI-validated, no local test — Create `.github/workflows/release.yml`: on `push: tags: v*`, checkout + `setup-go` + goreleaser-action, write-token secret **PLACEHOLDER** (activation-gated — will only truly publish once `origin` + aux repos + token exist). → `release-pipeline`: Real Publication Activation Prerequisites (documented, not exercised); AC3 marked documented-not-exercised.
+- [x] 5.4 CI-validated, no local test — Create root `README.md`: install (`go install .../deploydeck@vX` placeholder path), update-check/banner behavior, `deploydeck --version` usage. → `release-versioning`/`update-notification` doc coverage.
+- [x] 5.5 CI-validated, no local test — Create `docs/ACTIVATION-CHECKLIST.md`: (a) real module path once `origin` exists; (b) create `homebrew-tap`/`scoop-bucket` repos; (c) provision + wire the write-token secret; (d) public/private repo decision + install-docs impact; (e) cut the first real semver tag. Explicitly flag AC2's "actually updated" clause and all of AC3 as **infra-gated, documented-not-exercised** — never silently marked done. → `release-pipeline`: Real Publication Activation Prerequisites.
+- [x] 5.6 CI-validated, no local test — Modify `openspec/config.yaml` `testing.ci.scope` addendum reflecting the new `ci.yml` (build/vet/test + goreleaser check/snapshot on every PR; real e2e stays local-only/opt-in, unchanged).
+- [x] 5.7 Group E verification — CI job only: `ci.yml` build/vet/test + `goreleaser check` + `goreleaser release --snapshot --clean` (asserts `dist/`). No local `go build`/`go vet`/`go test` gate applies beyond what Groups A-D already cover.
+
+## Review Remediations (adversarial)
+
+Strict TDD (RED→GREEN, confirmed right-reason failure) for F1-F2; YAML-only
+hardening for F3-F4 (no local Go test — validated by parsing + manual read).
+Full suite (`go build ./... && go vet ./... && go test ./... -race -count=1`)
+stayed green throughout; `internal/app` untouched,
+`TestApp_NeverImportsExecSeam` still passes.
+
+- [x] F1 [LOW code] `internal/update/checker.go` — `Checker.HTTPClient` nil
+  panicked the calling goroutine instead of degrading to an error.
+  RED: `TestChecker_Latest_NilHTTPClient` (`internal/update/checker_test.go`)
+  reproduced `panic: runtime error: invalid memory address or nil pointer
+  dereference` at `checker.go:48` (`c.HTTPClient.Do(req)`), confirmed
+  right-reason before the fix. GREEN: added a nil-`HTTPClient` guard at the
+  top of `Latest` returning `fmt.Errorf("update: no HTTP client
+  configured")`.
+- [x] F2 [LOW code] `internal/update/checker.go` — response body decode was
+  unbounded, allowing a hostile/huge body to exhaust memory.
+  RED: `TestChecker_Latest_LargeBody` streamed a JSON body whose padding
+  field alone is 2 MiB; before the fix `Latest` decoded it fully with no
+  error (confirmed the vulnerability, not just a assertion typo). GREEN:
+  wrapped the decoder in `io.LimitReader(resp.Body, maxResponseBodyBytes)`
+  with `maxResponseBodyBytes = 1 << 20` (1 MiB); the truncated body now fails
+  to decode and `Latest` returns an error. Existing
+  `TestChecker_Latest_Success`/`_NonOK`/`_Timeout` stayed green (small bodies
+  decode fine under the cap).
+- [x] F3 [MED config] `.github/workflows/ci.yml` (2 occurrences) and
+  `.github/workflows/release.yml` (1 occurrence) — `goreleaser-action`
+  `version: latest` was non-reproducible/future-fragile. Changed to
+  `version: "~> v2"` in both files (tracks the v2 line, not bleeding edge).
+  No local test; YAML re-parsed successfully after the edit
+  (`ruby -ryaml -e "YAML.load_file(...)"`). CI-validated only.
+- [x] F4 [LOW config] `.github/workflows/release.yml` — an accidental `v*`
+  tag push would publish real GitHub-release binaries (with the placeholder
+  `<OWNER>` in `.goreleaser.yaml`) before failing on the missing
+  homebrew-tap/scoop-bucket repos, contradicting the prior header comment's
+  implied fail-closed framing. (a) Rewrote the header comment to state
+  accurately that goreleaser builds/uploads real release artifacts first and
+  only fails later on the brews/scoops publish steps. (b) Added
+  `if: vars.RELEASE_ACTIVATED == 'true'` on the `release` job, commented and
+  pointing at `docs/ACTIVATION-CHECKLIST.md`, so the workflow stays inert
+  until that repository variable is explicitly flipped at activation. YAML
+  re-parsed successfully after the edit. The `vars.*` gating semantics are
+  GitHub-Actions-runtime only and were NOT exercised by any real workflow
+  run — this is a documented, not locally-verifiable, control.

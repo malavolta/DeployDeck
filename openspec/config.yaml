@@ -40,8 +40,8 @@ testing:
       available: false
       command: "gofmt -l . && go vet ./..."
   ci:
-    scope: "unit + local-integration tests run on every PR"
-    excluded: "real Salesforce e2e stays local-only (DEPLOYDECK_E2E_ORG opt-in); would need JWT auth to ever run in CI (see HU-019)"
+    scope: "unit + local-integration tests run on every PR (.github/workflows/ci.yml: go build ./..., go vet ./..., go test ./... -race); a second job validates the release configuration (goreleaser check + goreleaser release --snapshot --clean), asserting dist/ contains the macOS/Linux/Windows binaries, checksums.txt, a rendered Homebrew formula, and a rendered Scoop manifest, without publishing (HU-019)"
+    excluded: "real Salesforce e2e stays local-only (DEPLOYDECK_E2E_ORG opt-in); would need JWT auth to ever run in CI (see HU-019). Real release publication (.github/workflows/release.yml, triggered by a v* tag) is infra-gated per docs/ACTIVATION-CHECKLIST.md and never runs as part of PR CI"
 
 rules:
   proposal:
