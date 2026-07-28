@@ -101,3 +101,15 @@ func environmentKeyForBranch(cfg config.Config, branch string) (string, bool) {
 	}
 	return "", false
 }
+
+// IsProductionTarget reports whether target is a production destination,
+// FAIL-CLOSED (HU-015 quick-deploy spec: "Production Target Blocked Without
+// Explicit Configuration", BLOCKER correction). It is true when EITHER the
+// configured "production" environment key maps to target, OR target is the
+// literal ProductionBranchName ("main") per IsProductionBranch — the second
+// arm guarantees a repo with no "production" key configured at all still
+// blocks the literal main branch, rather than silently treating it as safe.
+func IsProductionTarget(cfg config.Config, target string) bool {
+	env, ok := environmentKeyForBranch(cfg, target)
+	return (ok && env == "production") || IsProductionBranch(target)
+}

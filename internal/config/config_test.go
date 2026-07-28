@@ -133,3 +133,50 @@ delta:
 		})
 	}
 }
+
+// TestLoad_QuickDeploySection_DefaultsToBothFalseWhenOmitted is task 1.8
+// (RED, mirrors TestLoad_PollSecondsAndDeltaOutputDir_DefaultsWhenOmitted):
+// a deploydeck.yaml with no quickDeploy: section loads with both
+// AllowExecution and AllowProduction false — the zero value IS the safe
+// default, no applyDefaults entry needed (quick-deploy spec: "Suggest-Only
+// By Default", config zero-value contract).
+func TestLoad_QuickDeploySection_DefaultsToBothFalseWhenOmitted(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, `
+branches:
+  integration: INT
+`)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if cfg.QuickDeploy != (config.QuickDeployConfig{}) {
+		t.Errorf("QuickDeploy = %+v, want zero value (both false)", cfg.QuickDeploy)
+	}
+}
+
+// TestLoad_QuickDeploySection_RoundTripsWhenExplicit proves an explicit
+// quickDeploy section round-trips through Load exactly as configured.
+func TestLoad_QuickDeploySection_RoundTripsWhenExplicit(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, `
+branches:
+  integration: INT
+
+quickDeploy:
+  allowExecution: true
+  allowProduction: true
+`)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	want := config.QuickDeployConfig{AllowExecution: true, AllowProduction: true}
+	if cfg.QuickDeploy != want {
+		t.Errorf("QuickDeploy = %+v, want %+v", cfg.QuickDeploy, want)
+	}
+}

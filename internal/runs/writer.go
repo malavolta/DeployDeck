@@ -71,6 +71,23 @@ type Record struct {
 	// SourceRunID existed still Load()s cleanly with it zero-valued. NO
 	// SchemaVersion bump accompanies this growth either.
 	SourceRunID string `json:"sourceRunId,omitempty"`
+
+	// TestLevel is HU-015's additive growth field: the deploy test level
+	// used for this run's validation, set from the deployment plan's
+	// TestLevel at run-creation time. `omitempty`, like every other growth
+	// field this package has added — a run.json written before TestLevel
+	// existed still Load()s cleanly with it zero-valued. NO SchemaVersion
+	// bump accompanies this growth either. Feeds runs.QuickDeployEligible's
+	// required-tests-ran predicate.
+	TestLevel string `json:"testLevel,omitempty"`
+
+	// QuickDeployedAt is HU-015's additive growth field: set by
+	// MarkQuickDeployed once a quick deploy has been executed for this run,
+	// used as the double-deploy guard in QuickDeployEligible (a zero value
+	// means "never quick-deployed"). `omitempty`, like every other growth
+	// field this package has added. NO SchemaVersion bump accompanies this
+	// growth either.
+	QuickDeployedAt time.Time `json:"quickDeployedAt,omitempty"`
 }
 
 // Writer persists run records under baseDir/.deploydeck/runs/. baseDir is

@@ -464,6 +464,69 @@ func TestWriter_MarkPRCreated_PersistsPRUrl(t *testing.T) {
 	}
 }
 
+// --- HU-015: additive TestLevel + QuickDeployedAt ---------------------------
+
+// TestRecord_TestLevelAndQuickDeployedAt_RoundTripThroughWriteReload is task
+// 1.1 (RED): a record with TestLevel and QuickDeployedAt set round-trips
+// unchanged through Save then Load (run-persistence spec: "TestLevel
+// round-trips through a full write/reload").
+func TestRecord_TestLevelAndQuickDeployedAt_RoundTripThroughWriteReload(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	fixedTime := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	rec := runs.Record{RunID: "run-quickdeploy", TestLevel: "RunLocalTests", QuickDeployedAt: fixedTime}
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := w.Load(rec.RunID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.TestLevel != rec.TestLevel {
+		t.Fatalf("expected TestLevel to round-trip as %q, got %q", rec.TestLevel, got.TestLevel)
+	}
+	if !got.QuickDeployedAt.Equal(rec.QuickDeployedAt) {
+		t.Fatalf("expected QuickDeployedAt to round-trip as %v, got %v", rec.QuickDeployedAt, got.QuickDeployedAt)
+	}
+}
+
+// TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroTestLevelAndQuickDeployedAt
+// is task 1.2 (RED): a run.json written before TestLevel/QuickDeployedAt
+// existed still Loads cleanly with both zero-valued, and with NO
+// SchemaVersion bump (run-persistence spec: "Prior-slice run.json still
+// loads without TestLevel"; quick-deploy spec: "Old run.json without
+// TestLevel fails safe").
+func TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroTestLevelAndQuickDeployedAt(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	runID := "TICKET-12-to-UAT-20260101000000"
+	dir := filepath.Join(base, ".deploydeck", "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seeding run dir: %v", err)
+	}
+	oldShape := `{"schemaVersion":1,"runId":"TICKET-12-to-UAT-20260101000000","ticket":"TICKET-12","target":"UAT","status":"Succeeded"}`
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(oldShape), 0o644); err != nil {
+		t.Fatalf("seeding old-shape run.json: %v", err)
+	}
+
+	rec, err := w.Load(runID)
+	if err != nil {
+		t.Fatalf("an old-shape run.json should still Load cleanly: %v", err)
+	}
+	if rec.SchemaVersion != runs.SchemaVersion1 {
+		t.Fatalf("expected SchemaVersion unchanged at %d, got %d", runs.SchemaVersion1, rec.SchemaVersion)
+	}
+	if rec.TestLevel != "" {
+		t.Fatalf("expected TestLevel zero-valued on an old-shape record, got %q", rec.TestLevel)
+	}
+	if !rec.QuickDeployedAt.IsZero() {
+		t.Fatalf("expected QuickDeployedAt zero-valued on an old-shape record, got %v", rec.QuickDeployedAt)
+	}
+}
+
 // TestWriter_MarkPRCreated_UnknownRunIDErrors is task 3.3 (RED):
 // MarkPRCreated errors on an unknown runID rather than a silent no-op,
 // mirroring MarkCanceled's own unknown-runID behavior.

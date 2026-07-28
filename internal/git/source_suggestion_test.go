@@ -132,6 +132,55 @@ func TestNextEnvironmentBranch_TableDriven(t *testing.T) {
 	}
 }
 
+// TestIsProductionTarget_FailClosed_TableDriven is task 1.6 (RED):
+// IsProductionTarget must be FAIL-CLOSED — even a config with NO
+// "production" mapping at all must still treat the literal "main" branch as
+// production, via the git.IsProductionBranch OR-condition (quick-deploy
+// spec: "Production Target Blocked Without Explicit Configuration",
+// BLOCKER correction 1).
+func TestIsProductionTarget_FailClosed_TableDriven(t *testing.T) {
+	tests := []struct {
+		name   string
+		cfg    config.Config
+		target string
+		want   bool
+	}{
+		{
+			name:   "no production key configured at all: literal main still fail-closed to production",
+			cfg:    config.Config{},
+			target: "main",
+			want:   true,
+		},
+		{
+			name:   "configured production env-key matches the target branch",
+			cfg:    config.Config{Branches: map[string]string{"production": "RELEASE"}},
+			target: "RELEASE",
+			want:   true,
+		},
+		{
+			name:   "literal main is production even when the configured production branch is different (OR-condition)",
+			cfg:    config.Config{Branches: map[string]string{"production": "RELEASE"}},
+			target: "main",
+			want:   true,
+		},
+		{
+			name:   "a non-prod target with no production mapping is not production",
+			cfg:    config.Config{Branches: map[string]string{"production": "RELEASE"}},
+			target: "UAT",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := git.IsProductionTarget(tt.cfg, tt.target)
+			if got != tt.want {
+				t.Fatalf("IsProductionTarget(%+v, %q) = %v, want %v", tt.cfg, tt.target, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestSuggestDefaultSource_OverrideStillEnforcesSingleSource proves the
 // RF-002 suggestion never bypasses single-source enforcement: the user can
 // override it with any other candidate, and SelectSingleSource still

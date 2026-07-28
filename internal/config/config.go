@@ -65,6 +65,19 @@ type DeltaConfig struct {
 	IgnoreDestructiveFile string   `yaml:"ignoreDestructiveFile"`
 }
 
+// QuickDeployConfig gates HU-015's opt-in Salesforce quick deploy
+// execution. Both fields default to false (the zero value) — suggest-only
+// and production-blocked — which is already the safe default, so Load
+// applies no defaulting entry for this section (design.md ADR-3).
+type QuickDeployConfig struct {
+	// AllowExecution enables quick deploy EXECUTION at all; false (default)
+	// means DeployDeck only ever displays the suggested command.
+	AllowExecution bool `yaml:"allowExecution"`
+	// AllowProduction permits quick deploy execution against a production
+	// target; false (default) blocks it regardless of AllowExecution.
+	AllowProduction bool `yaml:"allowProduction"`
+}
+
 // Config is the parsed, defaulted deploydeck.yaml.
 type Config struct {
 	// Branches maps a logical environment name (e.g. "integration", "uat",
@@ -100,4 +113,8 @@ type Config struct {
 	// DefaultPollTimeoutSeconds for the values applied when omitted.
 	PollIntervalSeconds int `yaml:"pollIntervalSeconds"`
 	PollTimeoutSeconds  int `yaml:"pollTimeoutSeconds"`
+
+	// QuickDeploy gates HU-015's opt-in Salesforce quick deploy execution.
+	// Both fields zero-value-safe (false); see QuickDeployConfig.
+	QuickDeploy QuickDeployConfig `yaml:"quickDeploy"`
 }
