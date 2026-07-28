@@ -22,3 +22,7 @@ coverage.html
 # OS/editor cruft
 .DS_Store
 *.swp
+
+# Local code-intelligence / tooling indexes (not part of the repo)
+.codegraph/
+.atl/
