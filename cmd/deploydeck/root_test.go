@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"deploydeck/internal/git"
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/salesforce"
+	"deploydeck/internal/version"
 )
 
 // TestNewRootCmd_NoSubcommand_LaunchesTUI proves that running `deploydeck`
@@ -74,6 +77,47 @@ func TestNewRootCmd_RegistersDoctorSubcommand(t *testing.T) {
 	}
 	if doctorCmd.Name() != "doctor" {
 		t.Fatalf("expected doctor subcommand name %q, got %q", "doctor", doctorCmd.Name())
+	}
+}
+
+// TestNewRootCmd_Version_Default proves that with no ldflags injection
+// (internal/version.Version at its "dev" default), `deploydeck --version`
+// reports "dev" instead of Cobra's default inert output (release-versioning:
+// CLI Version Exposure).
+func TestNewRootCmd_Version_Default(t *testing.T) {
+	var buf bytes.Buffer
+	cmd := newRootCmd(Deps{})
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"--version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--version should exit cleanly, got: %v", err)
+	}
+	if !strings.Contains(buf.String(), "dev") {
+		t.Fatalf("--version output = %q, want it to contain %q", buf.String(), "dev")
+	}
+}
+
+// TestNewRootCmd_Version_Injected proves that root.Version reads
+// internal/version.String() at construction time: setting Version before
+// newRootCmd is called flows through to `deploydeck --version` output. This
+// mutates the package-level version.Version global, so it must not run with
+// t.Parallel.
+func TestNewRootCmd_Version_Injected(t *testing.T) {
+	orig := version.Version
+	defer func() { version.Version = orig }()
+	version.Version = "9.9.9"
+
+	var buf bytes.Buffer
+	cmd := newRootCmd(Deps{})
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"--version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--version should exit cleanly, got: %v", err)
+	}
+	if !strings.Contains(buf.String(), "9.9.9") {
+		t.Fatalf("--version output = %q, want it to contain %q", buf.String(), "9.9.9")
 	}
 }
 

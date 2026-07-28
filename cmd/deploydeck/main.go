@@ -25,6 +25,7 @@ import (
 	"deploydeck/internal/prereq"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
+	"deploydeck/internal/version"
 )
 
 // Deps carries the constructed application dependencies injected into the
@@ -62,6 +63,8 @@ func newRootCmd(deps Deps) *cobra.Command {
 
 	root.AddCommand(newDoctorCmd(deps))
 	root.AddCommand(newRunsCmd())
+
+	root.Version = version.String()
 
 	return root
 }
