@@ -14,10 +14,27 @@ import (
 	"deploydeck/internal/salesforce"
 )
 
-// View renders the current screen. Each branch mirrors a pane in
+// View renders the update-notice banner (HU-019) followed by the current
+// screen (design's data flow: "View() = m.updateBanner() + m.viewBody()").
+func (m Model) View() string {
+	return m.updateBanner() + m.viewBody()
+}
+
+// updateBanner returns the HU-019 non-blocking notice line when a newer
+// DeployDeck release was found (m.updateAvailable, set only by
+// onUpdateCheckDone's hasUpdate branch), or "" otherwise — so every
+// pre-existing View() output is unchanged by default.
+func (m Model) updateBanner() string {
+	if !m.updateAvailable {
+		return ""
+	}
+	return fmt.Sprintf("A newer DeployDeck (%s) is available\n", m.updateLatest)
+}
+
+// viewBody renders the current screen. Each branch mirrors a pane in
 // docs/MOCKUPS_TUI.md; the scope edge is PickVerification (no
 // delta/validation/push screens in this slice).
-func (m Model) View() string {
+func (m Model) viewBody() string {
 	switch m.state {
 	case StatePrereqCheck:
 		return m.viewPrereq()

@@ -40,12 +40,27 @@ const pollInterval = 750 * time.Millisecond
 // to the normal flow (the offer is a best-effort courtesy, never a gate).
 const resumeDetectTimeout = 5 * time.Second
 
+// updateCheckTimeout bounds the HU-019 startup update-availability check
+// (design ADR-3: "3s context.WithTimeout bounds it"). Bubble Tea's goroutine
+// Cmd already makes the check non-blocking; this bounds how long the check
+// itself may run before the courtesy notice is skipped.
+const updateCheckTimeout = 3 * time.Second
+
 // --- Messages ---
 
 // prereqDoneMsg carries the HU-001 prereq report (or an error).
 type prereqDoneMsg struct {
 	checks []prereq.PrereqCheck
 	err    error
+}
+
+// updateCheckDoneMsg carries the HU-019 update-availability check result (or
+// an error). onUpdateCheckDone treats err!=nil and hasUpdate==false
+// identically — a silent skip (design ADR-3).
+type updateCheckDoneMsg struct {
+	hasUpdate bool
+	latest    string
+	err       error
 }
 
 // discoverDoneMsg carries the assembled HU-002 discovery result and the
@@ -364,6 +379,24 @@ func shouldRestore(inProgress bool, original, current string, exists bool) bool 
 }
 
 // --- Command constructors (every one routes through a service) ---
+
+// checkUpdateCmd runs the HU-019 update-availability check via the injected
+// scalar Deps.CheckUpdate. nil disables the check (same nil-degrades
+// convention as runPrereqCmd's NewChecker). The 3s updateCheckTimeout bounds
+// the call (design ADR-3); Bubble Tea's own goroutine Cmd already makes this
+// non-blocking relative to startup.
+func (m Model) checkUpdateCmd() tea.Cmd {
+	checkUpdate := m.deps.CheckUpdate
+	if checkUpdate == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
+		defer cancel()
+		hasUpdate, latest, err := checkUpdate(ctx)
+		return updateCheckDoneMsg{hasUpdate: hasUpdate, latest: latest, err: err}
+	}
+}
 
 // runPrereqCmd runs the HU-001 checker. When no checker is injected (tests
 // starting past prereqs) it is a no-op and the caller drives prereqDoneMsg.

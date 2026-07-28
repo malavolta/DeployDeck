@@ -30,6 +30,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prereqDoneMsg:
 		return m.onPrereqDone(msg)
+	case updateCheckDoneMsg:
+		return m.onUpdateCheckDone(msg)
 	case resumeDetectMsg:
 		return m.onResumeDetect(msg)
 	case originalBranchMsg:
@@ -118,6 +120,20 @@ func (m Model) onPrereqDone(msg prereqDoneMsg) (tea.Model, tea.Cmd) {
 	// ticket input for callers without those deps (e.g. unit tests).
 	m.state = StateTicketInput
 	return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())
+}
+
+// onUpdateCheckDone lands the HU-019 update-availability result (design
+// ADR-3: silent skip on any failure). A check error and "no newer version"
+// are treated identically — a plain no-op — so startup is never gated or
+// nagged; only a genuine newer release records the notice fields
+// View()'s updateBanner() reads.
+func (m Model) onUpdateCheckDone(msg updateCheckDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil || !msg.hasUpdate {
+		return m, nil
+	}
+	m.updateAvailable = true
+	m.updateLatest = msg.latest
+	return m, nil
 }
 
 // onOriginalBranch lands the HU-017 startup branch capture. A capture error

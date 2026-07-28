@@ -241,6 +241,14 @@ type Deps struct {
 	// editor/mergetool over path (built by main via tea.ExecProcess, which
 	// may import os/exec — app itself must not). nil disables the handoff.
 	Edit func(path string) tea.Cmd
+	// CheckUpdate reports whether a newer DeployDeck release exists (HU-019).
+	// It is a SCALAR seam (stdlib types only, ADR-2): main composes the real
+	// internal/update.Checker + internal/version.Version comparison behind
+	// this func so internal/app never imports net/http or those leaves
+	// directly (import-cycle discipline, boundary_test.go). nil disables the
+	// startup update check entirely (same nil-degrades convention as
+	// NewChecker/Delta/Runs/Edit above).
+	CheckUpdate func(ctx context.Context) (hasUpdate bool, latest string, err error)
 }
 
 // Model is the Bubble Tea model. It holds the current State, the cumulative
@@ -421,6 +429,14 @@ type Model struct {
 	// running and the persisted run resumable.
 	pollCtx    context.Context
 	pollCancel context.CancelFunc
+
+	// UpdateNotice (HU-019): updateAvailable/updateLatest are set by
+	// onUpdateCheckDone only when the check succeeds AND finds a newer
+	// release (ADR-3 silent skip on any other outcome). View()'s
+	// updateBanner() reads them; both stay zero-value ("" / false) whenever
+	// Deps.CheckUpdate is nil or the check fails/finds nothing newer.
+	updateAvailable bool
+	updateLatest    string
 }
 
 // New builds the initial Model in StatePrereqCheck.
@@ -448,9 +464,12 @@ func (m Model) DeltaAllowed() bool {
 	return git.DeltaAndValidationAllowed(m.repoState, m.aborted)
 }
 
-// Init kicks off the prereq check.
+// Init kicks off the prereq check and, concurrently, the HU-019
+// update-availability check (design's data flow: "Init() = tea.Batch(
+// runPrereqCmd(), checkUpdateCmd())"). tea.Batch drops nil cmds, so a nil
+// Deps.CheckUpdate degrades to the pre-existing prereq-only startup.
 func (m Model) Init() tea.Cmd {
-	return m.runPrereqCmd()
+	return tea.Batch(m.runPrereqCmd(), m.checkUpdateCmd())
 }
 
 // ctx returns the context used for service calls. A short-lived TUI uses the
