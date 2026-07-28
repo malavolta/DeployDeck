@@ -39,22 +39,22 @@ Chain strategy: pending
 
 Files: `internal/git/service_cleanup.go` (new), `internal/git/deploy_branches_test.go` (new, pure), `internal/git/service_cleanup_e2e_test.go` (new, real-git, `-short`-skip).
 
-- [ ] 1.1 RED `service_cleanup_e2e_test.go`: `TestService_CurrentBranch_ReturnsCheckedOutBranch` + `_DetachedReturnsHEAD` (checkout by SHA). AC: restore no-op on detached.
-- [ ] 1.2 GREEN: implement `CurrentBranch` (`rev-parse --abbrev-ref HEAD`).
-- [ ] 1.3 RED: `TestService_Checkout_SwitchesToExistingBranch` + `_UnknownBranchErrors` (plain checkout, no `-b`).
-- [ ] 1.4 GREEN: implement `Checkout`.
-- [ ] 1.5 RED: `TestService_DeleteLocalBranch_RemovesBranch` (`branch -D`; verify gone via `rev-parse --verify`).
-- [ ] 1.6 GREEN: implement `DeleteLocalBranch`.
-- [ ] 1.7 RED (bare remote): `TestService_DeleteRemoteBranch_RemovesOriginRef` (`push origin --delete`; verify via `ls-remote`).
-- [ ] 1.8 GREEN: implement `DeleteRemoteBranch`.
-- [ ] 1.9 RED: `TestService_UnpushedCommitCount_WithUpstream` (`rev-list origin/<b>..<b> --count`) + `_NoUpstream` (`rev-list --count <b> --not --remotes=origin`).
-- [ ] 1.10 GREEN: implement `UnpushedCommitCount` two-form selection, exact rev-list forms per design.
-- [ ] 1.11 RED: `TestService_IsMergedInto_TrueForAncestor` / `_FalseForDivergent` (`merge-base --is-ancestor`, exit-code-as-data mirroring `revParseVerify`).
-- [ ] 1.12 GREEN: implement `IsMergedInto`.
-- [ ] 1.13 RED (pure, `deploy_branches_test.go`): `TestParseDeployBranches_StripsOriginAndSetsPushed` table-driven — strips `origin/`, `Pushed` via head/remote correlation, `LastCommit` from `committerdate:iso-strict`.
-- [ ] 1.14 GREEN: pure `parseDeployBranches([]byte) []DeployBranch` + `DeployBranch{Name,LastCommit,Pushed}` struct.
-- [ ] 1.15 RED: `TestService_ListDeployBranches_SinglePassWithAgeAndPushStatus` (seed local-only + pushed `deploy/*`, differing dates).
-- [ ] 1.16 GREEN: implement `ListDeployBranches` — ONE `for-each-ref --format='%(refname:short)|%(committerdate:iso-strict)' refs/heads/deploy/* refs/remotes/origin/deploy/*` + `parseDeployBranches`.
+- [x] 1.1 RED `service_cleanup_e2e_test.go`: `TestService_CurrentBranch_ReturnsCheckedOutBranch` + `_DetachedReturnsHEAD` (checkout by SHA). AC: restore no-op on detached.
+- [x] 1.2 GREEN: implement `CurrentBranch` (`rev-parse --abbrev-ref HEAD`).
+- [x] 1.3 RED: `TestService_Checkout_SwitchesToExistingBranch` + `_UnknownBranchErrors` (plain checkout, no `-b`).
+- [x] 1.4 GREEN: implement `Checkout`.
+- [x] 1.5 RED: `TestService_DeleteLocalBranch_RemovesBranch` (`branch -D`; verify gone via `rev-parse --verify`).
+- [x] 1.6 GREEN: implement `DeleteLocalBranch`.
+- [x] 1.7 RED (bare remote): `TestService_DeleteRemoteBranch_RemovesOriginRef` (`push origin --delete`; verify via `ls-remote`).
+- [x] 1.8 GREEN: implement `DeleteRemoteBranch`.
+- [x] 1.9 RED: `TestService_UnpushedCommitCount_WithUpstream` (`rev-list origin/<b>..<b> --count`) + `_NoUpstream` (`rev-list --count <b> --not --remotes=origin`).
+- [x] 1.10 GREEN: implement `UnpushedCommitCount` two-form selection, exact rev-list forms per design.
+- [x] 1.11 RED: `TestService_IsMergedInto_TrueForAncestor` / `_FalseForDivergent` (`merge-base --is-ancestor`, exit-code-as-data mirroring `revParseVerify`).
+- [x] 1.12 GREEN: implement `IsMergedInto`.
+- [x] 1.13 RED (pure, `deploy_branches_test.go`): `TestParseDeployBranches_StripsOriginAndSetsPushed` table-driven — strips `origin/`, `Pushed` via head/remote correlation, `LastCommit` from `committerdate:iso-strict`.
+- [x] 1.14 GREEN: pure `parseDeployBranches([]byte) []DeployBranch` + `DeployBranch{Name,LastCommit,Pushed}` struct.
+- [x] 1.15 RED: `TestService_ListDeployBranches_SinglePassWithAgeAndPushStatus` (seed local-only + pushed `deploy/*`, differing dates).
+- [x] 1.16 GREEN: implement `ListDeployBranches` — ONE `for-each-ref --format='%(refname:short)|%(committerdate:iso-strict)' refs/heads/deploy/* refs/remotes/origin/deploy/*` + `parseDeployBranches`.
 
 Group gate: `go build ./... && go vet ./... && go test ./internal/git/... -short`; confirm `TestApp_NeverImportsExecSeam` unaffected (no `internal/app` change yet).
 
