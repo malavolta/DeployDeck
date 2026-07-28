@@ -45,7 +45,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyPushPreparation(msg)
 	case StateAborted, StateError, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 	}
 	return m, nil
@@ -66,7 +66,7 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = StatePushPreparation
 		return m, nil
 	case "q", "enter", "esc":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -88,7 +88,7 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pushPhase = pushPushing
 			return m, m.pushCmd()
 		case "q", "esc":
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 	case pushReady:
 		switch msg.String() {
@@ -103,7 +103,7 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "q", "esc":
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 	case pushPRConfirm:
 		switch msg.String() {
@@ -115,13 +115,13 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pushPhase = pushReady
 			return m, nil
 		case "q":
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 	case pushPushing, pushPRCreating:
 		// A side effect is in flight: ignore everything but quit so a second
 		// push / PR can never be triggered while one is outstanding.
 		if msg.String() == "q" {
-			return m, tea.Quit
+			return m, m.quitCmd()
 		}
 	}
 	return m, nil
@@ -142,7 +142,7 @@ func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = StateTicketInput
 		return m, nil
 	case "q":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -303,7 +303,7 @@ func (m Model) keyConflict(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "q":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -331,7 +331,7 @@ func (m Model) keyVerification(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = StateDeltaGeneration
 		return m, m.deltaCmd()
 	case "q":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	case "e":
 		// Edit selection: PickVerification -> CommitSelection (partial
 		// promotion, per the state diagram).
@@ -356,7 +356,7 @@ func (m Model) keyDeltaGeneration(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = StateCommitSelection
 		return m, nil
 	case "q":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -381,7 +381,7 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = StateCommitSelection
 		return m, nil
 	case "q":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -432,7 +432,7 @@ func (m Model) keyValidationStart(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "q":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -470,7 +470,7 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Exit WITHOUT cancelling the Salesforce job: only tear down the local
 		// read-only report subprocess via the session context.
 		m.cancelPoll()
-		return m, tea.Quit
+		return m, m.quitCmd()
 	}
 	return m, nil
 }

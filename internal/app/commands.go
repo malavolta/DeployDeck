@@ -156,6 +156,14 @@ type queueDoneMsg struct {
 	err      error
 }
 
+// originalBranchMsg carries the HU-017 startup branch capture (or an error,
+// which onOriginalBranch treats as a best-effort no-op — quitCmd's
+// shouldRestore guard already skips restore on an empty originalBranch).
+type originalBranchMsg struct {
+	branch string
+	err    error
+}
+
 // resumeDetectMsg is the HU-013 startup resume-detection result: the live
 // RepoState (repo is the source of truth) plus the persisted run list, or an
 // error. onResumeDetect reconciles stale conflict records against state, then
@@ -205,6 +213,27 @@ type prCreatedMsg struct {
 	url string
 	raw string
 	err error
+}
+
+// shouldRestore is the pure HU-017 restore-on-quit guard (design.md "Quit-
+// restore mechanism + guards"). Restore is skipped (returns false) when:
+// inProgress (git REFUSES checkout with unmerged paths — this is the
+// rationale, NOT a resume-detection need; CHERRY_PICK_HEAD lives in .git/
+// and is worktree-scoped, so it survives regardless of which branch is
+// checked out, keeping HU-013 resume-detection intact), original is
+// empty/detached ("HEAD"), original already equals current, or original no
+// longer resolves (exists is false). Restore is warranted otherwise.
+func shouldRestore(inProgress bool, original, current string, exists bool) bool {
+	if inProgress {
+		return false
+	}
+	if original == "" || original == "HEAD" {
+		return false
+	}
+	if original == current {
+		return false
+	}
+	return exists
 }
 
 // --- Command constructors (every one routes through a service) ---
@@ -611,6 +640,74 @@ func (m Model) resumeDetectCmd() tea.Cmd {
 		}
 		records, err := writer.List()
 		return resumeDetectMsg{state: state, records: records, err: err}
+	}
+}
+
+// originalBranchCmd captures the branch checked out at flow startup —
+// BEFORE any promotion branch is created — through git.Service.CurrentBranch,
+// so quitCmd can restore it later (branch-cleanup spec: "Original Branch
+// Restored On Finish Or Abort"). It is fired batched alongside
+// resumeDetectCmd from onPrereqDone: the reducer itself must stay pure, so
+// capture is a cmd+msg round trip, never a synchronous field write (design.md
+// "Refines exploration"). A nil Git degrades to no command, mirroring
+// resumeDetectCmd's best-effort nil — tea.Batch drops it cleanly.
+func (m Model) originalBranchCmd() tea.Cmd {
+	g := m.deps.Git
+	if g == nil {
+		return nil
+	}
+	dir := m.deps.Dir
+	ctx := m.ctx()
+	return func() tea.Msg {
+		branch, err := g.CurrentBranch(ctx, dir)
+		return originalBranchMsg{branch: branch, err: err}
+	}
+}
+
+// quitCmd builds the terminal-quit command every quit key site fires
+// (design.md "Quit-restore mechanism + guards"). When warranted, it restores
+// the original branch SYNCHRONOUSLY (git.Checkout) before returning
+// tea.Quit()'s QuitMsg — Bubble Tea runs a Cmd to completion before
+// delivering its message, so the checkout finishes before Program.Run()
+// returns and main.go needs no change.
+//
+// Guard, pure/model-state (checked BEFORE building the closure, so a
+// disqualified quit fires no git call at all): deps.Git == nil (unit tests /
+// best-effort degrade), m.repoState.InProgress (git REFUSES checkout with
+// unmerged paths — this is the rationale, NOT a resume-detection need;
+// CHERRY_PICK_HEAD lives in .git/ and is worktree-scoped, so it survives
+// regardless of which branch is checked out, keeping HU-013 resume-detection
+// intact), or m.originalBranch being empty/detached ("HEAD" — never
+// captured, or a detached-HEAD startup).
+//
+// Git-dependent guards, evaluated live INSIDE the closure via shouldRestore:
+// the current branch is RE-QUERIED (never the possibly-stale model field) —
+// the flow checks out the deploy branch mid-run (CreatePromotionBranch), so
+// the branch at quit time is never assumed equal to what it was at
+// startup — and BranchExists(original) confirms it still resolves. Either
+// call erroring is treated as "cannot confirm restore is safe" and skips it,
+// same as an ineligible guard.
+func (m Model) quitCmd() tea.Cmd {
+	if m.deps.Git == nil || m.repoState.InProgress ||
+		m.originalBranch == "" || m.originalBranch == "HEAD" {
+		return tea.Quit
+	}
+	g, dir, ctx, original := m.deps.Git, m.deps.Dir, m.ctx(), m.originalBranch
+	return func() tea.Msg {
+		current, err := g.CurrentBranch(ctx, dir)
+		if err != nil || current == original {
+			// Either the live branch can't be confirmed, or it already
+			// matches the original — nothing to restore either way.
+			return tea.Quit()
+		}
+		exists, err := g.BranchExists(ctx, dir, original)
+		if err != nil {
+			exists = false
+		}
+		if shouldRestore(m.repoState.InProgress, original, current, exists) {
+			_ = g.Checkout(ctx, dir, original)
+		}
+		return tea.Quit()
 	}
 }
 

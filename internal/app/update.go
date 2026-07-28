@@ -31,6 +31,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onPrereqDone(msg)
 	case resumeDetectMsg:
 		return m.onResumeDetect(msg)
+	case originalBranchMsg:
+		return m.onOriginalBranch(msg)
 	case discoverDoneMsg:
 		return m.onDiscoverDone(msg)
 	case rePromoteSeededMsg:
@@ -97,12 +99,28 @@ func (m Model) onPrereqDone(msg prereqDoneMsg) (tea.Model, tea.Cmd) {
 		m.state = StatePrereqCheck
 		return m, nil
 	}
-	// Default to the normal flow, but fire HU-013 resume-detection: once it
-	// lands, onResumeDetect may redirect to the resume offer (StateRunHistory).
-	// resumeDetectCmd is nil when Git/Runs are absent, so this stays a plain
-	// advance to ticket input for callers without those deps (e.g. unit tests).
+	// Default to the normal flow, but fire HU-013 resume-detection AND HU-017's
+	// startup branch capture (design.md "onPrereqDone returns
+	// tea.Batch(resumeDetectCmd(), originalBranchCmd())"): once resumeDetectMsg
+	// lands, onResumeDetect may redirect to the resume offer (StateRunHistory);
+	// once originalBranchMsg lands, onOriginalBranch captures the branch quitCmd
+	// will later restore. Both degrade to nil when their deps are absent, and
+	// tea.Batch drops nil commands cleanly, so this stays a plain advance to
+	// ticket input for callers without those deps (e.g. unit tests).
 	m.state = StateTicketInput
-	return m, m.resumeDetectCmd()
+	return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())
+}
+
+// onOriginalBranch lands the HU-017 startup branch capture. A capture error
+// is a best-effort no-op — m.originalBranch stays "", which quitCmd's
+// shouldRestore guard already treats as a skip-restore signal — so it must
+// never block or crash the flow.
+func (m Model) onOriginalBranch(msg originalBranchMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		return m, nil
+	}
+	m.originalBranch = msg.branch
+	return m, nil
 }
 
 // onResumeDetect lands the HU-013 startup resume-detection. It first resyncs

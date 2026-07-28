@@ -62,20 +62,20 @@ Group gate: `go build ./... && go vet ./... && go test ./internal/git/... -short
 
 Files: `internal/app/app.go`, `internal/app/commands.go`, `internal/app/update.go`, `internal/app/keys.go`; tests: `internal/app/original_branch_test.go` (pure+FakeRunner), `internal/app/original_branch_e2e_test.go` (real-git, `-short`-skip).
 
-- [ ] 2.1 RED (pure): `TestShouldRestore_GuardMatrix` — skip iff `InProgress`, `original==""`, `=="HEAD"`, `==current`, or `!exists`; restore otherwise. Comment/task wording: guard exists because git REFUSES checkout with unmerged paths, not a resume-detection need.
-- [ ] 2.2 GREEN: `commands.go` pure `shouldRestore(inProgress bool, original, current string, exists bool) bool`.
-- [ ] 2.3 RED: `TestOnPrereqDone_BatchesResumeDetectAndOriginalBranch` — asserts both cmds fire; `deps.Git==nil` → `originalBranchCmd` nil, `tea.Batch` drops it.
-- [ ] 2.4 GREEN: `update.go:105` → `return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())`.
-- [ ] 2.5 RED: `TestOriginalBranchCmd_CapturesCurrentBranch` (FakeRunner cans `rev-parse --abbrev-ref HEAD`).
-- [ ] 2.6 GREEN: `commands.go` `originalBranchCmd`/`originalBranchMsg`; `update.go` sets `m.originalBranch`.
-- [ ] 2.7 RED: `TestQuitCmd_RestoresOriginalBranch_OnTerminalQuit` (FakeRunner: CurrentBranch≠original, BranchExists true → `Checkout(original)` called).
-- [ ] 2.8 RED (MANDATORY negative): `TestQuitCmd_AbortMidConflict_NoRestore` — `repoState.InProgress=true` → zero `Checkout` calls.
-- [ ] 2.9 RED: `TestQuitCmd_NoopWhenOriginalGoneDetachedOrCurrent` — table: `""`, `"HEAD"`, `==current`, `!exists` → zero `Checkout` calls.
-- [ ] 2.10 GREEN: `commands.go` implement `quitCmd()` per design's closure (sync `CurrentBranch`→`BranchExists`→`Checkout`, gated by `shouldRestore`), returns `tea.Quit()`'s `QuitMsg`.
-- [ ] 2.11 RED (real-git): `TestHU017_RestoreOnQuit_RealRepo` — drive to `StateSucceeded`, `q`, assert real `symbolic-ref --short HEAD` back on original.
-- [ ] 2.12 RED (MANDATORY, real-git): `TestHU017_AbortMidConflict_NoRestore_RealRepo` — real unresolved conflict, `q` from `StateCherryPickConflict`; HEAD stays on deploy branch, `CHERRY_PICK_HEAD` intact (resume still possible).
-- [ ] 2.13 GREEN: none — 2.10 already satisfies 2.11/2.12; rerun to confirm.
-- [ ] 2.14 GREEN: `keys.go` swap `return m, tea.Quit` → `return m, m.quitCmd()` at lines 48, 69, 91, 106, 118, 124, 145, 306, 334, 359, 384, 435, 473 (13 sites). `update.go:26` ctrl+c stays a hard `tea.Quit` — no restore, by design (user is left on the deploy branch on interrupt).
+- [x] 2.1 RED (pure): `TestShouldRestore_GuardMatrix` — skip iff `InProgress`, `original==""`, `=="HEAD"`, `==current`, or `!exists`; restore otherwise. Comment/task wording: guard exists because git REFUSES checkout with unmerged paths, not a resume-detection need.
+- [x] 2.2 GREEN: `commands.go` pure `shouldRestore(inProgress bool, original, current string, exists bool) bool`.
+- [x] 2.3 RED: `TestOnPrereqDone_BatchesResumeDetectAndOriginalBranch` — asserts both cmds fire; `deps.Git==nil` → `originalBranchCmd` nil, `tea.Batch` drops it.
+- [x] 2.4 GREEN: `update.go:105` → `return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())`.
+- [x] 2.5 RED: `TestOriginalBranchCmd_CapturesCurrentBranch` (FakeRunner cans `rev-parse --abbrev-ref HEAD`).
+- [x] 2.6 GREEN: `commands.go` `originalBranchCmd`/`originalBranchMsg`; `update.go` sets `m.originalBranch`.
+- [x] 2.7 RED: `TestQuitCmd_RestoresOriginalBranch_OnTerminalQuit` (FakeRunner: CurrentBranch≠original, BranchExists true → `Checkout(original)` called).
+- [x] 2.8 RED (MANDATORY negative): `TestQuitCmd_AbortMidConflict_NoRestore` — `repoState.InProgress=true` → zero `Checkout` calls.
+- [x] 2.9 RED: `TestQuitCmd_NoopWhenOriginalGoneDetachedOrCurrent` — table: `""`, `"HEAD"`, `==current`, `!exists` → zero `Checkout` calls.
+- [x] 2.10 GREEN: `commands.go` implement `quitCmd()` per design's closure (sync `CurrentBranch`→`BranchExists`→`Checkout`, gated by `shouldRestore`), returns `tea.Quit()`'s `QuitMsg`.
+- [x] 2.11 RED (real-git): `TestHU017_RestoreOnQuit_RealRepo` — drive to `StateSucceeded`, `q`, assert real `symbolic-ref --short HEAD` back on original.
+- [x] 2.12 RED (MANDATORY, real-git): `TestHU017_AbortMidConflict_NoRestore_RealRepo` — real unresolved conflict, `q` from `StateCherryPickConflict`; HEAD stays on deploy branch, `CHERRY_PICK_HEAD` intact (resume still possible).
+- [x] 2.13 GREEN: none — 2.10 already satisfies 2.11/2.12; rerun to confirm.
+- [x] 2.14 GREEN: `keys.go` swap `return m, tea.Quit` → `return m, m.quitCmd()` at lines 48, 69, 91, 106, 118, 124, 145, 306, 334, 359, 384, 435, 473 (13 sites). `update.go:26` ctrl+c stays a hard `tea.Quit` — no restore, by design (user is left on the deploy branch on interrupt).
 
 Group gate: `go build ./... && go vet ./... && go test ./internal/app/... -short`.
 

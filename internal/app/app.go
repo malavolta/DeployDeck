@@ -218,6 +218,14 @@ type Model struct {
 	plan       git.DeploymentPlan
 	branchName string
 
+	// originalBranch (HU-017) is the branch checked out at flow startup,
+	// captured via originalBranchCmd batched from onPrereqDone (BEFORE any
+	// promotion branch is created). quitCmd restores it on a terminal/
+	// abandoned quit, guarded by shouldRestore. Empty when never captured
+	// (deps.Git nil, or the capture itself errored) — shouldRestore already
+	// treats "" as a no-op-restore signal.
+	originalBranch string
+
 	// CherryPicking / Conflict
 	contiguous      bool
 	repoState       git.RepoState
