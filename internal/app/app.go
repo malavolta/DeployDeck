@@ -119,6 +119,30 @@ const (
 	StatePushPreparation
 )
 
+// cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
+// shared by the terminal screens' inline current-branch delete (Group 3:
+// keySucceeded/keyAborted's `d`) and, later, the StateBranchCleanup batch
+// screen's per-row delete (Group 4) — the two are mutually exclusive by
+// construction (a Model is never on both StateSucceeded/StateAborted and
+// StateBranchCleanup at once), so reusing one field across them is safe.
+type cleanupPhase int
+
+const (
+	// cleanupIdle is the ZERO VALUE: no delete confirmation is in progress.
+	// A terminal screen starts here; pressing `d` leaves it only once
+	// unpushedCountCmd's result lands (onUnpushedCount picks confirm vs
+	// strongConfirm) — this is deliberate so a stray key press before `d`
+	// (e.g. a leftover `y`) can never be misread as a delete confirmation.
+	cleanupIdle cleanupPhase = iota
+	// cleanupConfirm is a normal, single-key ('y') confirmation — the
+	// branch has zero unpushed commits (UnpushedCommitCount == 0).
+	cleanupConfirm
+	// cleanupStrongConfirm requires the exact typed literal BORRAR
+	// (case-sensitive, via the dedicated m.deleteConfirm buffer) — the
+	// branch has unpushed commits (design.md "Strong-confirm reuse").
+	cleanupStrongConfirm
+)
+
 // pushPhase is StatePushPreparation's sub-state machine (HU-014). It gates the
 // two external side effects — `git push -u` and `gh pr create` — behind
 // explicit confirmations so neither ever runs implicitly.
@@ -225,6 +249,25 @@ type Model struct {
 	// (deps.Git nil, or the capture itself errored) — shouldRestore already
 	// treats "" as a no-op-restore signal.
 	originalBranch string
+	// currentPushed (HU-017) records whether THIS run's own promotion
+	// branch (m.plan.PromotionBranch) was successfully pushed at least once
+	// (set true by onPushDone's success branch). quitCmd's delete step uses
+	// it to decide whether DeleteRemoteBranch also runs alongside
+	// DeleteLocalBranch.
+	currentPushed bool
+	// pendingDeleteCurrent (HU-017) is set by an explicit inline delete
+	// confirmation (normal or strong) on a terminal screen. The actual
+	// delete is deferred to run INSIDE quitCmd, right after its restore
+	// checkout — a branch can't be deleted while it is checked out.
+	pendingDeleteCurrent bool
+	// cleanupPhase (HU-017) gates the terminal screens' inline delete
+	// confirmation UI; see the cleanupPhase type doc above.
+	cleanupPhase cleanupPhase
+	// deleteConfirm (HU-017) is the dedicated typed-BORRAR buffer for
+	// cleanupStrongConfirm — a DEDICATED field, deliberately never HU-012's
+	// cancelInput, so a stray CANCELAR/cancel buffer can never delete a
+	// branch and vice versa (design.md "Strong-confirm reuse").
+	deleteConfirm string
 
 	// CherryPicking / Conflict
 	contiguous      bool

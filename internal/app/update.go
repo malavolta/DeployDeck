@@ -33,6 +33,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onResumeDetect(msg)
 	case originalBranchMsg:
 		return m.onOriginalBranch(msg)
+	case unpushedMsg:
+		return m.onUnpushedCount(msg)
 	case discoverDoneMsg:
 		return m.onDiscoverDone(msg)
 	case rePromoteSeededMsg:
@@ -120,6 +122,24 @@ func (m Model) onOriginalBranch(msg originalBranchMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.originalBranch = msg.branch
+	return m, nil
+}
+
+// onUnpushedCount lands HU-017's unpushedCountCmd result, fired by
+// keySucceeded/keyAborted's `d` (design.md "Unpushed gate"). Any real
+// unpushed commit — or a resolution failure, treated conservatively as
+// "cannot confirm pushed" — requires the strong typed-BORRAR confirmation;
+// a fully pushed branch (count == 0) only needs the normal 'y' confirm. The
+// deleteConfirm buffer and any stale notice are reset here so a PRIOR failed
+// attempt on a different branch can never leak into a new one.
+func (m Model) onUnpushedCount(msg unpushedMsg) (tea.Model, tea.Cmd) {
+	m.deleteConfirm = ""
+	m.notice = ""
+	if msg.err != nil || msg.count > 0 {
+		m.cleanupPhase = cleanupStrongConfirm
+	} else {
+		m.cleanupPhase = cleanupConfirm
+	}
 	return m, nil
 }
 
@@ -728,8 +748,10 @@ func (m Model) scheduleNextPoll() (tea.Model, tea.Cmd) {
 // onPushDone lands the HU-014 push outcome. A push failure keeps the user on
 // the push-confirm screen with the error shown (pushErr) — the flow never
 // crashes into a terminal error state (push-failure UX: retry/quit). A
-// successful push fires preparePRCmd (RemoteURL + gh AuthStatus); the phase
-// stays pushPushing until that prep lands in onPrepDone.
+// successful push records HU-017's currentPushed (so a later inline delete
+// also removes the origin ref) and fires preparePRCmd (RemoteURL + gh
+// AuthStatus); the phase stays pushPushing until that prep lands in
+// onPrepDone.
 func (m Model) onPushDone(msg pushDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.pushErr = msg.err
@@ -737,6 +759,10 @@ func (m Model) onPushDone(msg pushDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pushErr = nil
+	// HU-017: record that THIS run's promotion branch was successfully
+	// pushed, so quitCmd's later inline-delete step also deletes the
+	// origin ref (design.md "Corrections Baked In" #4).
+	m.currentPushed = true
 	return m, m.preparePRCmd()
 }
 

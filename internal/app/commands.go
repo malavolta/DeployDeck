@@ -164,6 +164,17 @@ type originalBranchMsg struct {
 	err    error
 }
 
+// unpushedMsg carries HU-017's UnpushedCommitCount result for the inline
+// current-branch delete gate. err is treated conservatively by
+// onUnpushedCount ("cannot confirm pushed") — the same posture as every
+// other best-effort read in this file, but erring toward the STRONGER
+// confirmation rather than a silent skip, since this gates a destructive
+// action.
+type unpushedMsg struct {
+	count int
+	err   error
+}
+
 // resumeDetectMsg is the HU-013 startup resume-detection result: the live
 // RepoState (repo is the source of truth) plus the persisted run list, or an
 // error. onResumeDetect reconciles stale conflict records against state, then
@@ -664,6 +675,21 @@ func (m Model) originalBranchCmd() tea.Cmd {
 	}
 }
 
+// unpushedCountCmd runs git.Service.UnpushedCommitCount for branch through
+// the injected service (never an app-level exec), gating whether the
+// inline current-branch delete confirmation is normal or strong
+// (design.md "Unpushed gate: on d, fire unpushedCountCmd(name); >0 -> strong
+// (BORRAR), else normal (y) confirm — one call per attempt, no N+1").
+func (m Model) unpushedCountCmd(branch string) tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	ctx := m.ctx()
+	return func() tea.Msg {
+		count, err := g.UnpushedCommitCount(ctx, dir, branch)
+		return unpushedMsg{count: count, err: err}
+	}
+}
+
 // quitCmd builds the terminal-quit command every quit key site fires
 // (design.md "Quit-restore mechanism + guards"). When warranted, it restores
 // the original branch SYNCHRONOUSLY (git.Checkout) before returning
@@ -687,12 +713,26 @@ func (m Model) originalBranchCmd() tea.Cmd {
 // startup — and BranchExists(original) confirms it still resolves. Either
 // call erroring is treated as "cannot confirm restore is safe" and skips it,
 // same as an ineligible guard.
+//
+// HU-017 inline delete: when m.pendingDeleteCurrent is set (an explicit
+// normal/strong delete confirmation already landed), quitCmd ALSO deletes
+// the current run's own branch — but ONLY after the restore Checkout above
+// has actually succeeded, since a branch can't be deleted while it's
+// checked out (branch-cleanup spec: "Current Run's Temp Branch Deleted With
+// Confirmation"). The branch is ALWAYS m.plan.PromotionBranch — never
+// m.branchName, which stays empty on a resumed run (resumeInto never sets
+// it, only reconstructs plan.PromotionBranch) — and the remote ref is also
+// deleted iff m.currentPushed. If the restore guard above skips the
+// checkout for any reason (mid-conflict, no original branch, ...), the
+// delete is skipped too: it is inherently impossible to delete the branch
+// you're still standing on.
 func (m Model) quitCmd() tea.Cmd {
 	if m.deps.Git == nil || m.repoState.InProgress ||
 		m.originalBranch == "" || m.originalBranch == "HEAD" {
 		return tea.Quit
 	}
 	g, dir, ctx, original := m.deps.Git, m.deps.Dir, m.ctx(), m.originalBranch
+	del, name, pushed := m.pendingDeleteCurrent, m.plan.PromotionBranch, m.currentPushed
 	return func() tea.Msg {
 		current, err := g.CurrentBranch(ctx, dir)
 		if err != nil || current == original {
@@ -705,7 +745,12 @@ func (m Model) quitCmd() tea.Cmd {
 			exists = false
 		}
 		if shouldRestore(m.repoState.InProgress, original, current, exists) {
-			_ = g.Checkout(ctx, dir, original)
+			if g.Checkout(ctx, dir, original) == nil && del {
+				_ = g.DeleteLocalBranch(ctx, dir, name)
+				if pushed {
+					_ = g.DeleteRemoteBranch(ctx, dir, name)
+				}
+			}
 		}
 		return tea.Quit()
 	}

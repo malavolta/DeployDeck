@@ -83,20 +83,20 @@ Group gate: `go build ./... && go vet ./... && go test ./internal/app/... -short
 
 Files: `internal/app/app.go`, `internal/app/commands.go`, `internal/app/keys.go`, `internal/app/update.go`; tests: `internal/app/inline_delete_test.go`, `internal/app/inline_delete_e2e_test.go` (real-git+bare remote, `-short`-skip).
 
-- [ ] 3.1 RED: `TestOnPushDone_SetsCurrentPushedTrueOnSuccess` / `_LeavesFalseOnFailure`.
-- [ ] 3.2 GREEN: `update.go` `onPushDone` — set `m.currentPushed = true` on the success branch (before `preparePRCmd`).
-- [ ] 3.3 RED: `TestKeySucceeded_D_UnpushedRequiresStrongConfirm` — `d` fires `unpushedCountCmd(m.plan.PromotionBranch)`, count>0 → `strongConfirm`.
-- [ ] 3.4 RED: `TestKeySucceeded_D_PushedUsesNormalConfirm` — count==0 → normal confirm.
-- [ ] 3.5 GREEN: `keys.go` `keySucceeded` (+ `StateAborted` terminal block) gains `d`; `handleKey`'s terminal switch routes it.
-- [ ] 3.6 RED (MANDATORY, BLOCKER FIX): `TestInlineDelete_ResumedRun_TargetsPlanPromotionBranch_NotBranchName` — build Model via `resumeInto`'s path (`m.branchName==""`, only `m.plan.PromotionBranch` set), confirm delete targets `plan.PromotionBranch`.
-- [ ] 3.7 RED: `TestStrongConfirm_BORRAR_TypedGate` — wrong text refused+notice, exact `"BORRAR"` (case-sensitive) deletes; buffer built via `KeyRunes`/backspace on dedicated `m.deleteConfirm` (never `m.cancelInput`).
-- [ ] 3.8 GREEN: `app.go` add `currentPushed`, `pendingDeleteCurrent`, `deleteConfirm string`, `cleanupPhase` type+consts (`cleanupConfirm`, `cleanupStrongConfirm`, ...); `commands.go` `unpushedCountCmd`/`unpushedMsg`; `keys.go` confirm/strongConfirm handler mirroring `keyCancelConfirm`'s structure, gated on `deleteConfirm == "BORRAR"`.
-- [ ] 3.9 RED: `TestConfirmDelete_SetsPendingDeleteCurrent_ThenQuits`.
-- [ ] 3.10 GREEN: confirm success → `m.pendingDeleteCurrent = true; return m, m.quitCmd()`.
-- [ ] 3.11 RED: `TestQuitCmd_DeletesCurrentBranch_LocalAndRemoteIfPushed` / `_DeletesLocalOnly_WhenUnpushed`.
-- [ ] 3.12 GREEN: extend `quitCmd()` — after restore-checkout succeeds, `if del { DeleteLocalBranch(name); if pushed { DeleteRemoteBranch(name) } }`, `name := m.plan.PromotionBranch` (never `m.branchName`).
-- [ ] 3.13 RED (real-git+bare remote): `TestHU017_InlineDelete_LocalAndRemoteRoundTrip`.
-- [ ] 3.14 GREEN: none — proven by 3.12; rerun to confirm.
+- [x] 3.1 RED: `TestOnPushDone_SetsCurrentPushedTrueOnSuccess` / `_LeavesFalseOnFailure`.
+- [x] 3.2 GREEN: `update.go` `onPushDone` — set `m.currentPushed = true` on the success branch (before `preparePRCmd`).
+- [x] 3.3 RED: `TestKeySucceeded_D_UnpushedRequiresStrongConfirm` — `d` fires `unpushedCountCmd(m.plan.PromotionBranch)`, count>0 → `strongConfirm`.
+- [x] 3.4 RED: `TestKeySucceeded_D_PushedUsesNormalConfirm` — count==0 → normal confirm.
+- [x] 3.5 GREEN: `keys.go` `keySucceeded` (+ `StateAborted` terminal block) gains `d`; `handleKey`'s terminal switch routes it.
+- [x] 3.6 RED (MANDATORY, BLOCKER FIX): `TestInlineDelete_ResumedRun_TargetsPlanPromotionBranch_NotBranchName` — build Model via `resumeInto`'s path (`m.branchName==""`, only `m.plan.PromotionBranch` set), confirm delete targets `plan.PromotionBranch`.
+- [x] 3.7 RED: `TestStrongConfirm_BORRAR_TypedGate` — wrong text refused+notice, exact `"BORRAR"` (case-sensitive) deletes; buffer built via `KeyRunes`/backspace on dedicated `m.deleteConfirm` (never `m.cancelInput`).
+- [x] 3.8 GREEN: `app.go` add `currentPushed`, `pendingDeleteCurrent`, `deleteConfirm string`, `cleanupPhase` type+consts (`cleanupIdle`, `cleanupConfirm`, `cleanupStrongConfirm`); `commands.go` `unpushedCountCmd`/`unpushedMsg`; `keys.go` confirm/strongConfirm handler mirroring `keyCancelConfirm`'s structure, gated on `deleteConfirm == "BORRAR"`.
+- [x] 3.9 RED: `TestConfirmDelete_SetsPendingDeleteCurrent_ThenQuits`.
+- [x] 3.10 GREEN: confirm success → `m.pendingDeleteCurrent = true; return m, m.quitCmd()`.
+- [x] 3.11 RED: `TestQuitCmd_DeletesCurrentBranch_LocalAndRemoteIfPushed` / `_DeletesLocalOnly_WhenUnpushed`.
+- [x] 3.12 GREEN: extend `quitCmd()` — after restore-checkout succeeds, `if del { DeleteLocalBranch(name); if pushed { DeleteRemoteBranch(name) } }`, `name := m.plan.PromotionBranch` (never `m.branchName`).
+- [x] 3.13 RED (real-git+bare remote): `TestHU017_InlineDelete_LocalAndRemoteRoundTrip`.
+- [x] 3.14 GREEN: none — proven by 3.12; rerun to confirm.
 
 Group gate: `go build ./... && go vet ./... && go test ./internal/app/... -short`.
 

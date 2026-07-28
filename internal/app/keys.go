@@ -43,7 +43,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keySucceeded(msg)
 	case StatePushPreparation:
 		return m.keyPushPreparation(msg)
-	case StateAborted, StateError, StateFailed, StateCanceled:
+	case StateAborted:
+		return m.keyAborted(msg)
+	case StateError, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, m.quitCmd()
 		}
@@ -51,12 +53,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// keySucceeded handles the terminal SUCCESS screen (HU-014). Unlike the other
-// terminal states (Failed/Canceled/Aborted/Error), which stay quit-only,
-// success offers a distinct `p` key that enters StatePushPreparation to push
-// the validated deploy branch and prepare PR data (spec: "push offered only
-// after a successful validation"). q/enter/esc still quit.
+// keySucceeded handles the terminal SUCCESS screen (HU-014/HU-017). Unlike
+// the always-quit-only terminals (Failed/Canceled/Error), success offers a
+// distinct `p` key that enters StatePushPreparation to push the validated
+// deploy branch and prepare PR data (spec: "push offered only after a
+// successful validation"), AND (like keyAborted) a `d` key that offers to
+// delete the current run's own branch inline (branch-cleanup spec: "Current
+// Run's Temp Branch Deleted With Confirmation"). q/enter/esc still quit.
 func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.cleanupPhase != cleanupIdle {
+		// Mid a delete confirmation: every key routes through the shared
+		// confirm/strongConfirm handler until it resolves or is backed out.
+		return m.keyDeleteConfirm(msg)
+	}
 	switch msg.String() {
 	case "p":
 		m.pushErr = nil
@@ -65,10 +74,103 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pushPhase = pushConfirm
 		m.state = StatePushPreparation
 		return m, nil
+	case "d":
+		// Gate the confirmation strength on the CURRENT run's real
+		// unpushed-commit count (design.md "Unpushed gate: on d, fire
+		// unpushedCountCmd(name)") — never assumed from currentPushed alone,
+		// since a pushed branch can still have local commits ahead of its
+		// remote ref.
+		m.notice = ""
+		return m, m.unpushedCountCmd(m.plan.PromotionBranch)
 	case "q", "enter", "esc":
 		return m, m.quitCmd()
 	}
 	return m, nil
+}
+
+// keyAborted handles the terminal ABORTED screen (HU-017 branch-cleanup):
+// like keySucceeded it gains the inline current-branch delete offer (`d`)
+// alongside quit, but — unlike Succeeded — it never offers HU-014 push (an
+// aborted run's branch was never validated/pushed as a deliverable).
+func (m Model) keyAborted(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.cleanupPhase != cleanupIdle {
+		return m.keyDeleteConfirm(msg)
+	}
+	switch msg.String() {
+	case "d":
+		m.notice = ""
+		return m, m.unpushedCountCmd(m.plan.PromotionBranch)
+	case "q", "enter", "esc":
+		return m, m.quitCmd()
+	}
+	return m, nil
+}
+
+// deleteConfirmWord is HU-017's exact, case-sensitive typed literal for the
+// strong branch-delete confirmation (design.md "Strong-confirm reuse"): its
+// OWN word and field (m.deleteConfirm) — deliberately never HU-012's
+// CANCELAR/cancelInput — so a stray "cancel" buffer can never delete a
+// branch, and vice versa.
+const deleteConfirmWord = "BORRAR"
+
+// keyDeleteConfirm handles HU-017's inline current-branch delete
+// confirmation, reached from keySucceeded/keyAborted once unpushedCountCmd's
+// result has gated m.cleanupPhase: cleanupConfirm needs only a single 'y'
+// (mirroring keyPushPreparation's pushPRConfirm); cleanupStrongConfirm
+// reuses keyCancelConfirm's exact typed-input idiom (backspace/KeyRunes
+// buffer build + case-sensitive == gate) on the dedicated deleteConfirm
+// field. n/esc back out to cleanupIdle without deleting anything.
+func (m Model) keyDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.cleanupPhase {
+	case cleanupConfirm:
+		switch msg.String() {
+		case "y":
+			return m.confirmDeleteCurrent()
+		case "n", "esc":
+			m.cleanupPhase = cleanupIdle
+			return m, nil
+		case "q":
+			return m, m.quitCmd()
+		}
+	case cleanupStrongConfirm:
+		switch msg.String() {
+		case "enter":
+			if m.deleteConfirm != deleteConfirmWord {
+				m.notice = "escribe BORRAR exactamente para confirmar el borrado"
+				return m, nil
+			}
+			m.notice = ""
+			return m.confirmDeleteCurrent()
+		case "esc":
+			m.deleteConfirm = ""
+			m.notice = ""
+			m.cleanupPhase = cleanupIdle
+			return m, nil
+		case "backspace":
+			if n := len(m.deleteConfirm); n > 0 {
+				m.deleteConfirm = m.deleteConfirm[:n-1]
+			}
+			return m, nil
+		default:
+			if msg.Type == tea.KeyRunes {
+				m.deleteConfirm += string(msg.Runes)
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// confirmDeleteCurrent lands an explicit delete confirmation (normal or
+// strong): it marks the current run's branch for deletion and reuses
+// quitCmd, which performs the delete SYNCHRONOUSLY right after its restore
+// checkout (design.md: "delete happens INSIDE quitCmd after the
+// restore-checkout, since you cannot delete the branch you are on").
+func (m Model) confirmDeleteCurrent() (tea.Model, tea.Cmd) {
+	m.pendingDeleteCurrent = true
+	m.cleanupPhase = cleanupIdle
+	m.deleteConfirm = ""
+	return m, m.quitCmd()
 }
 
 // keyPushPreparation handles HU-014's push + PR-preparation sub-flow (mockup
