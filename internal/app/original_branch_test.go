@@ -101,8 +101,8 @@ func TestOnPrereqDone_BatchesResumeDetectAndOriginalBranch(t *testing.T) {
 		m := New(Deps{Git: git.New(fr), Dir: "/repo", Config: testConfig(), Runs: runs.NewWriter(t.TempDir())})
 		next, cmd := m.Update(prereqDoneMsg{})
 		m = next.(Model)
-		if m.State() != StateTicketInput {
-			t.Fatalf("onPrereqDone should still advance to StateTicketInput, got %v", m.State())
+		if m.State() != StateMainMenu {
+			t.Fatalf("onPrereqDone should advance to StateMainMenu (HU-018 landing), got %v", m.State())
 		}
 		if cmd == nil {
 			t.Fatal("onPrereqDone should return a non-nil batched command when Git+Runs are wired")

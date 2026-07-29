@@ -100,11 +100,14 @@ func TestResumeDetectCmd_NilDepsIsNoOp(t *testing.T) {
 
 // TestOnResumeDetect_RoutesToRunHistoryWhenResumable is tasks 4.3/4.4 (RED): a
 // matching in-progress cherry-pick (or a non-terminal jobId) offers resume via
-// StateRunHistory pre-selected; nothing resumable proceeds to StateTicketInput.
+// StateRunHistory pre-selected; nothing resumable proceeds to the HU-018
+// StateMainMenu landing.
 func TestOnResumeDetect_RoutesToRunHistoryWhenResumable(t *testing.T) {
 	t.Run("matching in-progress cherry-pick offers resume via history", func(t *testing.T) {
 		m := New(Deps{Dir: t.TempDir(), Config: validationConfig(), Runs: runs.NewWriter(t.TempDir())})
-		m.state = StateTicketInput
+		// HU-018: the pre-detect landing is now StateMainMenu (onPrereqDone),
+		// not StateTicketInput; onResumeDetect's guard keys off it (task 2.14).
+		m.state = StateMainMenu
 		state := git.RepoState{InProgress: true, CurrentSHA: "sha-A", SequencerRemaining: 2}
 		records := []runs.Record{
 			{RunID: "old", Ticket: "PROJ-9", Status: "Succeeded", Phase: "done"},
@@ -125,7 +128,8 @@ func TestOnResumeDetect_RoutesToRunHistoryWhenResumable(t *testing.T) {
 
 	t.Run("non-terminal jobId offers resume via history", func(t *testing.T) {
 		m := New(Deps{Dir: t.TempDir(), Config: validationConfig(), Runs: runs.NewWriter(t.TempDir())})
-		m.state = StateTicketInput
+		// HU-018 landing (see above): guard keys off StateMainMenu.
+		m.state = StateMainMenu
 		records := []runs.Record{
 			{RunID: "job", Ticket: "PROJ-1", JobID: "JOB1", Status: "InProgress", Phase: "validating"},
 		}
@@ -139,26 +143,49 @@ func TestOnResumeDetect_RoutesToRunHistoryWhenResumable(t *testing.T) {
 		}
 	})
 
-	t.Run("nothing resumable proceeds to ticket input", func(t *testing.T) {
+	t.Run("nothing resumable proceeds to the menu", func(t *testing.T) {
 		m := New(Deps{Dir: t.TempDir(), Config: validationConfig(), Runs: runs.NewWriter(t.TempDir())})
-		m.state = StateTicketInput
+		// HU-018 landing (task 2.14): guard keys off StateMainMenu.
+		m.state = StateMainMenu
 		records := []runs.Record{
 			{RunID: "done", Ticket: "PROJ-1", JobID: "JOB1", Status: "Succeeded", Phase: "done"},
 		}
 		next, _ := m.Update(resumeDetectMsg{state: git.RepoState{Clean: true}, records: records})
 		nm := next.(Model)
-		if nm.State() != StateTicketInput {
-			t.Fatalf("no resumable run should proceed to StateTicketInput, got %v", nm.State())
+		if nm.State() != StateMainMenu {
+			t.Fatalf("no resumable run should proceed to StateMainMenu, got %v", nm.State())
+		}
+		// Silent-pass repair (task 2.15): assert the run list was actually
+		// reconciled and stored. onResumeDetect sets m.runs ONLY on the real
+		// no-resume fallthrough (after reconcileStaleRuns runs) — a path
+		// unreachable if the state guard no-ops early. Before task 2.14's guard
+		// flip this subtest passed for the WRONG reason (a StateTicketInput
+		// setup made the OLD guard no-op, leaving state coincidentally
+		// unchanged). Requiring len(runs)==1 makes that coincidence impossible:
+		// it can only hold when the fallthrough genuinely executed.
+		if len(nm.runs) != 1 {
+			t.Fatalf("the no-resume fallthrough must reconcile+store the run list (len 1), got %d — a guard no-op would leave it nil", len(nm.runs))
 		}
 	})
 
-	t.Run("detection error falls back to the normal flow", func(t *testing.T) {
+	t.Run("detection error falls back to the menu", func(t *testing.T) {
 		m := New(Deps{Dir: t.TempDir(), Config: validationConfig()})
-		m.state = StateTicketInput
+		// HU-018 landing (task 2.14): guard keys off StateMainMenu.
+		m.state = StateMainMenu
 		next, _ := m.Update(resumeDetectMsg{err: errStub})
-		if next.(Model).State() != StateTicketInput {
-			t.Fatalf("a detection error should fall back to StateTicketInput, got %v", next.(Model).State())
+		if next.(Model).State() != StateMainMenu {
+			t.Fatalf("a detection error should fall back to StateMainMenu, got %v", next.(Model).State())
 		}
+		// HONEST LIMITATION (task 2.15): the error path early-returns BEFORE
+		// touching any field, so its outcome (state unchanged = StateMainMenu)
+		// is identical whether the guard admitted the message and then rejected
+		// it on err, OR the guard no-op'd first. This subtest therefore cannot
+		// on its own distinguish a correct guard from a stale one; it only pins
+		// the best-effort "a detection error never blocks startup" contract. The
+		// guard-correctness of the StateMainMenu landing is proven by the sibling
+		// resumable / nothing-resumable subtests (whose len(runs) assertion fails
+		// loudly under a stale guard) and by TestOnResumeDetect_GuardUsesMainMenu
+		// (task 2.13).
 	})
 }
 
@@ -180,13 +207,15 @@ func TestOnResumeDetect_ResyncsStaleConflictRecord(t *testing.T) {
 	seedRunAt(t, writer, rec)
 
 	m := New(Deps{Dir: dir, Config: validationConfig(), Runs: writer, Now: func() time.Time { return seededAt.Add(time.Hour) }})
-	m.state = StateTicketInput
+	// HU-018 landing (task 2.14): the guard keys off StateMainMenu, so the
+	// stale-conflict resync path is only reached from the menu landing.
+	m.state = StateMainMenu
 
 	// Repo is CLEAN (no CHERRY_PICK_HEAD): the conflict record is stale.
 	next, _ := m.Update(resumeDetectMsg{state: git.RepoState{Clean: true}, records: []runs.Record{rec}})
 	nm := next.(Model)
-	if nm.State() != StateTicketInput {
-		t.Fatalf("a stale conflict record must not offer the conflict screen; want StateTicketInput, got %v", nm.State())
+	if nm.State() != StateMainMenu {
+		t.Fatalf("a stale conflict record must not offer the conflict screen; want StateMainMenu (no-resume fallthrough), got %v", nm.State())
 	}
 
 	// The record must be reconciled on disk (no longer a cherry-pick phase).
@@ -382,8 +411,8 @@ func TestResume_RealInProgressCherryPick_RoutesToConflict(t *testing.T) {
 	// Restart: a brand-new model over the same repo + runs dir.
 	fresh := New(Deps{Git: git.New(execpkg.NewOSRunner()), Config: pickIndexConfig(), Dir: local, Runs: writer})
 	fresh = advance(t, fresh, prereqDoneMsg{checks: []prereq.PrereqCheck{{Name: "git", Status: prereq.StatusOK}}})
-	if fresh.State() != StateTicketInput {
-		t.Fatalf("prereq should default to StateTicketInput before detection lands, got %v", fresh.State())
+	if fresh.State() != StateMainMenu {
+		t.Fatalf("prereq should default to StateMainMenu before detection lands, got %v", fresh.State())
 	}
 	// Startup resume-detection reads repo + disk and offers resume.
 	fresh = advance(t, fresh, run(t, fresh.resumeDetectCmd()))
@@ -432,8 +461,8 @@ func TestResume_Resync_ExternallyResolved(t *testing.T) {
 	fresh := New(Deps{Git: git.New(execpkg.NewOSRunner()), Config: pickIndexConfig(), Dir: local, Runs: writer})
 	fresh = advance(t, fresh, prereqDoneMsg{checks: []prereq.PrereqCheck{{Name: "git", Status: prereq.StatusOK}}})
 	fresh = advance(t, fresh, run(t, fresh.resumeDetectCmd()))
-	if fresh.State() != StateTicketInput {
-		t.Fatalf("an externally-resolved conflict must resync and proceed normally, got %v", fresh.State())
+	if fresh.State() != StateMainMenu {
+		t.Fatalf("an externally-resolved conflict must resync and proceed to the menu (HU-018), got %v", fresh.State())
 	}
 
 	reloaded, err := writer.Load(runID)

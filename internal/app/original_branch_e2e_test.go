@@ -76,6 +76,10 @@ func TestHU017_RestoreOnQuit_RealRepo(t *testing.T) {
 		t.Fatalf("originalBranch = %q, want %q (captured at startup, before any branch switch)", m.originalBranch, "main")
 	}
 
+	// HU-018: post-prereq landing is the main menu; Enter on the default
+	// "Promocionar ticket" entry reaches the unchanged full flow.
+	m = advance(t, m, keyPress("enter"))
+
 	m = typeString(m, "PROJ-1")
 	m = advance(t, m, keyPress("enter"))
 	if m.State() != StateCommitDiscovery {
@@ -153,6 +157,9 @@ func TestHU017_AbortMidConflict_NoRestore_RealRepo(t *testing.T) {
 	if m.originalBranch != "main" {
 		t.Fatalf("originalBranch = %q, want %q", m.originalBranch, "main")
 	}
+
+	// HU-018: main-menu landing -> Promocionar (full flow).
+	m = advance(t, m, keyPress("enter"))
 
 	m = typeString(m, "PROJ-1")
 	m = advance(t, m, keyPress("enter"))

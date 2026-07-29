@@ -112,15 +112,19 @@ func (m Model) onPrereqDone(msg prereqDoneMsg) (tea.Model, tea.Cmd) {
 		m.state = StatePrereqCheck
 		return m, nil
 	}
-	// Default to the normal flow, but fire HU-013 resume-detection AND HU-017's
-	// startup branch capture (design.md "onPrereqDone returns
+	// HU-018 (design ADR-1): the no-resume landing is the main menu, NOT ticket
+	// input — the "menú principal" entry point from which the full promotion
+	// flow and the two standalone modes are reached. Fire HU-013 resume-detection
+	// AND HU-017's startup branch capture (design.md "onPrereqDone returns
 	// tea.Batch(resumeDetectCmd(), originalBranchCmd())"): once resumeDetectMsg
-	// lands, onResumeDetect may redirect to the resume offer (StateRunHistory);
-	// once originalBranchMsg lands, onOriginalBranch captures the branch quitCmd
-	// will later restore. Both degrade to nil when their deps are absent, and
-	// tea.Batch drops nil commands cleanly, so this stays a plain advance to
-	// ticket input for callers without those deps (e.g. unit tests).
-	m.state = StateTicketInput
+	// lands, onResumeDetect may redirect to the resume offer (StateRunHistory) —
+	// its guard now keys off StateMainMenu so a resumable run is still offered
+	// after this landing (HU-013 preserved); once originalBranchMsg lands,
+	// onOriginalBranch captures the branch quitCmd will later restore. Both
+	// degrade to nil when their deps are absent, and tea.Batch drops nil
+	// commands cleanly, so this stays a plain advance to the menu for callers
+	// without those deps (e.g. unit tests).
+	m.state = StateMainMenu
 	return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())
 }
 
@@ -266,13 +270,16 @@ func (m Model) onPruneDone(msg pruneDoneMsg) (tea.Model, tea.Cmd) {
 // run. When nothing is resumable it proceeds to the normal flow without a
 // blocking prompt; a detection error also falls back to the normal flow.
 func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
-	if m.state != StateTicketInput {
+	if m.state != StateMainMenu {
 		// Detection is dispatched async from onPrereqDone (RepoState shells out to
 		// git); a slow launch can let this message land AFTER the user already
-		// advanced (typed a ticket, reached commit selection, ...). Acting now
-		// would yank them back to StateTicketInput or hijack them to
-		// StateRunHistory, discarding in-progress work. The resume offer is a
-		// startup-only courtesy, so off the initial screen it is a strict no-op.
+		// advanced off the landing (opened a mode, typed a ticket, ...). Acting
+		// now would yank them back or hijack them to StateRunHistory, discarding
+		// in-progress work. The resume offer is a startup-only courtesy, so off
+		// the initial menu landing it is a strict no-op. HU-018 (design ADR-1):
+		// this guard MUST key off StateMainMenu — the new no-resume landing — or
+		// a resumable run detected right after startup would be silently dropped
+		// (the landing would look like "user already advanced"), killing HU-013.
 		return m, nil
 	}
 	if msg.err != nil {
@@ -284,7 +291,9 @@ func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
 	m.repoState = msg.state
 	idx, ok := firstResumable(records, msg.state)
 	if !ok {
-		m.state = StateTicketInput
+		// Nothing resumable: stay on the HU-018 menu landing (was
+		// StateTicketInput pre-HU-018), symmetric with onPrereqDone.
+		m.state = StateMainMenu
 		return m, nil
 	}
 	m.runsCursor = idx

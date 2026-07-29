@@ -10,10 +10,11 @@ import (
 // TestOnResumeDetect_IgnoredOffTicketInput is HOLE A RED: startup
 // resume-detection fires asynchronously from onPrereqDone, and RepoState shells
 // out to git. If that launch is slow, the user can advance past the initial
-// ticket-input screen before resumeDetectMsg lands. onResumeDetect must then be
-// a NO-OP — it must never yank the user back to StateTicketInput / hijack them
-// to StateRunHistory or discard an in-progress selection. It only acts while
-// the user is still on the initial screen.
+// landing (the HU-018 main menu, or the flow beyond it) before resumeDetectMsg
+// lands. onResumeDetect must then be a NO-OP — it must never yank the user back
+// to the landing / hijack them to StateRunHistory or discard an in-progress
+// selection. It only acts while the user is still on the initial menu landing
+// (guard keys off StateMainMenu, task 2.14).
 func TestOnResumeDetect_IgnoredOffTicketInput(t *testing.T) {
 	t.Run("a resumable message while on commit selection is a no-op", func(t *testing.T) {
 		m := New(Deps{Dir: t.TempDir(), Config: validationConfig(), Runs: runs.NewWriter(t.TempDir())})
@@ -63,10 +64,10 @@ func TestOnResumeDetect_IgnoredOffTicketInput(t *testing.T) {
 		next, cmd := m.Update(resumeDetectMsg{state: git.RepoState{Clean: true}, records: records})
 		nm := next.(Model)
 
-		// Without the guard, "nothing resumable" would reset state to
-		// StateTicketInput — discarding the user's screen and selection.
+		// Without the guard, "nothing resumable" would reset state to the menu
+		// landing (StateMainMenu) — discarding the user's screen and selection.
 		if nm.State() != StateCommitSelection {
-			t.Fatalf("a late nothing-resumable message must not reset the user to StateTicketInput, got %v", nm.State())
+			t.Fatalf("a late nothing-resumable message must not reset the user off StateCommitSelection, got %v", nm.State())
 		}
 		if len(nm.items) != 1 || !nm.items[0].Selected {
 			t.Errorf("the in-progress selection must be preserved, got %+v", nm.items)

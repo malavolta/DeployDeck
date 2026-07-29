@@ -85,9 +85,9 @@ func TestE2E_RunHistory_SeedsOfferDeclineResume(t *testing.T) {
 		t.Errorf("the stale conflict record should be resynced, got phase %q", stale.Phase)
 	}
 
-	// Declining proceeds to the normal flow.
-	if declined := advance(t, m, keyPress("q")); declined.State() != StateTicketInput {
-		t.Fatalf("declining should proceed to StateTicketInput, got %v", declined.State())
+	// Declining proceeds to the main menu (HU-018 ADR-1 refinement).
+	if declined := advance(t, m, keyPress("q")); declined.State() != StateMainMenu {
+		t.Fatalf("declining should proceed to StateMainMenu, got %v", declined.State())
 	}
 
 	// Accepting re-attaches polling to the persisted jobId.

@@ -133,6 +133,12 @@ func driveToCherryPicking(t *testing.T, local string) (Model, *runs.Writer) {
 	}
 	m := New(deps)
 	m = advance(t, m, prereqDoneMsg{checks: []prereq.PrereqCheck{{Name: "git", Status: prereq.StatusOK}}})
+	// HU-018: prereq now lands on the main menu; Enter on the default
+	// "Promocionar ticket" entry (cursor 0) enters the UNCHANGED full flow.
+	if m.State() != StateMainMenu {
+		t.Fatalf("after prereq: want StateMainMenu, got %v", m.State())
+	}
+	m = advance(t, m, keyPress("enter"))
 
 	m = typeString(m, "PROJ-1")
 	m = advance(t, m, keyPress("enter"))

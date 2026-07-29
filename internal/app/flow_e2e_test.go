@@ -131,10 +131,17 @@ func TestHU_FullFlow_PrereqToPickVerification(t *testing.T) {
 		t.Fatalf("start state = %v", m.State())
 	}
 
-	// PrereqCheck -> TicketInput (all-OK report).
+	// PrereqCheck -> StateMainMenu (HU-018 landing).
 	m = advance(t, m, prereqDoneMsg{checks: []prereq.PrereqCheck{{Name: "git", Status: prereq.StatusOK}}})
-	if m.State() != StateTicketInput {
+	if m.State() != StateMainMenu {
 		t.Fatalf("after prereq: %v", m.State())
+	}
+
+	// Main menu -> full flow: Enter on the default "Promocionar ticket" entry
+	// (cursor 0) enters the UNCHANGED promotion flow at StateTicketInput.
+	m = advance(t, m, keyPress("enter"))
+	if m.State() != StateTicketInput {
+		t.Fatalf("Enter on Promocionar should reach StateTicketInput: %v", m.State())
 	}
 
 	// TicketInput -> Discovery.

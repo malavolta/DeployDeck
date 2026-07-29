@@ -7,10 +7,11 @@ import (
 )
 
 // TestModel_PrereqCheck_To_TicketInput drives the first transition directly
-// through Model.Update (design's state diagram: PrereqCheck --> TicketInput on
-// OK). It triangulates the two branches that decide it: an all-OK report
-// advances to ticket input; a report containing a blocking check keeps the
-// user on the doctor screen so they can fix and retry.
+// through Model.Update. Post-HU-018 (design ADR-1) the all-OK, no-resume
+// landing is StateMainMenu (the "menú principal" entry point), NOT
+// StateTicketInput — the full promotion flow is reached from the menu's
+// "Promocionar ticket" entry. A report containing a blocking check still keeps
+// the user on the doctor screen so they can fix and retry.
 func TestModel_PrereqCheck_To_TicketInput(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -18,13 +19,13 @@ func TestModel_PrereqCheck_To_TicketInput(t *testing.T) {
 		wantState State
 	}{
 		{
-			name: "all OK advances to ticket input",
+			name: "all OK advances to the main menu",
 			checks: []prereq.PrereqCheck{
 				{Name: "git", Status: prereq.StatusOK},
 				{Name: "sf", Status: prereq.StatusOK},
 				{Name: "alias", Status: prereq.StatusWarning}, // a warning does NOT block
 			},
-			wantState: StateTicketInput,
+			wantState: StateMainMenu,
 		},
 		{
 			name: "a blocking check keeps the user on the doctor screen",
@@ -76,10 +77,12 @@ func TestModel_PrereqScreen_ContinueBlockedByBlocker(t *testing.T) {
 		t.Errorf("`c` must not advance past a blocking prereq")
 	}
 
-	// With only warnings, `c` continues.
+	// With only warnings, `c` continues — to the HU-018 main-menu landing
+	// (design ADR-1: keyPrereq's `c` is the 4th post-prereq landing site,
+	// alongside onPrereqDone and onResumeDetect's two branches).
 	m.checks = []prereq.PrereqCheck{{Name: "alias", Status: prereq.StatusWarning}}
 	next, _ = m.Update(keyPress("c"))
-	if next.(Model).State() != StateTicketInput {
-		t.Errorf("`c` should continue past warnings, got %v", next.(Model).State())
+	if next.(Model).State() != StateMainMenu {
+		t.Errorf("`c` should continue past warnings to StateMainMenu, got %v", next.(Model).State())
 	}
 }

@@ -170,11 +170,14 @@ func TestKeyRunHistory_Navigation(t *testing.T) {
 		}
 	})
 
-	t.Run("q and esc decline to the normal flow", func(t *testing.T) {
+	t.Run("q and esc decline to the main menu", func(t *testing.T) {
+		// HU-018 (design ADR-1 refinement): declining the resume offer returns to
+		// the main menu — not StateTicketInput — so the hub stays reachable after
+		// a declined resume.
 		for _, key := range []string{"q", "esc"} {
 			m := historyModel(records)
-			if advance(t, m, keyPress(key)).State() != StateTicketInput {
-				t.Errorf("%q should decline the offer and proceed to StateTicketInput", key)
+			if advance(t, m, keyPress(key)).State() != StateMainMenu {
+				t.Errorf("%q should decline the offer and proceed to StateMainMenu", key)
 			}
 		}
 	})

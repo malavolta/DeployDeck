@@ -140,6 +140,30 @@ const (
 	// every prior State's value is never renumbered (HU-017's cleanupPhase
 	// const precedent).
 	StateQuickDeploy
+	// StateMainMenu is HU-018's post-prereq landing (design ADR-1): once
+	// prereqs pass (onPrereqDone) with no resumable run, the flow lands here
+	// — the "menú principal" entry point — instead of jumping straight to
+	// StateTicketInput. Its cursor+Enter selects one of the three modes:
+	// "Promocionar ticket" enters the UNCHANGED full flow (StateTicketInput),
+	// "Generar delta package" the standalone delta flow (StateDeltaSourceSelect),
+	// "Validar package contra sandbox" the standalone validation flow
+	// (StatePackageSelect). q/esc quit. Appended after StateQuickDeploy so every
+	// prior State's value is never renumbered.
+	StateMainMenu
+	// StateDeltaSourceSelect is HU-018's standalone-delta base-branch picker
+	// (Group 3): it lists git branches (git.ListBranches) and, on pick, seeds a
+	// MINIMAL plan and fires deltaCmd. Reached from StateMainMenu's "Generar
+	// delta package" entry with standaloneMode="delta".
+	StateDeltaSourceSelect
+	// StatePackageSelect is HU-018's standalone-validation package-path input
+	// (Group 4): the user provides a package.xml path pre-checked via
+	// parsePackageFile before launch. Reached from StateMainMenu's "Validar
+	// package contra sandbox" entry with standaloneMode="validate".
+	StatePackageSelect
+	// StateSandboxSelect is HU-018's standalone-validation sandbox picker
+	// (Group 4): it lists cfg.Sandboxes and, on confirm, pre-creates a
+	// validate-mode run and fires validateCmd. Reached from StatePackageSelect.
+	StateSandboxSelect
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
@@ -472,6 +496,58 @@ type Model struct {
 	// Deps.CheckUpdate is nil or the check fails/finds nothing newer.
 	updateAvailable bool
 	updateLatest    string
+
+	// StandaloneModes (HU-018): menuCursor indexes the FILTERED
+	// visibleMenuEntries slice on StateMainMenu; standaloneMode ("" /"delta"/
+	// "validate") is the ONLY behavioral discriminator in the otherwise-shared
+	// review/command path (ADR-3) — set on menu dispatch, "" preserves the full
+	// flow verbatim. branchList/branchCursor drive the standalone-delta base
+	// picker (StateDeltaSourceSelect, Group 3); packagePath is the validated
+	// package.xml path and sandboxList/sandboxCursor drive the
+	// standalone-validation sandbox picker (StatePackageSelect/StateSandboxSelect,
+	// Group 4).
+	menuCursor     int
+	standaloneMode string
+	branchList     []git.Branch
+	branchCursor   int
+	packagePath    string
+	sandboxList    []string
+	sandboxCursor  int
+}
+
+// menuEntry is one row of HU-018's StateMainMenu (design ADR-1): its display
+// label, the State its Enter routes to, and whether the mode behind it is
+// actually implemented. The implemented flag drives the hide-unimplemented
+// mechanism (AC3): visibleMenuEntries filters to implemented==true, so a
+// future not-yet-built mode declared here is never shown until it flips true.
+type menuEntry struct {
+	label       string
+	target      State
+	implemented bool
+}
+
+// menuEntries is HU-018's compile-time main-menu surface (design ADR-1
+// "Hide-unimplemented"): the three modes in display order. All three are
+// implemented in this change; the mechanism still hides any future entry
+// added with implemented:false.
+var menuEntries = []menuEntry{
+	{label: "Promocionar ticket", target: StateTicketInput, implemented: true},
+	{label: "Generar delta package", target: StateDeltaSourceSelect, implemented: true},
+	{label: "Validar package contra sandbox", target: StatePackageSelect, implemented: true},
+}
+
+// visibleMenuEntries returns only the implemented entries, preserving their
+// declared order — the hide-unimplemented filter (AC3) both the menu keys and
+// view iterate, so an unimplemented mode never appears and the cursor only
+// ever indexes reachable modes.
+func visibleMenuEntries(entries []menuEntry) []menuEntry {
+	out := make([]menuEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.implemented {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // New builds the initial Model in StatePrereqCheck.

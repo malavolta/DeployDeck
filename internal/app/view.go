@@ -38,6 +38,8 @@ func (m Model) viewBody() string {
 	switch m.state {
 	case StatePrereqCheck:
 		return m.viewPrereq()
+	case StateMainMenu:
+		return m.viewMainMenu()
 	case StateTicketInput:
 		return m.viewTicket()
 	case StateCommitDiscovery:
@@ -122,6 +124,29 @@ func statusMark(s prereq.Status) string {
 	default:
 		return "--"
 	}
+}
+
+// viewMainMenu renders HU-018's StateMainMenu (design ADR-1): the three
+// implemented mode entries (hide-unimplemented via visibleMenuEntries) with the
+// selected row marked, over a quit footer. The cursor indexes the SAME filtered
+// slice keyMainMenu navigates, so the marker and the selectable set never
+// diverge.
+func (m Model) viewMainMenu() string {
+	var b strings.Builder
+	b.WriteString(header("Menu Principal"))
+	b.WriteString("\n  Que quieres hacer?\n\n")
+	for i, e := range visibleMenuEntries(menuEntries) {
+		cursor := " "
+		if i == m.menuCursor {
+			cursor = ">"
+		}
+		b.WriteString(fmt.Sprintf("  %s %s\n", cursor, e.label))
+	}
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q salir"))
+	return b.String()
 }
 
 func (m Model) viewTicket() string {

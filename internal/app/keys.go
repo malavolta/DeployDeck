@@ -14,6 +14,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.state {
 	case StatePrereqCheck:
 		return m.keyPrereq(msg)
+	case StateMainMenu:
+		return m.keyMainMenu(msg)
 	case StateTicketInput:
 		return m.keyTicket(msg)
 	case StateCommitSelection:
@@ -377,19 +379,68 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// keyMainMenu handles HU-018's StateMainMenu (design ADR-1): ↑/↓ (and k/j)
+// move the cursor over the FILTERED visibleMenuEntries slice (clamped so an
+// unimplemented/off-list entry is never selectable), Enter routes the selected
+// entry to its target State and stamps standaloneMode ("" for the unchanged
+// full flow, "delta"/"validate" for the two standalone modes — the single
+// behavioral discriminator, ADR-3). q/esc handling is added in task 2.6.
+func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	entries := visibleMenuEntries(menuEntries)
+	switch msg.String() {
+	case "up", "k":
+		if m.menuCursor > 0 {
+			m.menuCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.menuCursor < len(entries)-1 {
+			m.menuCursor++
+		}
+		return m, nil
+	case "enter":
+		if m.menuCursor < 0 || m.menuCursor >= len(entries) {
+			return m, nil
+		}
+		entry := entries[m.menuCursor]
+		// standaloneMode is derived from the selected target: the full-flow
+		// entry leaves it "" (ADR-3: "" preserves the full flow verbatim), the
+		// two standalone entries stamp their mode so the shared review/command
+		// path forks correctly.
+		switch entry.target {
+		case StateDeltaSourceSelect:
+			m.standaloneMode = "delta"
+		case StatePackageSelect:
+			m.standaloneMode = "validate"
+		default:
+			m.standaloneMode = ""
+		}
+		m.state = entry.target
+		return m, nil
+	case "q", "esc":
+		// The menu is the top-level landing: there is no back target, so both
+		// keys quit (reusing quitCmd's restore/delete choreography like every
+		// other quit site).
+		return m, m.quitCmd()
+	}
+	return m, nil
+}
+
 func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "r":
 		// Retry the prereq check.
 		return m, m.runPrereqCmd()
 	case "c":
-		// Continue with warnings — only allowed when nothing is blocking.
+		// Continue with warnings — only allowed when nothing is blocking. HU-018
+		// (design ADR-1): this `c`-continue is the 4th post-prereq landing site
+		// and must land on the main menu, symmetric with onPrereqDone.
 		if prereqHasBlocking(m.checks) {
 			m.notice = "cannot continue: resolve blocking prerequisites first"
 			return m, nil
 		}
 		m.notice = ""
-		m.state = StateTicketInput
+		m.state = StateMainMenu
 		return m, nil
 	case "q":
 		return m, m.quitCmd()
@@ -804,8 +855,10 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quickErr = nil
 		return m, nil
 	case "q", "esc":
-		// Decline the offer: proceed to the normal flow rather than resuming.
-		m.state = StateTicketInput
+		// Decline the offer: return to the HU-018 main menu (design ADR-1
+		// refinement) rather than StateTicketInput, so the hub stays reachable
+		// after a declined resume.
+		m.state = StateMainMenu
 		return m, nil
 	}
 	return m, nil
