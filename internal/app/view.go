@@ -846,8 +846,22 @@ func (m Model) viewRunHistory() string {
 		if !rec.CreatedAt.IsZero() {
 			date = rec.CreatedAt.Format("2006-01-02 15:04")
 		}
+		// D2 mode-aware render (standalone-modes spec: "Standalone runs
+		// render with a mode-distinct label"): a standalone run shows
+		// "[delta] <base>"/"[validate] <package basename>" in place of its
+		// Ticket/Target columns instead of the meaningless blank "-to-"
+		// placeholder a Mode=="validate" run (empty Ticket/Target) would
+		// otherwise render. Mode=="" (the historical full-promotion default)
+		// keeps its existing Ticket/Target columns unchanged.
+		ticketCol, targetCol := rec.Ticket, rec.Target
+		switch rec.Mode {
+		case "delta":
+			ticketCol, targetCol = "[delta] "+rec.Target, ""
+		case "validate":
+			ticketCol, targetCol = "[validate] "+filepath.Base(rec.ManifestPath), ""
+		}
 		b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-6s %-12s %s\n",
-			cursor, date, rec.Ticket, rec.Target, runProgressLabel(rec), rec.JobID))
+			cursor, date, ticketCol, targetCol, runProgressLabel(rec), rec.JobID))
 	}
 
 	if m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
@@ -855,7 +869,18 @@ func (m Model) viewRunHistory() string {
 		b.WriteString("\n  Run seleccionado:\n")
 		b.WriteString(fmt.Sprintf("  Branch: %s\n", git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)))
 		b.WriteString(fmt.Sprintf("  Commits: %d\n", len(rec.Commits)))
-		b.WriteString(fmt.Sprintf("  Package: %s\n", runPackagePath(m.deps.Config, rec)))
+		// D2: a Mode=="validate" run has no Ticket/Target (never seeded by
+		// standalone validation), so runPackagePath would render the
+		// meaningless blank "-to-" path; show rec.ManifestPath directly
+		// instead. Mode=="delta"/"" both keep runPackagePath — for delta
+		// this is now correct by construction since Ticket/Target are
+		// non-empty (design's "Dir consistency" decision: deltaCmd's output
+		// dir and runPackagePath both derive from the same Ticket/Target).
+		packageLine := runPackagePath(m.deps.Config, rec)
+		if rec.Mode == "validate" {
+			packageLine = rec.ManifestPath
+		}
+		b.WriteString(fmt.Sprintf("  Package: %s\n", packageLine))
 		if m.runDetail {
 			b.WriteString("\n  Detalle:\n")
 			b.WriteString(fmt.Sprintf("  Estado: %s\n", runProgressLabel(rec)))

@@ -431,6 +431,16 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// path forks correctly.
 		switch entry.target {
 		case StateDeltaSourceSelect:
+			// D1 guard (standalone-modes spec: "Standalone Entry Blocked
+			// While A Git Operation Is In Progress"): block BEFORE
+			// standaloneMode/state are set or any command fires. Fail-open
+			// when m.repoState is still zero (not yet populated by
+			// onResumeDetect, design's D1 decision) — InProgress==false
+			// falls through unchanged.
+			if m.repoState.InProgress {
+				m.notice = "resolve the in-progress cherry-pick before starting a standalone delta"
+				return m, nil
+			}
 			// Group 3: the delta base-branch picker needs a live branch list
 			// to navigate, so dispatch fires standaloneBranchesCmd
 			// immediately (mirrors StateBranchCleanup's load-on-entry).
@@ -438,6 +448,11 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state = entry.target
 			return m, m.standaloneBranchesCmd()
 		case StatePackageSelect:
+			// D1 guard, same rationale as the delta case above.
+			if m.repoState.InProgress {
+				m.notice = "resolve the in-progress cherry-pick before starting a standalone validation"
+				return m, nil
+			}
 			m.standaloneMode = "validate"
 		default:
 			m.standaloneMode = ""
@@ -480,10 +495,19 @@ func (m Model) keyDeltaSourceSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// sanitizeBranch folds a base branch name into a string safe to embed as an
+// output-dir/identity segment (design D2): "/" becomes "-" (e.g.
+// "release/1.0" -> "release-1.0"). A branch with no "/" is a no-op.
+func sanitizeBranch(base string) string {
+	return strings.ReplaceAll(base, "/", "-")
+}
+
 // confirmDeltaSourceSelect seeds the MINIMAL DeploymentPlan deltaCmd reads
-// (design ADR-2: Ticket as a fixed standalone marker — the output-dir name
-// only — and TargetBranch as the picked base with any "origin/" prefix
-// stripped so deltaCmd's "origin/"+target resolves correctly), then enters
+// (design D2: Ticket = "standalone-" + sanitizeBranch(base) — a
+// self-describing, per-base identity, replacing the flat literal
+// "standalone" that collided every base into the same output dir — and
+// TargetBranch as the picked base with any "origin/" prefix stripped so
+// deltaCmd's "origin/"+target resolves correctly), then enters
 // StateDeltaGeneration and fires deltaCmd UNCHANGED — the exact same command
 // the full flow uses, mirroring keyVerification's confirm.
 func (m Model) confirmDeltaSourceSelect() (tea.Model, tea.Cmd) {
@@ -497,7 +521,7 @@ func (m Model) confirmDeltaSourceSelect() (tea.Model, tea.Cmd) {
 	// whole plan (never a field-by-field overwrite) guarantees no stale field
 	// survives.
 	m.plan = git.DeploymentPlan{
-		Ticket:       "standalone",
+		Ticket:       "standalone-" + sanitizeBranch(base),
 		TargetBranch: base,
 	}
 	m.notice = ""

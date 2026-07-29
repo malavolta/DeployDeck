@@ -98,6 +98,77 @@ func TestViewRunHistory_DetailOnSelection(t *testing.T) {
 	}
 }
 
+// --- 3.3/3.4: D2 mode-aware identity and render -----------------------------
+
+// TestRunPackagePath_DistinctPerBase is task 3.3 (RED): two standalone-delta
+// runs from different bases produce distinct package.xml paths (D2:
+// standalone-modes spec "Standalone Runs Are Distinguishable And
+// Collision-Free" — the render half; the identity half is
+// TestModel_DeltaSourceSelect_TicketIncludesSanitizedBase in
+// standalone_delta_test.go).
+func TestRunPackagePath_DistinctPerBase(t *testing.T) {
+	cfg := validationConfig()
+	main := runs.Record{Ticket: "standalone-main", Target: "main"}
+	release := runs.Record{Ticket: "standalone-release-1.0", Target: "release/1.0"}
+
+	pMain := runPackagePath(cfg, main)
+	pRelease := runPackagePath(cfg, release)
+
+	if pMain == pRelease {
+		t.Fatalf("distinct bases must produce distinct package paths, both = %q", pMain)
+	}
+}
+
+// TestViewRunHistory_ModeAwareRender is task 3.4 (RED): a standalone run's
+// row and detail Package line render with a mode-distinct label instead of
+// the meaningless blank ticket/target-derived placeholder a Mode=="validate"
+// run (empty Ticket/Target) would otherwise produce via runPackagePath (D2:
+// standalone-modes spec "Standalone runs render with a mode-distinct
+// label"). A Mode=="" run (the historical full-promotion default — same
+// fixture as TestViewRunHistory_DetailOnSelection) keeps rendering
+// unchanged. (Scope: task 3.7 touches only the row loop and the detail's
+// "Package:" line — the "Branch:" line is out of scope and untouched.)
+func TestViewRunHistory_ModeAwareRender(t *testing.T) {
+	t.Run("Mode=delta renders [delta] <base>", func(t *testing.T) {
+		m := historyModel([]runs.Record{
+			{RunID: "d", Mode: "delta", Ticket: "standalone-main", Target: "main", CreatedAt: time.Now()},
+		})
+		m.runsCursor = 0
+		v := m.View()
+		if !strings.Contains(v, "[delta] main") {
+			t.Errorf("history should render a mode-distinct label for a delta run:\n%s", v)
+		}
+	})
+
+	t.Run("Mode=validate renders [validate] <package basename>", func(t *testing.T) {
+		m := historyModel([]runs.Record{
+			{RunID: "v", Mode: "validate", ManifestPath: "/repo/.deploydeck/manifest/pkg/package.xml", CreatedAt: time.Now()},
+		})
+		m.runsCursor = 0
+		v := m.View()
+		if !strings.Contains(v, "[validate] package.xml") {
+			t.Errorf("history should render a mode-distinct label for a validate run:\n%s", v)
+		}
+		if !strings.Contains(v, "Package: /repo/.deploydeck/manifest/pkg/package.xml") {
+			t.Errorf("the detail Package line should show rec.ManifestPath directly, not the blank runPackagePath -to- placeholder:\n%s", v)
+		}
+	})
+
+	t.Run("Mode=\"\" keeps the existing full-flow render unchanged", func(t *testing.T) {
+		m := historyModel([]runs.Record{
+			{RunID: "sel", Ticket: "PROJ-1", Target: "UAT", Commits: []string{"a", "b"}, CreatedAt: time.Now()},
+		})
+		m.runsCursor = 0
+		v := m.View()
+		if !strings.Contains(v, "PROJ-1") || !strings.Contains(v, "UAT") {
+			t.Errorf("Mode=\"\" row should keep showing Ticket/Target unchanged, got:\n%s", v)
+		}
+		if !strings.Contains(v, "PROJ-1-to-UAT/package/package.xml") {
+			t.Errorf("Mode=\"\" detail should keep showing runPackagePath, got:\n%s", v)
+		}
+	})
+}
+
 // --- 5.7/5.8: history keys --------------------------------------------------
 
 // TestKeyRunHistory_Navigation is task 5.7 (RED): ↑/↓ move the cursor, `d`

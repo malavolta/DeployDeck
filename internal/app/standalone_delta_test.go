@@ -52,6 +52,29 @@ func TestStandaloneBranchesCmd_ComposesListBranches(t *testing.T) {
 	}
 }
 
+// TestSanitizeBranch is task 3.1 (RED): sanitizeBranch folds "/" to "-" so a
+// picked base branch name is safe to embed in the standalone-delta run
+// identity (design D2: Ticket = "standalone-" + sanitizeBranch(base)); a
+// branch with no "/" is a no-op.
+func TestSanitizeBranch(t *testing.T) {
+	tests := []struct {
+		name string
+		base string
+		want string
+	}{
+		{name: "slash-separated branch folds to a hyphen", base: "release/1.0", want: "release-1.0"},
+		{name: "a branch with no slash is a no-op", base: "main", want: "main"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeBranch(tt.base); got != tt.want {
+				t.Errorf("sanitizeBranch(%q) = %q, want %q", tt.base, got, tt.want)
+			}
+		})
+	}
+}
+
 // deltaSourceSelectModel parks a Model on StateDeltaSourceSelect with a
 // preloaded branch list, as onStandaloneBranches would have left it.
 func deltaSourceSelectModel(branches []git.Branch, cursor int) Model {
@@ -83,8 +106,8 @@ func TestModel_DeltaSourceSelect_CursorPickAndNormalize(t *testing.T) {
 	if nm.Plan().TargetBranch != "main" {
 		t.Fatalf("origin/ prefix should be stripped, got TargetBranch=%q", nm.Plan().TargetBranch)
 	}
-	if nm.Plan().Ticket != "standalone" {
-		t.Fatalf("standalone delta should seed a fixed Ticket, got %q", nm.Plan().Ticket)
+	if nm.Plan().Ticket != "standalone-main" {
+		t.Fatalf("standalone delta should seed a base-sanitized Ticket, got %q", nm.Plan().Ticket)
 	}
 	if nm.State() != StateDeltaGeneration {
 		t.Fatalf("confirm should enter StateDeltaGeneration (deltaCmd unchanged), got %v", nm.State())
@@ -122,8 +145,8 @@ func TestModel_DeltaSourceSelect_Confirm_ResetsStalePlan(t *testing.T) {
 	nm := next.(Model)
 
 	// Fresh minimal plan: only Ticket + the normalized TargetBranch.
-	if nm.Plan().Ticket != "standalone" {
-		t.Errorf("standalone delta Ticket = %q, want %q", nm.Plan().Ticket, "standalone")
+	if nm.Plan().Ticket != "standalone-main" {
+		t.Errorf("standalone delta Ticket = %q, want %q", nm.Plan().Ticket, "standalone-main")
 	}
 	if nm.Plan().TargetBranch != "main" {
 		t.Errorf("standalone delta TargetBranch = %q, want %q", nm.Plan().TargetBranch, "main")
@@ -150,6 +173,31 @@ func TestModel_DeltaSourceSelect_Confirm_ResetsStalePlan(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("confirm should fire deltaCmd")
+	}
+}
+
+// TestModel_DeltaSourceSelect_TicketIncludesSanitizedBase is task 3.2 (RED):
+// design D2's identity fix — confirmDeltaSourceSelect folds the picked
+// (normalized) base branch into the run's Ticket (Ticket = "standalone-" +
+// sanitizeBranch(base)) instead of the flat literal "standalone", so
+// standalone-delta runs from different bases produce distinct identities
+// (standalone-modes spec: "Standalone Runs Are Distinguishable And
+// Collision-Free").
+func TestModel_DeltaSourceSelect_TicketIncludesSanitizedBase(t *testing.T) {
+	branches := []git.Branch{
+		{Name: "main", Remote: false},
+		{Name: "origin/release/1.0", Remote: true},
+	}
+	m := deltaSourceSelectModel(branches, 1)
+
+	next, _ := m.Update(keyPress("enter"))
+	nm := next.(Model)
+
+	if nm.Plan().Ticket != "standalone-release-1.0" {
+		t.Fatalf("standalone delta Ticket = %q, want %q", nm.Plan().Ticket, "standalone-release-1.0")
+	}
+	if nm.Plan().TargetBranch != "release/1.0" {
+		t.Fatalf("TargetBranch should keep the normalized base unchanged, got %q", nm.Plan().TargetBranch)
 	}
 }
 

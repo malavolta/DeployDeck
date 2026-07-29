@@ -165,6 +165,106 @@ func TestOnResumeDetect_GuardUsesMainMenu(t *testing.T) {
 	}
 }
 
+// TestKeyMainMenu_BlocksStandaloneEntryWhileInProgress is tasks 2.1-2.3
+// (RED): D1's in-progress entry guard (standalone-modes spec: "Standalone
+// Entry Blocked While A Git Operation Is In Progress"). Both standalone
+// entries (delta, validate) are blocked with an actionable notice and fire
+// no command while `m.repoState.InProgress` is true; with no operation in
+// progress, entry proceeds normally (regression); the Promote entry is
+// unaffected either way.
+func TestKeyMainMenu_BlocksStandaloneEntryWhileInProgress(t *testing.T) {
+	t.Run("delta entry blocked while a git operation is in progress", func(t *testing.T) {
+		m := mainMenuModel(1)
+		m.repoState.InProgress = true
+
+		next, cmd := m.keyMainMenu(keyPress("enter"))
+		nm := next.(Model)
+
+		if nm.State() != StateMainMenu {
+			t.Fatalf("blocked delta entry should stay on StateMainMenu, got %v", nm.State())
+		}
+		if nm.standaloneMode != "" {
+			t.Errorf("blocked delta entry must not set standaloneMode, got %q", nm.standaloneMode)
+		}
+		if nm.notice == "" {
+			t.Error("blocked delta entry should surface an actionable notice")
+		}
+		if cmd != nil {
+			t.Error("blocked delta entry must not fire any command")
+		}
+	})
+
+	t.Run("validate entry blocked while a git operation is in progress", func(t *testing.T) {
+		m := mainMenuModel(2)
+		m.repoState.InProgress = true
+
+		next, cmd := m.keyMainMenu(keyPress("enter"))
+		nm := next.(Model)
+
+		if nm.State() != StateMainMenu {
+			t.Fatalf("blocked validate entry should stay on StateMainMenu, got %v", nm.State())
+		}
+		if nm.standaloneMode != "" {
+			t.Errorf("blocked validate entry must not set standaloneMode, got %q", nm.standaloneMode)
+		}
+		if nm.notice == "" {
+			t.Error("blocked validate entry should surface an actionable notice")
+		}
+		if cmd != nil {
+			t.Error("blocked validate entry must not fire any command")
+		}
+	})
+
+	t.Run("delta entry proceeds normally with no operation in progress", func(t *testing.T) {
+		m := mainMenuModel(1)
+		m.repoState.InProgress = false
+
+		next, cmd := m.keyMainMenu(keyPress("enter"))
+		nm := next.(Model)
+
+		if nm.State() != StateDeltaSourceSelect {
+			t.Fatalf("delta entry should reach StateDeltaSourceSelect, got %v", nm.State())
+		}
+		if nm.standaloneMode != "delta" {
+			t.Errorf("delta entry should set standaloneMode=delta, got %q", nm.standaloneMode)
+		}
+		if cmd == nil {
+			t.Error("delta entry should fire standaloneBranchesCmd")
+		}
+	})
+
+	t.Run("validate entry proceeds normally with no operation in progress", func(t *testing.T) {
+		m := mainMenuModel(2)
+		m.repoState.InProgress = false
+
+		next, cmd := m.keyMainMenu(keyPress("enter"))
+		nm := next.(Model)
+
+		if nm.State() != StatePackageSelect {
+			t.Fatalf("validate entry should reach StatePackageSelect, got %v", nm.State())
+		}
+		if nm.standaloneMode != "validate" {
+			t.Errorf("validate entry should set standaloneMode=validate, got %q", nm.standaloneMode)
+		}
+		_ = cmd
+	})
+
+	t.Run("Promote entry unaffected by in-progress state", func(t *testing.T) {
+		m := mainMenuModel(0)
+		m.repoState.InProgress = true
+
+		next, _ := m.keyMainMenu(keyPress("enter"))
+		nm := next.(Model)
+
+		if nm.State() != StateTicketInput {
+			t.Fatalf("Promote entry should still reach StateTicketInput while in-progress, got %v", nm.State())
+		}
+		if nm.standaloneMode != "" {
+			t.Errorf("the full flow must leave standaloneMode empty, got %q", nm.standaloneMode)
+		}
+	})
+}
+
 // TestModel_MainMenu_QEscQuits is task 2.5 (RED): q and esc on StateMainMenu
 // quit the app (the menu is a top-level landing, not a nested screen with a
 // back target). Each yields a command that ultimately returns tea.QuitMsg.
