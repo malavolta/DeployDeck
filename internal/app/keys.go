@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyMainMenu(msg)
 	case StateDeltaSourceSelect:
 		return m.keyDeltaSourceSelect(msg)
+	case StatePackageSelect:
+		return m.keyPackageSelect(msg)
+	case StateSandboxSelect:
+		return m.keySandboxSelect(msg)
 	case StateTicketInput:
 		return m.keyTicket(msg)
 	case StateCommitSelection:
@@ -479,6 +484,171 @@ func (m Model) confirmDeltaSourceSelect() (tea.Model, tea.Cmd) {
 	m.deltaErr = nil
 	m.state = StateDeltaGeneration
 	return m, m.deltaCmd()
+}
+
+// keyPackageSelect handles HU-018's standalone-validation package-path input
+// (StatePackageSelect, Group 4): typed-text entry into m.packagePath,
+// reusing the keyTicket idiom (backspace/KeyRunes buffer build). `q` is
+// guarded exactly like keyTicket's `b` shortcut — only treated as "back" on
+// an EMPTY buffer — so a path that happens to contain the letter q (e.g.
+// "qa/package.xml") types correctly instead of being swallowed as a quit;
+// `esc` always backs out unconditionally to StateMainMenu. `enter` runs the
+// pre-check (confirmPackageSelect) before ever considering a launch.
+func (m Model) keyPackageSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.packagePath == "" {
+			m.notice = "ingresa la ruta al package.xml"
+			return m, nil
+		}
+		return m.confirmPackageSelect()
+	case "q":
+		if m.packagePath != "" {
+			m.packagePath += "q"
+			return m, nil
+		}
+		m.notice = ""
+		m.state = StateMainMenu
+		return m, nil
+	case "esc":
+		m.notice = ""
+		m.state = StateMainMenu
+		return m, nil
+	case "backspace":
+		if n := len(m.packagePath); n > 0 {
+			m.packagePath = m.packagePath[:n-1]
+		}
+		return m, nil
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.packagePath += string(msg.Runes)
+		}
+		return m, nil
+	}
+}
+
+// confirmPackageSelect is HU-018's validate path pre-check (design
+// "Validate path pre-check: parsePackageFile(path,false); on error set
+// actionable m.notice, STAY on StatePackageSelect, do NOT fire
+// validateCmd"): parsePackageFile is the SAME reader deltaCmd's summary step
+// uses, reused UNCHANGED, so a nonexistent or malformed package.xml is
+// caught HERE — before validateCmd/ValidateDeploy is ever reachable. On
+// success it advances to StateSandboxSelect with the picker built
+// SYNCHRONOUSLY from cfg.Sandboxes (design ADR-2: "no exec" — unlike the
+// delta base-branch picker, this needs no async command/message).
+func (m Model) confirmPackageSelect() (tea.Model, tea.Cmd) {
+	if _, err := parsePackageFile(m.packagePath, false); err != nil {
+		m.notice = "no se pudo leer el package.xml: " + err.Error()
+		return m, nil
+	}
+	m.notice = ""
+	m.sandboxList = standaloneSandboxAliases(m.deps.Config)
+	m.sandboxCursor = 0
+	m.state = StateSandboxSelect
+	return m, nil
+}
+
+// standaloneSandboxAliases returns the deduplicated, sorted set of configured
+// sandbox aliases (HU-018 Group 4's StateSandboxSelect picker list), built
+// directly from cfg.Sandboxes — the config is already synchronously
+// available (Deps.Config), so unlike the delta base-branch picker this needs
+// no async command/message (design ADR-2 "no exec"). Sorting keeps the
+// picker's order deterministic across the map's inherently unstable
+// iteration.
+func standaloneSandboxAliases(cfg config.Config) []string {
+	seen := map[string]bool{}
+	var aliases []string
+	for _, sb := range cfg.Sandboxes {
+		if sb.Alias == "" || seen[sb.Alias] {
+			continue
+		}
+		seen[sb.Alias] = true
+		aliases = append(aliases, sb.Alias)
+	}
+	sort.Strings(aliases)
+	return aliases
+}
+
+// standaloneSandboxTestLevel resolves the configured TestLevel for alias
+// (design ADR-2's minimal-plan table: "TestLevel=<SandboxConfig.TestLevel>")
+// by scanning cfg.Sandboxes for the first entry whose Alias matches. Empty
+// when no entry matches — a safe zero-value default (validateCmd passes it
+// straight through to the sf CLI's own --test-level flag).
+func standaloneSandboxTestLevel(cfg config.Config, alias string) string {
+	for _, sb := range cfg.Sandboxes {
+		if sb.Alias == alias {
+			return sb.TestLevel
+		}
+	}
+	return ""
+}
+
+// keySandboxSelect handles HU-018's standalone-validation sandbox picker
+// (StateSandboxSelect, Group 4): ↑/↓ (and k/j) navigate m.sandboxList
+// (loaded synchronously by confirmPackageSelect); Enter confirms the
+// selected alias; q/esc return to StatePackageSelect (the previous step —
+// unlike StateDeltaSourceSelect/StateMainMenu, which back out to the top-level
+// menu, this screen backs out only one step).
+func (m Model) keySandboxSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.sandboxCursor > 0 {
+			m.sandboxCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.sandboxCursor < len(m.sandboxList)-1 {
+			m.sandboxCursor++
+		}
+		return m, nil
+	case "enter":
+		return m.confirmSandboxSelect()
+	case "q", "esc":
+		m.notice = ""
+		m.state = StatePackageSelect
+		return m, nil
+	}
+	return m, nil
+}
+
+// confirmSandboxSelect seeds the MINIMAL DeploymentPlan validateCmd's REUSE
+// branch reads (design ADR-2: PackageXMLPath/SandboxAlias/TestLevel — never
+// Ticket/TargetBranch, which only the FALLBACK branch consumes), then
+// pre-creates a local run tagged Mode="validate" BEFORE firing validateCmd
+// (design ADR-4: "on sandbox confirm, BEFORE firing validateCmd") — mirroring
+// onBranchCreated's best-effort, nil-Runs-safe save — and sets m.runID so
+// validateCmd's EXISTING runID!="" reuse branch (commands.go, UNCHANGED)
+// Loads this very record and merges the jobId onto it instead of creating a
+// second run. Finally it enters StateValidationStart and fires validateCmd
+// UNCHANGED — the exact same command the full flow uses, mirroring
+// confirmDeltaSourceSelect's confirm-then-fire shape.
+func (m Model) confirmSandboxSelect() (tea.Model, tea.Cmd) {
+	if m.sandboxCursor < 0 || m.sandboxCursor >= len(m.sandboxList) {
+		return m, nil
+	}
+	alias := m.sandboxList[m.sandboxCursor]
+	m.plan.PackageXMLPath = m.packagePath
+	m.plan.SandboxAlias = alias
+	m.plan.TestLevel = standaloneSandboxTestLevel(m.deps.Config, alias)
+	m.notice = ""
+	m.validateErr = nil
+
+	if m.deps.Runs != nil {
+		now := m.now()
+		m.runID = "validate-" + alias + "-" + now.Format("20060102150405")
+		_ = m.deps.Runs.Save(runs.Record{
+			RunID:        m.runID,
+			Mode:         "validate",
+			ManifestPath: m.packagePath,
+			Alias:        alias,
+			TestLevel:    m.plan.TestLevel,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		})
+	}
+
+	m.state = StateValidationStart
+	return m, m.validateCmd()
 }
 
 func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

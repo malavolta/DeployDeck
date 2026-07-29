@@ -72,14 +72,14 @@ For `feature-branch-chain` (if chosen): PR2 base = tracker branch (`standalone-m
 
 ## Group 4 — Standalone validation
 
-- [ ] 4.1 RED `internal/app/standalone_validate_test.go` (new): `TestModel_PackageSelect_ValidPath_AdvancesToSandboxSelect` — real `t.TempDir()` valid `package.xml`, `enter` → pre-check passes, `packagePath` set, state → `StateSandboxSelect`, `sandboxList` from `cfg.Sandboxes`.
-- [ ] 4.2 GREEN `internal/app/keys.go` (`keyPackageSelect`, `enter` runs `parsePackageFile(path,false)`), `internal/app/view.go` (`viewPackageSelect`); wire dispatch/switch; menu validate-branch lands here.
-- [ ] 4.3 RED `internal/app/standalone_validate_test.go`: `TestModel_PackageSelect_NonexistentOrInvalidPackage_BlocksAdvance` — table {nonexistent, malformed-XML} → stays `StatePackageSelect`, actionable `m.notice`, no state change. AC: "Invalid Or Nonexistent Package Rejected Before Launch".
-- [ ] 4.4 GREEN — covered by 4.2's error branch; confirm passes.
-- [ ] 4.5 RED `internal/app/standalone_validate_test.go`: `TestModel_SandboxSelect_ConfirmPreCreatesRunAndFiresValidateCmd` — real writer, `enter` → minimal plan `{PackageXMLPath,SandboxAlias,TestLevel}`; `writer.List()` shows a pre-created run `Mode=="validate"`, `ManifestPath` set, `JobID==""`; `m.runID` set; state → `StateValidationStart`; returns `validateCmd`. AC: "Standalone Validation Launches And Polls Like The Full Flow", "Standalone Modes Create A Local Run" (validate).
-- [ ] 4.6 GREEN `internal/app/keys.go`: `keySandboxSelect` — nav+`enter` sets minimal plan, `Writer.Save(runs.Record{RunID:"validate-"+alias+"-"+ts, Mode:"validate", ManifestPath, Alias, TestLevel})`, sets `m.runID`, state `StateValidationStart`, returns `m.validateCmd()`; `internal/app/view.go` `viewSandboxSelect`; wire dispatch/switch.
-- [ ] 4.7 RED `internal/app/standalone_validate_test.go`: `TestValidateCmd_StandaloneValidate_MergesJobIdOntoPreCreatedRecord` — pre-created `Mode="validate"` record + `m.runID` set, fake `SF.ValidateDeploy` success → `validateCmd()`'s existing `runID!=""` reuse branch (`commands.go:748-764`, UNCHANGED) merges `JobID`; `writer.Load` shows `Mode`/`ManifestPath` survive the round-trip.
-- [ ] 4.8 Gate: `go test ./internal/app/...` + `go vet ./...` green.
+- [x] 4.1 RED `internal/app/standalone_validate_test.go` (new): `TestModel_PackageSelect_ValidPath_AdvancesToSandboxSelect` — real `t.TempDir()` valid `package.xml`, `enter` → pre-check passes, `packagePath` set, state → `StateSandboxSelect`, `sandboxList` from `cfg.Sandboxes`.
+- [x] 4.2 GREEN `internal/app/keys.go` (`keyPackageSelect`, `enter` runs `parsePackageFile(path,false)`), `internal/app/view.go` (`viewPackageSelect`); wire dispatch/switch; menu validate-branch lands here.
+- [x] 4.3 RED `internal/app/standalone_validate_test.go`: `TestModel_PackageSelect_NonexistentOrInvalidPackage_BlocksAdvance` — table {nonexistent, malformed-XML} → stays `StatePackageSelect`, actionable `m.notice`, no state change. AC: "Invalid Or Nonexistent Package Rejected Before Launch".
+- [x] 4.4 GREEN — covered by 4.2's error branch; confirm passes.
+- [x] 4.5 RED `internal/app/standalone_validate_test.go`: `TestModel_SandboxSelect_ConfirmPreCreatesRunAndFiresValidateCmd` — real writer, `enter` → minimal plan `{PackageXMLPath,SandboxAlias,TestLevel}`; `writer.List()` shows a pre-created run `Mode=="validate"`, `ManifestPath` set, `JobID==""`; `m.runID` set; state → `StateValidationStart`; returns `validateCmd`. AC: "Standalone Validation Launches And Polls Like The Full Flow", "Standalone Modes Create A Local Run" (validate).
+- [x] 4.6 GREEN `internal/app/keys.go`: `keySandboxSelect` — nav+`enter` sets minimal plan, `Writer.Save(runs.Record{RunID:"validate-"+alias+"-"+ts, Mode:"validate", ManifestPath, Alias, TestLevel})`, sets `m.runID`, state `StateValidationStart`, returns `m.validateCmd()`; `internal/app/view.go` `viewSandboxSelect`; wire dispatch/switch.
+- [x] 4.7 RED `internal/app/standalone_validate_test.go`: `TestValidateCmd_StandaloneValidate_MergesJobIdOntoPreCreatedRecord` — pre-created `Mode="validate"` record + `m.runID` set, fake `SF.ValidateDeploy` success → `validateCmd()`'s existing `runID!=""` reuse branch (`commands.go:748-764`, UNCHANGED) merges `JobID`; `writer.Load` shows `Mode`/`ManifestPath` survive the round-trip.
+- [x] 4.8 Gate: `go test ./internal/app/...` + `go vet ./...` green.
 
 ## Group 5 — Consolidated HU-018 e2e
 

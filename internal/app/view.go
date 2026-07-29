@@ -42,6 +42,10 @@ func (m Model) viewBody() string {
 		return m.viewMainMenu()
 	case StateDeltaSourceSelect:
 		return m.viewDeltaSourceSelect()
+	case StatePackageSelect:
+		return m.viewPackageSelect()
+	case StateSandboxSelect:
+		return m.viewSandboxSelect()
 	case StateTicketInput:
 		return m.viewTicket()
 	case StateCommitDiscovery:
@@ -168,6 +172,49 @@ func (m Model) viewDeltaSourceSelect() string {
 			cursor = ">"
 		}
 		b.WriteString(fmt.Sprintf("  %s %s\n", cursor, br.Name))
+	}
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q/Esc volver"))
+	return b.String()
+}
+
+// viewPackageSelect renders HU-018's standalone-validation package-path
+// input (StatePackageSelect, Group 4): the typed path, echoed the same way
+// viewTicket echoes its buffer, plus an actionable notice on a pre-check
+// failure (confirmPackageSelect: parsePackageFile is checked BEFORE launch,
+// never after), over a back footer.
+func (m Model) viewPackageSelect() string {
+	var b strings.Builder
+	b.WriteString(header("Validar Package"))
+	b.WriteString("\n  Ruta al package.xml\n\n")
+	b.WriteString("  " + m.packagePath + "_\n")
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("Enter continuar   q/Esc volver"))
+	return b.String()
+}
+
+// viewSandboxSelect renders HU-018's standalone-validation sandbox picker
+// (StateSandboxSelect, Group 4): the chosen package path, the configured
+// sandbox aliases (standaloneSandboxAliases) with the cursor marker, over a
+// back-one-step footer. Confirming here pre-creates the Mode="validate" run
+// and fires validateCmd (confirmSandboxSelect).
+func (m Model) viewSandboxSelect() string {
+	var b strings.Builder
+	b.WriteString(header("Elegir Sandbox"))
+	b.WriteString(fmt.Sprintf("\n  Package: %s\n\n  Sandbox\n\n", m.packagePath))
+	if len(m.sandboxList) == 0 {
+		b.WriteString("  (sin sandboxes configuradas)\n")
+	}
+	for i, alias := range m.sandboxList {
+		cursor := " "
+		if i == m.sandboxCursor {
+			cursor = ">"
+		}
+		b.WriteString(fmt.Sprintf("  %s %s\n", cursor, alias))
 	}
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
