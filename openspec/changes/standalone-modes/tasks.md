@@ -99,5 +99,19 @@ For `feature-branch-chain` (if chosen): PR2 base = tracker branch (`standalone-m
 
 ## Group 6 — Docs housekeeping
 
-- [ ] 6.1 `docs/HISTORIAS.md`: mark HU-018's implemented AC items (menu, standalone delta, standalone validation, invalid-package/empty-delta variants, resume-regression guard); leave existing "Fase Futuro" marker as-is — no fabricated status beyond what's true.
-- [ ] 6.2 Check README/`docs/ACTIVATION-CHECKLIST.md` for an HU-018-status reference; update if present, else skip-with-rationale (record "N/A — no such reference exists") per prior-slice policy.
+- [x] 6.1 SKIPPED (rationale): `docs/HISTORIAS.md` has NO per-HU "Implementado"/per-AC status marker on any delivered story (HU-001..017/019 carry none) — completion is recorded by this project's real conventions (the openspec archive merging the delta specs into living specs + the session memory), not a status line in the requirements doc. Adding markers only to HU-018 would be inconsistent noise; HU-018 stays "Fase Futuro" as written.
+- [x] 6.2 SKIPPED (rationale): README/`docs/ACTIVATION-CHECKLIST.md` carry no HU-018-status reference (the activation checklist is HU-019-release-specific) — N/A, nothing to update.
+
+## Review Remediations (adversarial)
+
+Strict TDD (RED confirmed for the right reason → GREEN). Full `go build ./... && go vet ./... && go test ./... -race -count=1` + `gofmt -l` green after the batch.
+
+- [x] R1 [HIGH] Stale `m.plan` bleeds into standalone modes (destructive-changes false-safety). `confirmSandboxSelect` and `confirmDeltaSourceSelect` now build a FRESH minimal `git.DeploymentPlan` (never a field-by-field overwrite), so no prior full-flow `DestructiveChangesPath`/`SelectedCommits`/`PromotionBranch` survives into a standalone validate/delta. Tests: `TestModel_SandboxSelect_Confirm_ResetsStalePlanBeforeValidate` (asserts fresh plan + no `--post-destructive-changes` / `/stale/` in the fired sf validate args via `FakeRunner.Calls`), `TestModel_DeltaSourceSelect_Confirm_ResetsStalePlan`.
+- [x] R2 [MED] `onValidateDone` clobbered `m.runID` on a validate error. Guarded to `if msg.runID != "" { m.runID = msg.runID }`, so a pre-created `Mode="validate"` run id survives an error (retry reuses it, no orphan/malformed fallback run). Test: `TestOnValidateDone_ErrorPreservesPreCreatedRunID` (error keeps `validate-xyz`; a success with a runID still sets it).
+- [x] R3 [MED] Standalone-validate success offered push/delete on an empty branch. `keySucceeded` gates `p`/`d` and `viewValidationResult` gates the push footer on `m.plan.PromotionBranch != ""`. Tests: `TestKeySucceeded_StandaloneValidate_NoPushOrDeleteWithoutPromotionBranch` (RED), `TestKeySucceeded_FullFlow_PushAndDeleteStillWork` (regression — full-flow `p`/`d`/footer still work).
+- [x] R4 [LOW] `keyPrereq` `c`-continue not symmetric with `onPrereqDone`. The `c` branch now returns `tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())` alongside `StateMainMenu`. Test: `TestKeyPrereq_Continue_IsSymmetricWithOnPrereqDone` (non-nil batch, mirrors `onPrereqDone`).
+
+### Deliberately deferred (documented, not fixed)
+
+- [ ] D1 [LOW] No in-progress guard on standalone modes (`deltaCmd` over a mid-cherry-pick tree). Degrades to an `sf sgd` error, no crash — left as-is.
+- [ ] D2 [LOW] Cosmetic blank Ticket/Target render + fixed `standalone` delta output-dir collision. No functional break; standalone runs are correctly inert in resume/re-promote/quick-deploy (`Mode="delta"` `Status=""` → not quick-deploy-eligible; standalone-validate empty Target → `IsProductionTarget` fail-closed).

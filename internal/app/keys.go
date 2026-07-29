@@ -84,6 +84,13 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "p":
+		// A run with no promotion branch (a standalone validate — HU-018) never
+		// created a deliverable branch, so push is nonsensical: `git push -u
+		// origin ""` is an invalid refspec (adversarial-review Finding 3). Only
+		// offer push when a promotion branch actually exists.
+		if m.plan.PromotionBranch == "" {
+			return m, nil
+		}
 		m.pushErr = nil
 		m.prErr = nil
 		m.prURL = ""
@@ -91,6 +98,12 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = StatePushPreparation
 		return m, nil
 	case "d":
+		// Same promotion-branch gate as `p` (Finding 3): a promotion-less
+		// standalone validate has no branch to delete, so never fire the
+		// inline delete gate on it.
+		if m.plan.PromotionBranch == "" {
+			return m, nil
+		}
 		// Gate the confirmation strength on the CURRENT run's real
 		// unpushed-commit count (design.md "Unpushed gate: on d, fire
 		// unpushedCountCmd(name)") — never assumed from currentPushed alone,
@@ -478,8 +491,15 @@ func (m Model) confirmDeltaSourceSelect() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	base := strings.TrimPrefix(m.branchList[m.branchCursor].Name, "origin/")
-	m.plan.Ticket = "standalone"
-	m.plan.TargetBranch = base
+	// Build a FRESH minimal plan (adversarial-review Finding 1): no prior
+	// full-flow SelectedCommits / PackageXMLPath / DestructiveChangesPath /
+	// PromotionBranch may bleed into this standalone delta run. Replacing the
+	// whole plan (never a field-by-field overwrite) guarantees no stale field
+	// survives.
+	m.plan = git.DeploymentPlan{
+		Ticket:       "standalone",
+		TargetBranch: base,
+	}
 	m.notice = ""
 	m.deltaErr = nil
 	m.state = StateDeltaGeneration
@@ -627,9 +647,18 @@ func (m Model) confirmSandboxSelect() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	alias := m.sandboxList[m.sandboxCursor]
-	m.plan.PackageXMLPath = m.packagePath
-	m.plan.SandboxAlias = alias
-	m.plan.TestLevel = standaloneSandboxTestLevel(m.deps.Config, alias)
+	// Build a FRESH minimal plan (adversarial-review Finding 1): a prior
+	// full-flow promotion's DestructiveChangesPath (and every other field) must
+	// NOT bleed into this standalone validation — validateCmd reads
+	// plan.DestructiveChangesPath as PostDestructivePath, so a leftover value
+	// would silently include an earlier promotion's destructive deletions.
+	// Replacing the whole plan (never a field-by-field overwrite) guarantees no
+	// stale field survives.
+	m.plan = git.DeploymentPlan{
+		PackageXMLPath: m.packagePath,
+		SandboxAlias:   alias,
+		TestLevel:      standaloneSandboxTestLevel(m.deps.Config, alias),
+	}
 	m.notice = ""
 	m.validateErr = nil
 
@@ -666,7 +695,13 @@ func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.notice = ""
 		m.state = StateMainMenu
-		return m, nil
+		// Symmetric with onPrereqDone (adversarial-review Finding 4): this
+		// `c`-continue is the 4th post-prereq landing site, so it must fire the
+		// SAME startup batch — HU-013 resume-detection and HU-017's original-
+		// branch capture — that onPrereqDone's clean landing does. Both cmds
+		// degrade to nil without their deps and tea.Batch drops nils cleanly, so
+		// this stays a plain advance for callers without those deps.
+		return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())
 	case "q":
 		return m, m.quitCmd()
 	}

@@ -94,6 +94,65 @@ func TestModel_DeltaSourceSelect_CursorPickAndNormalize(t *testing.T) {
 	}
 }
 
+// TestModel_DeltaSourceSelect_Confirm_ResetsStalePlan is the adversarial-review
+// remediation for Finding 1 (HIGH), delta side: confirmDeltaSourceSelect must
+// build a FRESH minimal {Ticket, TargetBranch} plan so a prior full-flow
+// promotion's SelectedCommits / PackageXMLPath / DestructiveChangesPath /
+// PromotionBranch cannot bleed into the standalone delta run. AC: "Standalone
+// Delta Generates A Package Without Cherry-Picks" (no stale-state leak).
+func TestModel_DeltaSourceSelect_Confirm_ResetsStalePlan(t *testing.T) {
+	branches := []git.Branch{
+		{Name: "main", Remote: false},
+		{Name: "origin/main", Remote: true},
+	}
+	m := deltaSourceSelectModel(branches, 1)
+	// Pre-seed a DIRTY plan from a prior full-flow promotion.
+	m.plan = git.DeploymentPlan{
+		Ticket:                 "PROJ-9",
+		SelectedCommits:        []git.DiscoveredCommit{{}},
+		TargetBranch:           "UAT",
+		SandboxAlias:           "OLD_SBX",
+		TestLevel:              "NoTestRun",
+		PromotionBranch:        "PROJ-9-to-UAT",
+		PackageXMLPath:         "/stale/package.xml",
+		DestructiveChangesPath: "/stale/destructiveChanges.xml",
+	}
+
+	next, cmd := m.Update(keyPress("enter"))
+	nm := next.(Model)
+
+	// Fresh minimal plan: only Ticket + the normalized TargetBranch.
+	if nm.Plan().Ticket != "standalone" {
+		t.Errorf("standalone delta Ticket = %q, want %q", nm.Plan().Ticket, "standalone")
+	}
+	if nm.Plan().TargetBranch != "main" {
+		t.Errorf("standalone delta TargetBranch = %q, want %q", nm.Plan().TargetBranch, "main")
+	}
+	// No stale field survives the reset.
+	if got := nm.Plan().PackageXMLPath; got != "" {
+		t.Errorf("stale PackageXMLPath must not survive standalone delta, got %q", got)
+	}
+	if got := nm.Plan().DestructiveChangesPath; got != "" {
+		t.Errorf("stale DestructiveChangesPath must not survive standalone delta, got %q", got)
+	}
+	if len(nm.Plan().SelectedCommits) != 0 {
+		t.Errorf("stale SelectedCommits must not survive standalone delta, got %v", nm.Plan().SelectedCommits)
+	}
+	if got := nm.Plan().PromotionBranch; got != "" {
+		t.Errorf("stale PromotionBranch must not survive standalone delta, got %q", got)
+	}
+	if got := nm.Plan().SandboxAlias; got != "" {
+		t.Errorf("stale SandboxAlias must not survive standalone delta, got %q", got)
+	}
+
+	if nm.State() != StateDeltaGeneration {
+		t.Fatalf("confirm should enter StateDeltaGeneration, got %v", nm.State())
+	}
+	if cmd == nil {
+		t.Fatal("confirm should fire deltaCmd")
+	}
+}
+
 // TestModel_DeltaSourceSelect_CursorNav is task 3.3's cursor-nav companion
 // (triangulation): up/down/k/j move branchCursor, clamped to [0, len-1].
 func TestModel_DeltaSourceSelect_CursorNav(t *testing.T) {

@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"deploydeck/internal/config"
 	execpkg "deploydeck/internal/exec"
+	"deploydeck/internal/git"
 	"deploydeck/internal/runs"
 	"deploydeck/internal/salesforce"
 )
@@ -188,6 +190,103 @@ func TestModel_SandboxSelect_ConfirmPreCreatesRunAndFiresValidateCmd(t *testing.
 	}
 	if rec.JobID != "" {
 		t.Errorf("a pre-created validate run must not carry a jobId yet, got %q", rec.JobID)
+	}
+}
+
+// TestModel_SandboxSelect_Confirm_ResetsStalePlanBeforeValidate is the
+// adversarial-review remediation for Finding 1 (HIGH): m.plan is NEVER reset
+// for standalone modes, so a prior full-flow promotion's
+// DestructiveChangesPath (and other fields) would bleed into a standalone
+// validation — validateCmd reads plan.DestructiveChangesPath as
+// PostDestructivePath and would silently include destructive deletions from
+// an EARLIER promotion. confirmSandboxSelect must build a FRESH minimal plan
+// so NO stale field survives, and the fired sf validate invocation must carry
+// no post-destructive arg.
+func TestModel_SandboxSelect_Confirm_ResetsStalePlanBeforeValidate(t *testing.T) {
+	dir := t.TempDir()
+	writer := runs.NewWriter(dir)
+	clk := &fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+
+	// Only the CLEAN args (no --post-destructive-changes) are canned; a stale
+	// DestructiveChangesPath leaking into the plan would make validateCmd build
+	// a different arg vector the FakeRunner has no response for.
+	fr := execpkg.NewFakeRunner()
+	fr.When("sf", []string{
+		"project", "deploy", "validate",
+		"--manifest", "pkg/package.xml",
+		"--target-org", "UAT_SBX",
+		"--test-level", "RunLocalTests",
+		"--async", "--json",
+	}, execpkg.CommandResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"status":0,"result":{"id":"0Af000000000099EAA","done":false,"state":"Queued"}}`),
+	})
+
+	m := New(Deps{Dir: dir, Config: standaloneValidateConfig(), SF: salesforce.New(fr), Runs: writer, Now: clk.now})
+	m.state = StateSandboxSelect
+	m.standaloneMode = "validate"
+	m.packagePath = "pkg/package.xml"
+	m.sandboxList = []string{"INT_SBX", "UAT_SBX"}
+	m.sandboxCursor = 1
+	// Pre-seed a DIRTY plan from a prior full-flow promotion.
+	m.plan = git.DeploymentPlan{
+		Ticket:                 "PROJ-9",
+		SelectedCommits:        []git.DiscoveredCommit{{}},
+		TargetBranch:           "UAT",
+		SandboxAlias:           "OLD_SBX",
+		TestLevel:              "NoTestRun",
+		PromotionBranch:        "PROJ-9-to-UAT",
+		PackageXMLPath:         "/stale/package.xml",
+		DestructiveChangesPath: "/stale/destructiveChanges.xml",
+	}
+
+	next, cmd := m.Update(keyPress("enter"))
+	nm := next.(Model)
+
+	// The plan validateCmd reads must be FRESH — no stale field survives.
+	if got := nm.Plan().DestructiveChangesPath; got != "" {
+		t.Errorf("stale DestructiveChangesPath must be reset for standalone validate, got %q", got)
+	}
+	if got := nm.Plan().PromotionBranch; got != "" {
+		t.Errorf("stale PromotionBranch must not survive standalone validate, got %q", got)
+	}
+	if got := nm.Plan().TargetBranch; got != "" {
+		t.Errorf("stale TargetBranch must not survive standalone validate, got %q", got)
+	}
+	if got := nm.Plan().Ticket; got != "" {
+		t.Errorf("stale Ticket must not survive standalone validate, got %q", got)
+	}
+	if len(nm.Plan().SelectedCommits) != 0 {
+		t.Errorf("stale SelectedCommits must not survive standalone validate, got %v", nm.Plan().SelectedCommits)
+	}
+	// ...and the fresh minimal fields ARE seeded.
+	if nm.Plan().PackageXMLPath != "pkg/package.xml" {
+		t.Errorf("fresh PackageXMLPath = %q, want %q", nm.Plan().PackageXMLPath, "pkg/package.xml")
+	}
+	if nm.Plan().SandboxAlias != "UAT_SBX" {
+		t.Errorf("fresh SandboxAlias = %q, want %q", nm.Plan().SandboxAlias, "UAT_SBX")
+	}
+	if nm.Plan().TestLevel != "RunLocalTests" {
+		t.Errorf("fresh TestLevel = %q, want %q", nm.Plan().TestLevel, "RunLocalTests")
+	}
+
+	// The actual sf validate invocation must carry NO post-destructive arg and
+	// no stale path.
+	if cmd == nil {
+		t.Fatal("confirming the sandbox should fire validateCmd")
+	}
+	run(t, cmd)
+	if len(fr.Calls) == 0 {
+		t.Fatal("expected validateCmd to invoke the sf runner")
+	}
+	args := fr.Calls[0].Args
+	for _, a := range args {
+		if a == "--post-destructive-changes" {
+			t.Errorf("standalone validate must not include destructive changes from a prior plan: args=%v", args)
+		}
+	}
+	if strings.Contains(strings.Join(args, " "), "/stale/") {
+		t.Errorf("no stale path may leak into the sf validate args: %v", args)
 	}
 }
 

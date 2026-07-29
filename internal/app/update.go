@@ -782,7 +782,14 @@ func (m Model) onQueueDone(msg queueDoneMsg) (tea.Model, tea.Cmd) {
 // polling with an immediate first report plus the tick cadence.
 func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 	m.jobID = msg.result.JobID
-	m.runID = msg.runID
+	// Preserve a pre-created runID across a validate error (adversarial-review
+	// Finding 2): an error carries runID=="", and clearing the id would orphan
+	// the already-persisted Mode="validate" run and send a retry down
+	// validateCmd's malformed fallback branch. Only overwrite when the message
+	// actually carries a run id.
+	if msg.runID != "" {
+		m.runID = msg.runID
+	}
 	m.runDir = msg.runDir
 	if msg.err != nil {
 		m.validateErr = msg.err

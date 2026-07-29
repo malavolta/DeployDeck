@@ -685,9 +685,11 @@ func (m Model) viewValidationResult() string {
 	if m.timedOut {
 		b.WriteString("\n  [XX] Timeout: la validacion no alcanzo un estado terminal a tiempo (timed out).\n")
 	}
-	// Only a successful validation offers push (HU-014 AC1/AC2): Failed and
-	// Canceled stay quit-only.
-	if m.state == StateSucceeded {
+	// Only a successful validation with a real promotion branch offers push
+	// (HU-014 AC1/AC2): Failed and Canceled stay quit-only, and a standalone
+	// validate (empty PromotionBranch — HU-018) has no branch to push, so it
+	// must not advertise push either (adversarial-review Finding 3).
+	if m.state == StateSucceeded && m.plan.PromotionBranch != "" {
 		b.WriteString(footer("p preparar push   Enter/q salir"))
 	} else {
 		b.WriteString(footer("Enter/q salir"))
