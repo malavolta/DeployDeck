@@ -1122,6 +1122,35 @@ func (m Model) listDeployBranchesCmd() tea.Cmd {
 	}
 }
 
+// standaloneBranchesMsg carries HU-018's standalone-delta base-branch list
+// (Group 3, StateDeltaSourceSelect): git.ListBranches's full local+
+// remote-tracking result, or a load error surfaced on the picker screen
+// (never a crash — mirrors deployBranchesMsg's degrade).
+type standaloneBranchesMsg struct {
+	branches []git.Branch
+	err      error
+}
+
+// standaloneBranchesCmd lists local+remote-tracking branches for HU-018's
+// standalone-delta base-branch picker, mirroring onDeployBranches/
+// listDeployBranchesCmd's async pattern. A nil Git service (never expected
+// outside tests) degrades to an explicit error rather than a panic.
+func (m Model) standaloneBranchesCmd() tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if g == nil {
+			return standaloneBranchesMsg{err: errors.New("app: no git service configured")}
+		}
+		branches, err := g.ListBranches(ctx, dir)
+		if err != nil {
+			return standaloneBranchesMsg{err: err}
+		}
+		return standaloneBranchesMsg{branches: branches}
+	}
+}
+
 // deleteOrphanCmd deletes ONE StateBranchCleanup row's branch — local always,
 // remote iff pushed — through the SAME git.Service primitives quitCmd's
 // inline current-branch delete uses (DeleteLocalBranch/DeleteRemoteBranch).

@@ -40,6 +40,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onUnpushedCount(msg)
 	case deployBranchesMsg:
 		return m.onDeployBranches(msg)
+	case standaloneBranchesMsg:
+		return m.onStandaloneBranches(msg)
 	case deleteDoneMsg:
 		return m.onDeleteDone(msg)
 	case pruneDoneMsg:
@@ -232,6 +234,23 @@ func (m Model) onDeployBranches(msg deployBranchesMsg) (tea.Model, tea.Cmd) {
 	m.cleanupBranches = msg.branches
 	m.cleanupCursor = 0
 	m.cleanupPhase = cleanupBrowsing
+	return m, nil
+}
+
+// onStandaloneBranches lands HU-018's standaloneBranchesCmd result (Group 3,
+// StateDeltaSourceSelect): an error surfaces as a notice (never a crash,
+// mirrors onDeployBranches's degrade); success populates m.branchList at
+// cursor 0, ready for keyDeltaSourceSelect's nav+confirm.
+func (m Model) onStandaloneBranches(msg standaloneBranchesMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.notice = "no se pudieron listar las ramas: " + msg.err.Error()
+		m.branchList = nil
+		m.branchCursor = 0
+		return m, nil
+	}
+	m.notice = ""
+	m.branchList = msg.branches
+	m.branchCursor = 0
 	return m, nil
 }
 
@@ -695,7 +714,10 @@ func (m Model) onTick() (tea.Model, tea.Cmd) {
 // user on DeltaGeneration with the raw output shown and launches NO validation
 // (delta-generation spec: "sgd failure surfaces output without running
 // validation"). Success registers the artifact paths on the plan and advances
-// to the HU-008 PackageReview.
+// to the HU-008 PackageReview. HU-018 standalone delta (design ADR-4) also
+// persists a local run the instant the package is generated — mirroring
+// onBranchCreated's best-effort, nil-Runs-safe save — tagged Mode="delta"
+// with no jobId, since standalone delta never validates.
 func (m Model) onDeltaDone(msg deltaDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.deltaErr = msg.err
@@ -706,6 +728,21 @@ func (m Model) onDeltaDone(msg deltaDoneMsg) (tea.Model, tea.Cmd) {
 	m.deltaResult = msg.result
 	m.summary = msg.summary
 	m.plan = git.RegisterDeltaArtifacts(m.plan, msg.result.PackageXMLPath, msg.result.DestructiveChangesPath)
+
+	if m.standaloneMode == "delta" && m.deps.Runs != nil {
+		now := m.now()
+		m.runID = "delta-" + m.plan.TargetBranch + "-" + now.Format("20060102150405")
+		_ = m.deps.Runs.Save(runs.Record{
+			RunID:        m.runID,
+			Ticket:       m.plan.Ticket,
+			Target:       m.plan.TargetBranch,
+			Mode:         "delta",
+			ManifestPath: msg.result.PackageXMLPath,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		})
+	}
+
 	m.state = StatePackageReview
 	return m, nil
 }

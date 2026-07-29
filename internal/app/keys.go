@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"deploydeck/internal/config"
@@ -16,6 +18,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyPrereq(msg)
 	case StateMainMenu:
 		return m.keyMainMenu(msg)
+	case StateDeltaSourceSelect:
+		return m.keyDeltaSourceSelect(msg)
 	case StateTicketInput:
 		return m.keyTicket(msg)
 	case StateCommitSelection:
@@ -409,7 +413,12 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// path forks correctly.
 		switch entry.target {
 		case StateDeltaSourceSelect:
+			// Group 3: the delta base-branch picker needs a live branch list
+			// to navigate, so dispatch fires standaloneBranchesCmd
+			// immediately (mirrors StateBranchCleanup's load-on-entry).
 			m.standaloneMode = "delta"
+			m.state = entry.target
+			return m, m.standaloneBranchesCmd()
 		case StatePackageSelect:
 			m.standaloneMode = "validate"
 		default:
@@ -424,6 +433,52 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.quitCmd()
 	}
 	return m, nil
+}
+
+// keyDeltaSourceSelect handles HU-018's standalone-delta base-branch picker
+// (StateDeltaSourceSelect, Group 3): ↑/↓ (and k/j) navigate m.branchList
+// (loaded by standaloneBranchesCmd from the menu dispatch); the current ref
+// is always HEAD (deltaCmd hardcodes "to" — display-only, never a picker).
+// Enter normalizes the picked branch and confirms; q/esc return to
+// StateMainMenu.
+func (m Model) keyDeltaSourceSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.branchCursor > 0 {
+			m.branchCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.branchCursor < len(m.branchList)-1 {
+			m.branchCursor++
+		}
+		return m, nil
+	case "enter":
+		return m.confirmDeltaSourceSelect()
+	case "q", "esc":
+		m.state = StateMainMenu
+		return m, nil
+	}
+	return m, nil
+}
+
+// confirmDeltaSourceSelect seeds the MINIMAL DeploymentPlan deltaCmd reads
+// (design ADR-2: Ticket as a fixed standalone marker — the output-dir name
+// only — and TargetBranch as the picked base with any "origin/" prefix
+// stripped so deltaCmd's "origin/"+target resolves correctly), then enters
+// StateDeltaGeneration and fires deltaCmd UNCHANGED — the exact same command
+// the full flow uses, mirroring keyVerification's confirm.
+func (m Model) confirmDeltaSourceSelect() (tea.Model, tea.Cmd) {
+	if m.branchCursor < 0 || m.branchCursor >= len(m.branchList) {
+		return m, nil
+	}
+	base := strings.TrimPrefix(m.branchList[m.branchCursor].Name, "origin/")
+	m.plan.Ticket = "standalone"
+	m.plan.TargetBranch = base
+	m.notice = ""
+	m.deltaErr = nil
+	m.state = StateDeltaGeneration
+	return m, m.deltaCmd()
 }
 
 func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -682,10 +737,17 @@ func (m Model) keyDeltaGeneration(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // keyPackageReview handles the HU-008 review screen: confirm proceeds to the
 // HU-009 QueueReview stop, an empty package is blocked until an explicit `o`
-// override, `e` edits the selection, `q` quits.
+// override, `e` edits the selection, `q` quits. HU-018's standalone delta
+// (design ADR-3) forks `enter`/`e` into terminal no-ops: standaloneMode=="" —
+// the unchanged full flow — is UNTOUCHED by either branch below.
 func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
+		if m.standaloneMode == "delta" {
+			// Standalone delta never ran cherry-picks: there is nothing to
+			// queue or validate, so the summary IS the terminal screen.
+			return m, nil
+		}
 		return m.confirmPackageReview()
 	case "o":
 		// Explicit override for an empty package (delta-generation spec:
@@ -697,6 +759,11 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "e":
+		if m.standaloneMode == "delta" {
+			// Neutralized: standalone delta never ran commit selection, so
+			// there is no selection to edit.
+			return m, nil
+		}
 		m.state = StateCommitSelection
 		return m, nil
 	case "q":

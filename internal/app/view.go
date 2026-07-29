@@ -40,6 +40,8 @@ func (m Model) viewBody() string {
 		return m.viewPrereq()
 	case StateMainMenu:
 		return m.viewMainMenu()
+	case StateDeltaSourceSelect:
+		return m.viewDeltaSourceSelect()
 	case StateTicketInput:
 		return m.viewTicket()
 	case StateCommitDiscovery:
@@ -146,6 +148,31 @@ func (m Model) viewMainMenu() string {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
 	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q salir"))
+	return b.String()
+}
+
+// viewDeltaSourceSelect renders HU-018's standalone-delta base-branch picker
+// (Group 3): the current ref (always HEAD — deltaCmd hardcodes "to",
+// display-only), the branch list loaded by standaloneBranchesCmd with the
+// cursor marker, over a back/quit footer.
+func (m Model) viewDeltaSourceSelect() string {
+	var b strings.Builder
+	b.WriteString(header("Generar Delta Package"))
+	b.WriteString("\n  Ref actual: HEAD\n\n  Rama base\n\n")
+	if len(m.branchList) == 0 {
+		b.WriteString("  Cargando ramas...\n")
+	}
+	for i, br := range m.branchList {
+		cursor := " "
+		if i == m.branchCursor {
+			cursor = ">"
+		}
+		b.WriteString(fmt.Sprintf("  %s %s\n", cursor, br.Name))
+	}
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q/Esc volver"))
 	return b.String()
 }
 
@@ -426,9 +453,15 @@ func (m Model) viewPackageReview() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	if m.summary.Empty {
+	switch {
+	case m.standaloneMode == "delta":
+		// HU-018 standalone delta (design ADR-3): the summary is terminal —
+		// enter/e are neutralized no-ops (keyPackageReview) — so the footer
+		// never advertises "Enter validar" or "e editar seleccion".
+		b.WriteString(footer("q salir"))
+	case m.summary.Empty:
 		b.WriteString(footer("o override   Enter validar   e editar seleccion   q salir"))
-	} else {
+	default:
 		b.WriteString(footer("Enter validar   e editar seleccion   q salir"))
 	}
 	return b.String()

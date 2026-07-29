@@ -59,16 +59,16 @@ For `feature-branch-chain` (if chosen): PR2 base = tracker branch (`standalone-m
 
 ## Group 3 — Standalone delta
 
-- [ ] 3.1 RED `internal/app/standalone_delta_test.go` (new): `TestStandaloneBranchesCmd_ComposesListBranches` — fake `Git` canned for `ListBranches` → `standaloneBranchesCmd()` returns `standaloneBranchesMsg{branches:[...]}`. Compile-fails.
-- [ ] 3.2 GREEN `internal/app/commands.go`: add `standaloneBranchesMsg{branches []git.Branch; err error}` + `standaloneBranchesCmd()` (mirrors `onDeployBranches`'s async pattern).
-- [ ] 3.3 RED `internal/app/standalone_delta_test.go`: `TestModel_DeltaSourceSelect_CursorPickAndNormalize` — `enter` on `{Name:"origin/main",Remote:true}` strips `origin/` → `plan.TargetBranch=="main"`, `plan.Ticket=="standalone"`, state → `StateDeltaGeneration`, fires `deltaCmd`. AC: "Standalone Delta Generates A Package Without Cherry-Picks".
-- [ ] 3.4 GREEN `internal/app/keys.go` (`keyDeltaSourceSelect` + menu delta-branch fires `standaloneBranchesCmd`), `internal/app/update.go` (`onStandaloneBranches` stores `m.branchList`), `internal/app/view.go` (`viewDeltaSourceSelect`); wire dispatch/switch cases.
-- [ ] 3.5 RED `internal/app/standalone_delta_test.go`: `TestModel_PackageReview_DeltaModeStopsAfterSummary` — `standaloneMode="delta"`: `enter` no-ops (stays `StatePackageReview`, no `queueCmd`/`StateQueueReview`); `e` no-ops (neutralized — standalone delta never ran commit selection); footer omits "Enter validar".
-- [ ] 3.6 GREEN `internal/app/keys.go`: `keyPackageReview`/`confirmPackageReview` mode-aware branch; `internal/app/view.go` `viewPackageReview` footer branch.
-- [ ] 3.7 RED `internal/app/standalone_delta_test.go`: `TestOnDeltaDone_StandaloneDelta_SavesRunModeDelta` — `standaloneMode="delta"`, real `t.TempDir()` writer → after `onDeltaDone`, `writer.List()` has a run `Mode=="delta"`, `ManifestPath==result.PackageXMLPath`, `JobID==""`. AC: "Standalone Modes Create A Local Run" (delta scenario).
-- [ ] 3.8 GREEN `internal/app/update.go`: `onDeltaDone`, after `RegisterDeltaArtifacts`, when `standaloneMode=="delta"`: `Writer.Save(runs.Record{RunID:"delta-"+target+"-"+m.now().Format("20060102150405"), Mode:"delta", ManifestPath:...})`.
-- [ ] 3.9 RED→already-GREEN (pure-reuse pin) `internal/app/standalone_delta_test.go`: `TestModel_StandaloneDelta_EmptyDelta_ReusesWarning` — `summary.Empty=true` → existing "Package vacio" warning renders unchanged. AC: "Empty delta reuses the existing warning".
-- [ ] 3.10 Gate: `go test ./internal/app/...` + `go vet ./...` green.
+- [x] 3.1 RED `internal/app/standalone_delta_test.go` (new): `TestStandaloneBranchesCmd_ComposesListBranches` — fake `Git` canned for `ListBranches` → `standaloneBranchesCmd()` returns `standaloneBranchesMsg{branches:[...]}`. Compile-fails.
+- [x] 3.2 GREEN `internal/app/commands.go`: add `standaloneBranchesMsg{branches []git.Branch; err error}` + `standaloneBranchesCmd()` (mirrors `onDeployBranches`'s async pattern).
+- [x] 3.3 RED `internal/app/standalone_delta_test.go`: `TestModel_DeltaSourceSelect_CursorPickAndNormalize` — `enter` on `{Name:"origin/main",Remote:true}` strips `origin/` → `plan.TargetBranch=="main"`, `plan.Ticket=="standalone"`, state → `StateDeltaGeneration`, fires `deltaCmd`. AC: "Standalone Delta Generates A Package Without Cherry-Picks".
+- [x] 3.4 GREEN `internal/app/keys.go` (`keyDeltaSourceSelect` + menu delta-branch fires `standaloneBranchesCmd`), `internal/app/update.go` (`onStandaloneBranches` stores `m.branchList`), `internal/app/view.go` (`viewDeltaSourceSelect`); wire dispatch/switch cases.
+- [x] 3.5 RED `internal/app/standalone_delta_test.go`: `TestModel_PackageReview_DeltaModeStopsAfterSummary` — `standaloneMode="delta"`: `enter` no-ops (stays `StatePackageReview`, no `queueCmd`/`StateQueueReview`); `e` no-ops (neutralized — standalone delta never ran commit selection); footer omits "Enter validar".
+- [x] 3.6 GREEN `internal/app/keys.go`: `keyPackageReview`/`confirmPackageReview` mode-aware branch; `internal/app/view.go` `viewPackageReview` footer branch.
+- [x] 3.7 RED `internal/app/standalone_delta_test.go`: `TestOnDeltaDone_StandaloneDelta_SavesRunModeDelta` — `standaloneMode="delta"`, real `t.TempDir()` writer → after `onDeltaDone`, `writer.List()` has a run `Mode=="delta"`, `ManifestPath==result.PackageXMLPath`, `JobID==""`. AC: "Standalone Modes Create A Local Run" (delta scenario).
+- [x] 3.8 GREEN `internal/app/update.go`: `onDeltaDone`, after `RegisterDeltaArtifacts`, when `standaloneMode=="delta"`: `Writer.Save(runs.Record{RunID:"delta-"+target+"-"+m.now().Format("20060102150405"), Mode:"delta", ManifestPath:...})`.
+- [x] 3.9 RED→already-GREEN (pure-reuse pin) `internal/app/standalone_delta_test.go`: `TestModel_StandaloneDelta_EmptyDelta_ReusesWarning` — `summary.Empty=true` → existing "Package vacio" warning renders unchanged. AC: "Empty delta reuses the existing warning".
+- [x] 3.10 Gate: `go test ./internal/app/...` + `go vet ./...` green.
 
 ## Group 4 — Standalone validation
 
