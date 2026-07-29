@@ -884,9 +884,12 @@ const quickDeployConfirmWord = "DESPLEGAR"
 
 // keyQuickDeploy handles HU-015's StateQuickDeploy screen, reusing the
 // keyCancelConfirm typed-input idiom (backspace/KeyRunes buffer build) for
-// m.quickConfirm. `enter` fires quickDeployCmd ONLY when ALL THREE gates
-// pass: quickDeployExecAllowed(cfg, isProd) (AllowExecution AND non-prod-or-
-// AllowProduction) AND the typed text exactly equals quickDeployConfirmWord
+// m.quickConfirm. `enter` fires quickDeployCmd ONLY when ALL FOUR gates pass:
+// no deploy already in flight, the selected run is still
+// runs.QuickDeployEligible (adversarial-review follow-up: refuses a
+// deliberate re-type on an already-quick-deployed/no-longer-eligible run),
+// quickDeployExecAllowed(cfg, isProd) (AllowExecution AND non-prod-or-
+// AllowProduction), AND the typed text exactly equals quickDeployConfirmWord
 // — any gate failing surfaces a notice and stays put, never executing
 // (quick-deploy spec: "Production target blocked", "Missing confirmation
 // blocks execution", "Suggest-only by default"). `q`/`esc` back out to
@@ -894,10 +897,30 @@ const quickDeployConfirmWord = "DESPLEGAR"
 func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
+		if m.quickDeployingRunID != "" {
+			// A quick deploy is already in flight (Finding H-1): ignore Enter so
+			// the same destructive `sf project deploy quick` can never fire twice,
+			// even if the confirm buffer is re-typed. Mirrors pushPushing/
+			// pushPRCreating's "side effect outstanding" guard.
+			return m, nil
+		}
 		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
 			return m, nil
 		}
 		rec := m.runs[m.runsCursor]
+		// Adversarial-review follow-up hardening: re-check the SELECTED run's
+		// eligibility here too, not only on entry via the x key. Without this,
+		// a deliberate re-type of DESPLEGAR + Enter on the same
+		// StateQuickDeploy screen could still fire a SECOND real `sf project
+		// deploy quick` on a run the H-2 fix already marked
+		// QuickDeployedAt in-memory this session (or one that otherwise
+		// stopped being eligible while the user sat on this screen). This
+		// closes the deliberate-re-type vector as defense in depth alongside
+		// the in-flight guard above and keyRunHistory's own x-entry gate.
+		if eligible, _ := runs.QuickDeployEligible(rec, m.now()); !eligible {
+			m.notice = "este run ya no es apto para quick deploy: vuelve al historial para revisar su estado"
+			return m, nil
+		}
 		isProd := git.IsProductionTarget(m.deps.Config, rec.Target)
 		if !quickDeployExecAllowed(m.deps.Config, isProd) {
 			m.notice = "quick deploy no autorizado: revisa la configuracion allowExecution/allowProduction"
@@ -908,6 +931,14 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.notice = ""
+		// Finding H-1: clear the confirm buffer on firing so a subsequent stray
+		// Enter fails the DESPLEGAR gate (closing the after-success/duplicate
+		// re-fire), and capture the firing run's RunID so onQuickDeployDone can
+		// register it regardless of the current screen (Finding M-1) and mark it
+		// in-memory ineligible (Finding H-2). Bubble Tea serializes key msgs, so
+		// this closes both the concurrent and after-success re-fire windows.
+		m.quickConfirm = ""
+		m.quickDeployingRunID = rec.RunID
 		return m, m.quickDeployCmd()
 	case "q", "esc":
 		m.quickConfirm = ""

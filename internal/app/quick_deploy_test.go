@@ -568,3 +568,269 @@ func TestViewQuickDeploy_ShowsQuickErr(t *testing.T) {
 		t.Errorf("view should surface the quick-deploy error, got:\n%s", v)
 	}
 }
+
+// --- Adversarial-review remediations (H-1, M-1, H-2) -----------------------
+
+// TestKeyQuickDeploy_Enter_DoubleEnter_FiresQuickDeployOnce is Finding H-1
+// (RED): a stray/duplicate Enter (Bubble Tea serializes key messages, so a
+// second Enter arrives AFTER the first fired) must NOT trigger a SECOND real
+// `sf project deploy quick`. Without the fix the gate stays green
+// (quickConfirm keeps "DESPLEGAR", state stays StateQuickDeploy) and the same
+// destructive deploy fires again.
+func TestKeyQuickDeploy_Enter_DoubleEnter_FiresQuickDeployOnce(t *testing.T) {
+	m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfDBL1")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	if cmd1 == nil {
+		t.Fatal("the first Enter with the gate green + DESPLEGAR typed should fire the deploy")
+	}
+
+	_, cmd2 := m1.Update(keyPress("enter"))
+	if cmd2 != nil {
+		run(t, cmd2)
+	}
+	run(t, cmd1)
+
+	if len(fr.Calls) != 1 {
+		t.Fatalf("the same real quick deploy must fire exactly once across a double-Enter, got %d calls: %v", len(fr.Calls), fr.Calls)
+	}
+}
+
+// TestKeyQuickDeploy_Enter_InFlightReconfirm_DoesNotRefire is Finding H-1's
+// in-flight guard (RED): even if the user RE-TYPES the full confirmation word
+// while the first deploy is still in flight (its quickDeployDoneMsg has not
+// landed), a second Enter must be a strict no-op — the in-flight guard
+// (captured RunID) blocks it, mirroring the pushPushing precedent. This
+// isolates the guard from the cleared-buffer defense by forcing a valid
+// confirm buffer.
+func TestKeyQuickDeploy_Enter_InFlightReconfirm_DoesNotRefire(t *testing.T) {
+	m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfINFL1")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	if cmd1 == nil {
+		t.Fatal("the first Enter should fire the deploy")
+	}
+
+	// The deploy is in flight; the user re-types the full word and hits Enter.
+	m1.quickConfirm = quickDeployConfirmWord
+	_, cmd2 := m1.Update(keyPress("enter"))
+	if cmd2 != nil {
+		run(t, cmd2)
+	}
+	run(t, cmd1)
+
+	if len(fr.Calls) != 1 {
+		t.Fatalf("a re-confirmed Enter while a deploy is in flight must not fire a second real deploy, got %d calls: %v", len(fr.Calls), fr.Calls)
+	}
+}
+
+// TestKeyQuickDeploy_Enter_AfterSuccess_DoesNotRefire is Finding H-1 (RED):
+// once a quick deploy has already SUCCEEDED (its quickDeployDoneMsg landed and
+// the user stays on the single StateQuickDeploy screen), a stray Enter must
+// not re-fire it. The success path clears the confirm buffer, so the gate is
+// no longer green.
+func TestKeyQuickDeploy_Enter_AfterSuccess_DoesNotRefire(t *testing.T) {
+	m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfAFTER1")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	msg := run(t, cmd1)
+	qmsg, ok := msg.(quickDeployDoneMsg)
+	if !ok || qmsg.err != nil {
+		t.Fatalf("expected a successful quickDeployDoneMsg, got %#v", msg)
+	}
+
+	next2, _ := m1.Update(qmsg)
+	m2 := next2.(Model)
+
+	_, cmd3 := m2.Update(keyPress("enter"))
+	if cmd3 != nil {
+		run(t, cmd3)
+	}
+
+	if len(fr.Calls) != 1 {
+		t.Fatalf("a stray Enter after a successful deploy must not re-fire it, got %d calls: %v", len(fr.Calls), fr.Calls)
+	}
+}
+
+// TestOnQuickDeployDone_Success_AfterNavigatingAway_StillRegisters is Finding
+// M-1 (RED): firing the deploy then pressing esc back to StateRunHistory (the
+// subprocess uses a background ctx and completes on the org) must STILL
+// register the run via MarkQuickDeployed by the CAPTURED RunID, regardless of
+// the current screen — otherwise the done-msg is dropped, the run is never
+// recorded, and it stays eligible.
+func TestOnQuickDeployDone_Success_AfterNavigatingAway_StillRegisters(t *testing.T) {
+	m, fr, dir, runID := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfNAV1")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	if cmd1 == nil {
+		t.Fatal("Enter should fire the deploy")
+	}
+
+	// Navigate away while the deploy is in flight.
+	next2, _ := m1.Update(keyPress("esc"))
+	m2 := next2.(Model)
+	if m2.State() != StateRunHistory {
+		t.Fatalf("esc should return to StateRunHistory, got %v", m2.State())
+	}
+
+	// The success lands AFTER navigation.
+	msg := run(t, cmd1)
+	qmsg, ok := msg.(quickDeployDoneMsg)
+	if !ok || qmsg.err != nil {
+		t.Fatalf("expected a successful quickDeployDoneMsg, got %#v", msg)
+	}
+	if len(fr.Calls) != 1 {
+		t.Fatalf("expected exactly 1 deploy call, got %d: %v", len(fr.Calls), fr.Calls)
+	}
+	m2.Update(qmsg)
+
+	rec, err := runs.NewWriter(dir).Load(runID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if rec.QuickDeployedAt.IsZero() {
+		t.Fatal("a success landing after navigation must still register the run (QuickDeployedAt set)")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".deploydeck", "runs", runID, "quick.json")); err != nil {
+		t.Fatalf("quick.json should be persisted even when the success lands off-screen: %v", err)
+	}
+}
+
+// TestOnQuickDeployDone_Error_AfterNavigatingAway_LeavesRunUnmarked is Finding
+// M-1's error side (regression guard): a FAILED deploy landing after
+// navigation must leave the run UNMARKED (retry allowed), never fabricating a
+// success record.
+func TestOnQuickDeployDone_Error_AfterNavigatingAway_LeavesRunUnmarked(t *testing.T) {
+	m, _, dir, runID := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfNAV2")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	if cmd1 == nil {
+		t.Fatal("Enter should fire the deploy")
+	}
+	next2, _ := m1.Update(keyPress("esc"))
+	m2 := next2.(Model)
+
+	m2.Update(quickDeployDoneMsg{err: errStub})
+
+	rec, err := runs.NewWriter(dir).Load(runID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !rec.QuickDeployedAt.IsZero() {
+		t.Fatal("a failed quick deploy must never mark the run as quick-deployed")
+	}
+}
+
+// TestKeyQuickDeploy_Enter_AfterSuccessReconfirm_DoesNotRefire is a follow-up
+// hardening (RED) to Findings H-1/H-2, requested by the adversarial review:
+// after a quick deploy has already SUCCEEDED — the in-flight guard is clear
+// (quickDeployingRunID == "") and the H-2 fix has marked the in-memory row
+// QuickDeployedAt — a user who DELIBERATELY re-types the full "DESPLEGAR"
+// confirmation and presses Enter AGAIN must NOT fire a second real
+// `sf project deploy quick` on the same, now-ineligible run. H-1's
+// cleared-buffer defense alone does not close this: retyping the word makes
+// the confirm gate green again, so it is the ELIGIBILITY gate
+// (runs.QuickDeployEligible) that must refuse the second fire. This isolates
+// the eligibility gate from the in-flight guard by asserting
+// quickDeployingRunID == "" at the moment of the second Enter (defense in
+// depth: both layers are checked).
+func TestKeyQuickDeploy_Enter_AfterSuccessReconfirm_DoesNotRefire(t *testing.T) {
+	m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfRETYPE1")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	msg := run(t, cmd1)
+	qmsg, ok := msg.(quickDeployDoneMsg)
+	if !ok || qmsg.err != nil {
+		t.Fatalf("expected a successful quickDeployDoneMsg, got %#v", msg)
+	}
+
+	next2, _ := m1.Update(qmsg)
+	m2 := next2.(Model)
+	if m2.quickDeployingRunID != "" {
+		t.Fatalf("setup: the in-flight guard should be clear after a landed success, got %q", m2.quickDeployingRunID)
+	}
+	if m2.State() != StateQuickDeploy {
+		t.Fatalf("setup: expected to still be on StateQuickDeploy after success, got %v", m2.State())
+	}
+	if len(fr.Calls) != 1 {
+		t.Fatalf("setup: expected exactly 1 deploy call after the first success, got %d: %v", len(fr.Calls), fr.Calls)
+	}
+
+	// The deliberate re-type: the confirm buffer is green again, so ONLY the
+	// eligibility gate (not the in-flight guard, which is provably clear
+	// above) can refuse the second fire.
+	m3 := typeString(m2, "DESPLEGAR")
+	next4, cmd4 := m3.Update(keyPress("enter"))
+	m4 := next4.(Model)
+	if cmd4 != nil {
+		run(t, cmd4)
+	}
+
+	if len(fr.Calls) != 1 {
+		t.Fatalf("a deliberate re-typed DESPLEGAR on an already-quick-deployed run must not fire a second real deploy, got %d calls: %v", len(fr.Calls), fr.Calls)
+	}
+	if m4.notice == "" {
+		t.Error("the refused second attempt should surface an explanatory notice")
+	}
+}
+
+// TestOnQuickDeployDone_Success_MarksInMemoryRunIneligible is Finding H-2
+// (RED): after a successful deploy the in-memory m.runs record (only ever
+// written at startup) must be updated to mirror the disk MarkQuickDeployed, so
+// the SAME session's eligibility gate (esc -> x on the same row) excludes it —
+// otherwise a session-blind double-deploy is possible.
+func TestOnQuickDeployDone_Success_MarksInMemoryRunIneligible(t *testing.T) {
+	m, _, _, runID := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfMEM1")
+	m = typeString(m, "DESPLEGAR")
+
+	next1, cmd1 := m.Update(keyPress("enter"))
+	m1 := next1.(Model)
+	msg := run(t, cmd1)
+	qmsg, ok := msg.(quickDeployDoneMsg)
+	if !ok || qmsg.err != nil {
+		t.Fatalf("expected a successful quickDeployDoneMsg, got %#v", msg)
+	}
+	next2, _ := m1.Update(qmsg)
+	m2 := next2.(Model)
+
+	idx := -1
+	for i := range m2.runs {
+		if m2.runs[i].RunID == runID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("seeded run %q missing from in-memory history", runID)
+	}
+	eligible, reason := runs.QuickDeployEligible(m2.runs[idx], m2.now())
+	if eligible {
+		t.Fatal("the just-executed run must be in-memory ineligible for a second quick deploy")
+	}
+	if reason != "already quick-deployed" {
+		t.Fatalf("in-memory ineligibility reason = %q, want \"already quick-deployed\"", reason)
+	}
+
+	// The full esc -> x loop on the same row is now a strict no-op.
+	m2.state = StateRunHistory
+	m2.runsCursor = idx
+	next3, cmd3 := m2.Update(keyPress("x"))
+	if next3.(Model).State() != StateRunHistory {
+		t.Fatal("x on an already-quick-deployed row (same session) must be a no-op")
+	}
+	if cmd3 != nil {
+		t.Error("x on an ineligible row must fire no command")
+	}
+}

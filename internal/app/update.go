@@ -790,33 +790,52 @@ func (m Model) onCancelDone(msg cancelDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// onQuickDeployDone lands the HU-015 quick-deploy outcome. It is GUARDED to
-// act only while StateQuickDeploy (mirrors onCancelDone's late-message
-// guard): a late/duplicate quickDeployDoneMsg arriving after the user already
-// backed out (esc/q to StateRunHistory) is dropped, so it can never re-mark a
-// run the user is no longer looking at. On failure it surfaces the error and
-// stays on StateQuickDeploy (the run left unmarked, mirroring
-// onCancelDone's failure branch). On success it best-effort marks the
-// SELECTED ROW via MarkQuickDeployed (quick.json + QuickDeployedAt, ADR-4:
-// Status is deliberately never touched) and stays on StateQuickDeploy with a
-// notice — there is no new terminal state (design "single StateQuickDeploy
-// to minimize footprint"); esc already returns to StateRunHistory.
+// onQuickDeployDone lands the HU-015 quick-deploy outcome. Registration keys
+// off the RunID CAPTURED when the deploy was fired (m.quickDeployingRunID),
+// NOT the current cursor/state, because the `sf project deploy quick`
+// subprocess runs under a background ctx and completes on the org even if the
+// user has esc'd back to StateRunHistory in the meantime (adversarial-review
+// Finding M-1: a navigated-away success was previously dropped, silently
+// leaving the run unrecorded and still eligible). The captured id and the
+// confirm buffer are cleared on BOTH outcomes so the in-flight guard reopens
+// and no stale buffer can re-fire. On failure the run is left UNMARKED (retry
+// allowed), mirroring onCancelDone's failure branch. On success it best-effort
+// marks the run via MarkQuickDeployed (quick.json + QuickDeployedAt, ADR-4:
+// Status is deliberately never touched) AND mirrors that write into the
+// in-memory m.runs row (Finding H-2), so this session's own eligibility gate
+// excludes the row without a restart. There is no new terminal state (design
+// "single StateQuickDeploy to minimize footprint"); the success notice is only
+// surfaced when the user is still on the screen.
 func (m Model) onQuickDeployDone(msg quickDeployDoneMsg) (tea.Model, tea.Cmd) {
-	if m.state != StateQuickDeploy {
-		return m, nil
-	}
+	runID := m.quickDeployingRunID
+	onScreen := m.state == StateQuickDeploy
+
+	// Clear the in-flight capture + confirm buffer regardless of outcome or the
+	// current screen (Findings H-1/M-1): the guard reopens and no stale
+	// DESPLEGAR buffer can re-authorize a deploy.
+	m.quickDeployingRunID = ""
+	m.quickConfirm = ""
+
 	if msg.err != nil {
 		m.quickErr = msg.err
-		m.state = StateQuickDeploy
 		return m, nil
 	}
 	m.quickErr = nil
-	if m.deps.Runs != nil && m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
-		rec := m.runs[m.runsCursor]
-		_ = m.deps.Runs.MarkQuickDeployed(rec.RunID, []byte(msg.result.Raw))
+	if m.deps.Runs != nil && runID != "" {
+		_ = m.deps.Runs.MarkQuickDeployed(runID, []byte(msg.result.Raw))
+		// Finding H-2: mirror the disk write into the in-memory history (which is
+		// only ever written at startup) so the in-session x-eligibility gate
+		// treats the row as already quick-deployed immediately.
+		for i := range m.runs {
+			if m.runs[i].RunID == runID {
+				m.runs[i].QuickDeployedAt = m.now()
+				break
+			}
+		}
 	}
-	m.notice = "quick deploy ejecutado y registrado"
-	m.state = StateQuickDeploy
+	if onScreen {
+		m.notice = "quick deploy ejecutado y registrado"
+	}
 	return m, nil
 }
 

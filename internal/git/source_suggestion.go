@@ -104,12 +104,27 @@ func environmentKeyForBranch(cfg config.Config, branch string) (string, bool) {
 
 // IsProductionTarget reports whether target is a production destination,
 // FAIL-CLOSED (HU-015 quick-deploy spec: "Production Target Blocked Without
-// Explicit Configuration", BLOCKER correction). It is true when EITHER the
-// configured "production" environment key maps to target, OR target is the
-// literal ProductionBranchName ("main") per IsProductionBranch — the second
-// arm guarantees a repo with no "production" key configured at all still
-// blocks the literal main branch, rather than silently treating it as safe.
+// Explicit Configuration", BLOCKER correction + adversarial-review Finding
+// M-2). A target counts as NON-production ONLY when it positively maps to a
+// known non-production pipeline environment (integration/uat); EVERY other
+// target is treated as production and therefore blocked unless AllowProduction
+// is set. Concretely it is true when ANY of:
+//   - target is empty (unclassifiable — a run with no recorded target must
+//     never slip through as non-production);
+//   - target maps to NO configured environment (environmentKeyForBranch
+//     ok=false — an unmapped/unknown branch is unclassifiable, so fail closed
+//     rather than fail OPEN as the prior version did);
+//   - the configured "production" environment key maps to target;
+//   - target is the literal ProductionBranchName ("main") per
+//     IsProductionBranch — guaranteeing a repo with no "production" key
+//     configured at all still blocks the literal main branch.
 func IsProductionTarget(cfg config.Config, target string) bool {
+	if target == "" {
+		return true
+	}
 	env, ok := environmentKeyForBranch(cfg, target)
-	return (ok && env == "production") || IsProductionBranch(target)
+	if !ok {
+		return true
+	}
+	return env == "production" || IsProductionBranch(target)
 }

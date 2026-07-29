@@ -132,12 +132,16 @@ func TestNextEnvironmentBranch_TableDriven(t *testing.T) {
 	}
 }
 
-// TestIsProductionTarget_FailClosed_TableDriven is task 1.6 (RED):
-// IsProductionTarget must be FAIL-CLOSED — even a config with NO
-// "production" mapping at all must still treat the literal "main" branch as
-// production, via the git.IsProductionBranch OR-condition (quick-deploy
-// spec: "Production Target Blocked Without Explicit Configuration",
-// BLOCKER correction 1).
+// TestIsProductionTarget_FailClosed_TableDriven is task 1.6 (RED), extended by
+// the adversarial-review Finding M-2 remediation: IsProductionTarget must be
+// FAIL-CLOSED for EVERY unclassifiable target, not just the literal "main".
+// A target counts as NON-production ONLY when it positively maps to a known
+// non-production pipeline environment (integration/uat); an empty target or a
+// target that maps to NO configured environment (ok=false) is treated as
+// production and therefore blocked unless AllowProduction is set (quick-deploy
+// spec: "Production Target Blocked Without Explicit Configuration", BLOCKER
+// correction 1 + Finding M-2 "production block must not fail OPEN for empty /
+// unmapped targets").
 func TestIsProductionTarget_FailClosed_TableDriven(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -164,10 +168,39 @@ func TestIsProductionTarget_FailClosed_TableDriven(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "a non-prod target with no production mapping is not production",
-			cfg:    config.Config{Branches: map[string]string{"production": "RELEASE"}},
+			// Finding M-2: this replaces the prior fail-OPEN case, which asserted
+			// an UNMAPPED "UAT" (config had only a "production" key) → false. That
+			// encoded the bug: an unmapped target must fail CLOSED. To keep a
+			// meaningful "genuinely non-production target → false" case, UAT is now
+			// actually mapped to the non-production "uat" environment key.
+			name:   "a target that maps to the non-production uat env is not production",
+			cfg:    config.Config{Branches: map[string]string{"production": "RELEASE", "uat": "UAT"}},
 			target: "UAT",
 			want:   false,
+		},
+		{
+			// Finding M-2: a target that maps to the non-production integration env
+			// is likewise not production.
+			name:   "a target that maps to the non-production integration env is not production",
+			cfg:    config.Config{Branches: map[string]string{"integration": "INT", "uat": "UAT", "production": "main"}},
+			target: "INT",
+			want:   false,
+		},
+		{
+			// Finding M-2 (RED driver): an EMPTY target is unclassifiable, so it
+			// must fail closed to production rather than slip through as non-prod.
+			name:   "an empty target is unclassifiable and fails closed to production",
+			cfg:    config.Config{Branches: map[string]string{"integration": "INT", "uat": "UAT", "production": "main"}},
+			target: "",
+			want:   true,
+		},
+		{
+			// Finding M-2 (RED driver): a non-main target that maps to NO
+			// configured environment is unclassifiable and fails closed.
+			name:   "an unmapped non-main target is unclassifiable and fails closed to production",
+			cfg:    config.Config{Branches: map[string]string{"production": "RELEASE"}},
+			target: "feature/PROJ-1",
+			want:   true,
 		},
 	}
 

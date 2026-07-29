@@ -425,8 +425,20 @@ type Model struct {
 	// (the run is left unmarked, mirroring cancelErr). The selected run
 	// itself is read live from m.runs[m.runsCursor] — the cursor never moves
 	// while on StateQuickDeploy, so no separate "which run" field is needed.
-	quickConfirm string
-	quickErr     error
+	//
+	// quickDeployingRunID (adversarial-review Findings H-1/M-1/H-2) is the
+	// RunID captured the instant a quick deploy is fired. It serves three
+	// safety roles: (1) while non-empty it marks a deploy IN FLIGHT, so a
+	// second Enter is a strict no-op — the same DESTRUCTIVE `sf project deploy
+	// quick` can never fire twice (mirrors pushPushing); (2) it lets
+	// onQuickDeployDone register the run by the CAPTURED id even if the user
+	// navigated away before the done-msg landed (the subprocess uses a
+	// background ctx and completes on the org regardless); (3) it identifies
+	// which in-memory m.runs row to mark quick-deployed so the in-session
+	// eligibility gate excludes it. Cleared on completion (success OR error).
+	quickConfirm        string
+	quickErr            error
+	quickDeployingRunID string
 
 	// Validation (HU-010/011)
 	jobID        string
