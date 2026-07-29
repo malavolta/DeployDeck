@@ -83,19 +83,19 @@ For `feature-branch-chain` (if chosen): PR2 base = tracker branch (`standalone-m
 
 ## Group 5 — Consolidated HU-018 e2e
 
-- [ ] 5.1 RED `internal/app/standalone_modes_e2e_test.go` (new): `TestE2E_MenuRouting_AllThreeEntriesReachable` — prereqDoneMsg → `StateMainMenu`; each cursor position → expected next state.
-- [ ] 5.2 GREEN — proof task; fix only wiring gaps surfaced at full-flow level.
-- [ ] 5.3 RED `internal/app/standalone_modes_e2e_test.go`: `TestE2E_StandaloneDelta_TempGitAndRealSgd` — `-short`-skip; temp git (mirrors `internal/delta/generate_e2e_test.go`), real `sf sgd` via `delta.New(execpkg.NewOSRunner())`; menu→delta→base pick→summary; assert `package.xml` under `.deploydeck/manifest/`, no `CHERRY_PICK_HEAD`, run `Mode=="delta"`. AC: "Delta mode generates and summarizes the package" (HU-018 Test E2E).
-- [ ] 5.4 GREEN — proof/fix.
-- [ ] 5.5 RED `internal/app/standalone_modes_e2e_test.go`: `TestE2E_StandaloneValidate_FakeSFPollsToTerminal` — real `package.xml` on disk, `salesforce.New(fakeRunner)` for `deploy validate --async`+`deploy report`; menu→validate→path→sandbox; assert `jobID` captured, poll reaches terminal, run `Mode=="validate"`. AC: "Validation mode launches and polls to terminal" (HU-018 Test E2E).
-- [ ] 5.6 GREEN — proof/fix.
-- [ ] 5.7 RED: `TestE2E_StandaloneValidate_InvalidPackage_ActionableErrorNoLaunch` — nonexistent path → stays `StatePackageSelect`, notice shown, `SF.ValidateDeploy` never invoked (fake fails test if called).
-- [ ] 5.8 GREEN — proof/fix.
-- [ ] 5.9 RED: `TestE2E_StandaloneDelta_EmptyDelta_WarningVariant` — temp git, base==current ref (no diff) → summary shows empty-delta warning, run still created `Mode=="delta"`.
-- [ ] 5.10 GREEN — proof/fix.
-- [ ] 5.11 RED: `TestE2E_ResumeDetection_StillOfferedAfterMenuLanding_Regression` — real temp git in-progress cherry-pick (`setupConflictRepo2`/`driveToCherryPicking` helpers) + matching `run.json` → fresh `New()`→prereq→resumeDetect → `StateRunHistory` pre-selected (full-stack proof of 2.13/2.14).
-- [ ] 5.12 GREEN — proof/fix; a failure here signals a Group 2 wiring gap unit tests missed.
-- [ ] 5.13 Gate: `go test ./internal/app/... -short` (fast) AND full `go test ./internal/app/...` (includes real-git/sgd) + `go vet ./...` green.
+- [x] 5.1 RED `internal/app/standalone_modes_e2e_test.go` (new): `TestE2E_MenuRouting_AllThreeEntriesReachable` — prereqDoneMsg → `StateMainMenu`; each cursor position → expected next state.
+- [x] 5.2 GREEN — proof task; fix only wiring gaps surfaced at full-flow level. Landed already-GREEN; mutation-checked by reverting `onPrereqDone`'s `StateMainMenu` landing (confirmed all 3 subtests fail loudly), then restored.
+- [x] 5.3 RED `internal/app/standalone_modes_e2e_test.go`: `TestE2E_StandaloneDelta_TempGitAndRealSgd` — `-short`-skip; temp git (mirrors `internal/delta/generate_e2e_test.go`), real `sf sgd` via `delta.New(execpkg.NewOSRunner())`; menu→delta→base pick→summary; assert `package.xml` under `.deploydeck/manifest/`, no `CHERRY_PICK_HEAD`, run `Mode=="delta"`. AC: "Delta mode generates and summarizes the package" (HU-018 Test E2E).
+- [x] 5.4 GREEN — proof/fix. Landed already-GREEN against a REAL `sf sgd` run (sgd plugin present, ran — not skipped). Mutation-checked by (a) breaking `confirmDeltaSourceSelect`'s `origin/` strip and (b) dropping `onDeltaDone`'s `Mode:"delta"` field; both failed loudly, then restored.
+- [x] 5.5 RED `internal/app/standalone_modes_e2e_test.go`: `TestE2E_StandaloneValidate_FakeSFPollsToTerminal` — real `package.xml` on disk, `salesforce.New(fakeRunner)` for `deploy validate --async`+`deploy report`; menu→validate→path→sandbox; assert `jobID` captured, poll reaches terminal, run `Mode=="validate"`. AC: "Validation mode launches and polls to terminal" (HU-018 Test E2E).
+- [x] 5.6 GREEN — proof/fix. Landed already-GREEN. Mutation-checked by disabling `confirmSandboxSelect`'s pre-created-run save (assertion failed loudly), then restored.
+- [x] 5.7 RED: `TestE2E_StandaloneValidate_InvalidPackage_ActionableErrorNoLaunch` — nonexistent path AND malformed-XML path → stays `StatePackageSelect`, notice shown, `SF.ValidateDeploy` never invoked (`FakeRunner` with zero `When` registrations; asserts `len(fr.Calls)==0`).
+- [x] 5.8 GREEN — proof/fix. Landed already-GREEN. Mutation-checked by disabling `confirmPackageSelect`'s pre-check gate (both subtests failed loudly), then restored.
+- [x] 5.9 RED: `TestE2E_StandaloneDelta_EmptyDelta_WarningVariant` — temp git, base==current ref (no diff), REAL sgd → summary shows empty-delta warning, run still created `Mode=="delta"`.
+- [x] 5.10 GREEN — proof/fix. Landed already-GREEN against real sgd's zero-diff output. Mutation-checked by gating `onDeltaDone`'s run save on `!summary.Empty` (assertion failed loudly), then restored.
+- [x] 5.11 RED: `TestE2E_ResumeDetection_StillOfferedAfterMenuLanding_Regression` — real temp git in-progress cherry-pick (`setupConflictRepo2`/`driveToCherryPicking` helpers) + matching `run.json` → fresh `New()`→prereq→resumeDetect → `StateRunHistory` pre-selected (full-stack proof of 2.13/2.14).
+- [x] 5.12 GREEN — proof/fix; a failure here signals a Group 2 wiring gap unit tests missed. Landed already-GREEN. Mutation-checked by reverting `onResumeDetect`'s guard to `!= StateTicketInput` (task 2.14's fix) — the test failed loudly (state stuck on `StateMainMenu`, HU-013 silently dead), then restored.
+- [x] 5.13 Gate: `go test ./internal/app/... -short` (fast) AND full `go test ./internal/app/...` (includes real-git/sgd) + `go vet ./...` green. Also confirmed `go build ./...` and `gofmt -l` clean, and full repo `go test ./... -race -count=1` green.
 
 ## Group 6 — Docs housekeeping
 
