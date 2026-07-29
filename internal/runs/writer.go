@@ -88,6 +88,22 @@ type Record struct {
 	// field this package has added. NO SchemaVersion bump accompanies this
 	// growth either.
 	QuickDeployedAt time.Time `json:"quickDeployedAt,omitempty"`
+
+	// Mode is HU-018's additive growth field: distinguishes standalone-mode
+	// runs from full-promotion runs — "" (promotion, the historical
+	// default), "delta", or "validate" — set at run-creation time.
+	// `omitempty`, like every other growth field this package has added — a
+	// run.json written before Mode existed still Load()s cleanly with it
+	// zero-valued. NO SchemaVersion bump accompanies this growth either.
+	Mode string `json:"mode,omitempty"`
+
+	// ManifestPath is HU-018's additive growth field: the package.xml path
+	// associated with a standalone-mode run (delta-generated or
+	// user-supplied for validation), set at run-creation time. `omitempty`,
+	// like every other growth field this package has added — a run.json
+	// written before ManifestPath existed still Load()s cleanly with it
+	// zero-valued. NO SchemaVersion bump accompanies this growth either.
+	ManifestPath string `json:"manifestPath,omitempty"`
 }
 
 // Writer persists run records under baseDir/.deploydeck/runs/. baseDir is

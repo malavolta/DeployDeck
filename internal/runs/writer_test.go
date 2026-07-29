@@ -527,6 +527,66 @@ func TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroTestLevelAndQuickDeploye
 	}
 }
 
+// --- HU-018: additive Mode + ManifestPath ------------------------------------
+
+// TestRecord_ModeAndManifestPath_RoundTripThroughWriteReload is task 1.1
+// (RED): a record with Mode and ManifestPath set round-trips unchanged
+// through Save then Load (run-persistence spec: "Mode round-trips through a
+// full write/reload").
+func TestRecord_ModeAndManifestPath_RoundTripThroughWriteReload(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{RunID: "run-standalone", Mode: "delta", ManifestPath: "pkg/package.xml"}
+	if err := w.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := w.Load(rec.RunID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Mode != rec.Mode {
+		t.Fatalf("expected Mode to round-trip as %q, got %q", rec.Mode, got.Mode)
+	}
+	if got.ManifestPath != rec.ManifestPath {
+		t.Fatalf("expected ManifestPath to round-trip as %q, got %q", rec.ManifestPath, got.ManifestPath)
+	}
+}
+
+// TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroModeAndManifestPath is
+// task 1.1 (RED): a run.json written before Mode/ManifestPath existed still
+// Loads cleanly with both zero-valued, and with NO SchemaVersion bump
+// (run-persistence spec: "Prior-slice run.json still loads without Mode").
+func TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroModeAndManifestPath(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	runID := "TICKET-12-to-UAT-20260101000000"
+	dir := filepath.Join(base, ".deploydeck", "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seeding run dir: %v", err)
+	}
+	oldShape := `{"schemaVersion":1,"runId":"TICKET-12-to-UAT-20260101000000","ticket":"TICKET-12","target":"UAT","status":"Succeeded"}`
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(oldShape), 0o644); err != nil {
+		t.Fatalf("seeding old-shape run.json: %v", err)
+	}
+
+	rec, err := w.Load(runID)
+	if err != nil {
+		t.Fatalf("an old-shape run.json should still Load cleanly: %v", err)
+	}
+	if rec.SchemaVersion != runs.SchemaVersion1 {
+		t.Fatalf("expected SchemaVersion unchanged at %d, got %d", runs.SchemaVersion1, rec.SchemaVersion)
+	}
+	if rec.Mode != "" {
+		t.Fatalf("expected Mode zero-valued on an old-shape record, got %q", rec.Mode)
+	}
+	if rec.ManifestPath != "" {
+		t.Fatalf("expected ManifestPath zero-valued on an old-shape record, got %q", rec.ManifestPath)
+	}
+}
+
 // TestWriter_MarkPRCreated_UnknownRunIDErrors is task 3.3 (RED):
 // MarkPRCreated errors on an unknown runID rather than a silent no-op,
 // mirroring MarkCanceled's own unknown-runID behavior.

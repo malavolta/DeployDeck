@@ -30,8 +30,8 @@ For `feature-branch-chain` (if chosen): PR2 base = tracker branch (`standalone-m
 
 ## Group 1 — `run-persistence` (pure-unit, foundational)
 
-- [ ] 1.1 RED `internal/runs/writer_test.go`: add `TestRecord_ModeAndManifestPath_RoundTripThroughWriteReload` (Save `Record{Mode:"delta",ManifestPath:"pkg/package.xml"}`, Load, both round-trip) and `TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroModeAndManifestPath` (raw pre-HU-018 `run.json` with no `mode`/`manifestPath` keys loads clean, both `""`) — compile-fails (fields undefined). AC: run-persistence "Mode Recorded On The Run" (delta/validate/round-trip/backward-compat scenarios).
-- [ ] 1.2 GREEN `internal/runs/writer.go`: append `Mode string \`json:"mode,omitempty"\`` + `ManifestPath string \`json:"manifestPath,omitempty"\`` to `Record` (after `QuickDeployedAt`, additive, no `SchemaVersion` bump). Gate: `go test ./internal/runs/...` + `go vet ./internal/runs/...` green.
+- [x] 1.1 RED `internal/runs/writer_test.go`: add `TestRecord_ModeAndManifestPath_RoundTripThroughWriteReload` (Save `Record{Mode:"delta",ManifestPath:"pkg/package.xml"}`, Load, both round-trip) and `TestRecord_BackwardCompat_PriorRunJSONLoadsWithZeroModeAndManifestPath` (raw pre-HU-018 `run.json` with no `mode`/`manifestPath` keys loads clean, both `""`) — compile-fails (fields undefined). AC: run-persistence "Mode Recorded On The Run" (delta/validate/round-trip/backward-compat scenarios).
+- [x] 1.2 GREEN `internal/runs/writer.go`: append `Mode string \`json:"mode,omitempty"\`` + `ManifestPath string \`json:"manifestPath,omitempty"\`` to `Record` (after `QuickDeployedAt`, additive, no `SchemaVersion` bump). Gate: `go test ./internal/runs/...` + `go vet ./internal/runs/...` green.
 
 ## Group 2 — `StateMainMenu` + entry-point migration (HIGHEST RISK — biggest review budget)
 
