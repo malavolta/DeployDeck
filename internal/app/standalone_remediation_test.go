@@ -116,6 +116,64 @@ func TestKeySucceeded_FullFlow_PushAndDeleteStillWork(t *testing.T) {
 	}
 }
 
+// TestResumeInto_StandaloneValidate_DoesNotFabricatePromotionBranch is the
+// verify-surfaced W1 remediation completing R3's invariant across the resume
+// path: a Mode="validate" standalone run (Ticket/Target both empty — no
+// Group-2 menu-driven full flow ever ran for it) carries no promotion branch
+// by construction. resumeInto's jobId-reattach branch must NOT reconstruct
+// one via git.RenderBranchName for such a run — with empty Ticket/Target that
+// would render a bogus non-empty branch like "deploy/-to-", defeating R3's
+// `PromotionBranch != ""` gate at the terminal StateSucceeded screen (the app
+// would then offer `p`/`d` on a nonsensical branch name).
+func TestResumeInto_StandaloneValidate_DoesNotFabricatePromotionBranch(t *testing.T) {
+	m := New(Deps{Dir: "/repo", Config: validationConfig()})
+	m.repoState = git.RepoState{Clean: true}
+	rec := runs.Record{
+		RunID: "validate-UAT_SBX-20260729120000", Mode: "validate",
+		ManifestPath: "pkg/package.xml", Alias: "UAT_SBX",
+		JobID: "JOB1", Status: "InProgress", Phase: "validating",
+	}
+
+	next, _ := m.resumeInto(rec)
+	nm := next.(Model)
+	if nm.plan.PromotionBranch != "" {
+		t.Fatalf("a standalone-validate resume must not fabricate a promotion branch, got %q (R3's gate would leak a bogus push/delete offer)", nm.plan.PromotionBranch)
+	}
+
+	// R3's gate must hold ACROSS resume, not just on a freshly-driven run: with
+	// no PromotionBranch, the resumed run reaching StateSucceeded must not
+	// offer `p`/`d`.
+	nm.state = StateSucceeded
+	if nextP, cmdP := nm.Update(keyPress("p")); nextP.(Model).State() != StateSucceeded || cmdP != nil {
+		t.Errorf("`p` on a resumed promotion-less standalone validate success must be a no-op, got state %v cmd %v", nextP.(Model).State(), cmdP)
+	}
+	if _, cmdD := nm.Update(keyPress("d")); cmdD != nil {
+		t.Error("`d` on a resumed promotion-less standalone validate success must not fire the unpushed-count gate")
+	}
+}
+
+// TestResumeInto_NormalPromotionRun_StillReconstructsPromotionBranch is the
+// regression guard for the W1 fix above: a normal promotion run (real
+// Ticket/Target) resumed via the SAME jobId-reattach branch must still
+// reconstruct its PromotionBranch exactly as before — the fix must only skip
+// reconstruction for a branch-less standalone-validate run, never for a real
+// promotion resume.
+func TestResumeInto_NormalPromotionRun_StillReconstructsPromotionBranch(t *testing.T) {
+	wantBranch := "deploy/PROJ-1-to-UAT" // config.DefaultBranchFormat rendered
+	m := New(Deps{Dir: "/repo", Config: validationConfig()})
+	m.repoState = git.RepoState{Clean: true}
+	rec := runs.Record{
+		RunID: "run-2", Ticket: "PROJ-1", Target: "UAT", Alias: "UAT_SBX",
+		JobID: "JOB1", Status: "InProgress", Phase: "validating",
+	}
+
+	next, _ := m.resumeInto(rec)
+	nm := next.(Model)
+	if nm.plan.PromotionBranch != wantBranch {
+		t.Fatalf("a normal promotion-run resume must still reconstruct PromotionBranch, got %q want %q", nm.plan.PromotionBranch, wantBranch)
+	}
+}
+
 // TestKeyPrereq_Continue_IsSymmetricWithOnPrereqDone is the adversarial-review
 // remediation for Finding 4 (LOW, latent HU-017 trap): keyPrereq's `c`-continue
 // lands StateMainMenu but returned nil, while onPrereqDone returns

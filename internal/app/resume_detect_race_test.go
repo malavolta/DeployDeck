@@ -7,7 +7,7 @@ import (
 	"deploydeck/internal/runs"
 )
 
-// TestOnResumeDetect_IgnoredOffTicketInput is HOLE A RED: startup
+// TestOnResumeDetect_IgnoredOffMainMenu is HOLE A RED: startup
 // resume-detection fires asynchronously from onPrereqDone, and RepoState shells
 // out to git. If that launch is slow, the user can advance past the initial
 // landing (the HU-018 main menu, or the flow beyond it) before resumeDetectMsg
@@ -15,7 +15,7 @@ import (
 // to the landing / hijack them to StateRunHistory or discard an in-progress
 // selection. It only acts while the user is still on the initial menu landing
 // (guard keys off StateMainMenu, task 2.14).
-func TestOnResumeDetect_IgnoredOffTicketInput(t *testing.T) {
+func TestOnResumeDetect_IgnoredOffMainMenu(t *testing.T) {
 	t.Run("a resumable message while on commit selection is a no-op", func(t *testing.T) {
 		m := New(Deps{Dir: t.TempDir(), Config: validationConfig(), Runs: runs.NewWriter(t.TempDir())})
 		// The user already advanced to commit selection and picked commits.

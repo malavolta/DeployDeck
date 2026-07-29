@@ -388,7 +388,15 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 		m.plan.SandboxAlias = rec.Alias
 		// Same reconstruction as the conflict-resume branch above — needed here
 		// too so a jobId-reattached run that reaches StateSucceeded can push.
-		m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)
+		// EXCEPT a standalone-validate run (HU-018): it has no promotion branch
+		// by construction (Ticket/Target are both empty), so rendering one here
+		// would fabricate a bogus non-empty branch like "deploy/-to-" — defeating
+		// R3's `PromotionBranch != ""` gate at the terminal StateSucceeded screen
+		// (adversarial-review W1). Leave PromotionBranch empty in that case; the
+		// run still resumes to re-poll its validation jobId exactly as before.
+		if rec.Mode != "validate" {
+			m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)
+		}
 		m.validateErr = nil
 		m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 		m.state = StateValidationPolling
