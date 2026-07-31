@@ -23,6 +23,12 @@ jobs:
   release:
     name: goreleaser release
     runs-on: ubuntu-latest
+    # goreleaser needs write access to create the GitHub Release, upload the
+    # archives/checksums, and push tags. Without this the default GITHUB_TOKEN
+    # is read-only (GitHub's default for many repos) and release creation fails
+    # before anything is published.
+    permissions:
+      contents: write
     # Inert until activation: flip the `RELEASE_ACTIVATED` repository
     # variable to "true" only after completing docs/ACTIVATION-CHECKLIST.md.
     if: vars.RELEASE_ACTIVATED == 'true'
