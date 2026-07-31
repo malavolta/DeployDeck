@@ -1,9 +1,11 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/delta"
 	"github.com/malavolta/DeployDeck/internal/git"
 )
 
@@ -86,6 +88,46 @@ func commitSHAs(commits []git.DiscoveredCommit) []string {
 		shas[i] = c.SHA
 	}
 	return shas
+}
+
+// commitSubjects extracts the Subject of each selected commit, in order —
+// the exact input aiSuggestCmd feeds to ai.Build's commitSubjects parameter
+// (design's Data Flow: "subjects(m.plan.SelectedCommits[].Commit.Subject)").
+// Pure; an empty selection yields nil.
+func commitSubjects(commits []git.DiscoveredCommit) []string {
+	if len(commits) == 0 {
+		return nil
+	}
+	subjects := make([]string, len(commits))
+	for i, c := range commits {
+		subjects[i] = c.Subject
+	}
+	return subjects
+}
+
+// renderComponentSummary pre-renders summary into the plain-text form
+// aiSuggestCmd passes as componentSummary (design ADR-1: rendering happens
+// HERE, inside internal/app, so internal/ai needs no internal/delta
+// dependency). Pure; a summary with no additive or destructive types
+// renders "" (Build already degrades an empty componentSummary
+// gracefully).
+func renderComponentSummary(summary delta.PackageSummary) string {
+	var parts []string
+	if len(summary.Types) > 0 {
+		parts = append(parts, "Types: "+joinTypeCounts(summary.Types))
+	}
+	if len(summary.DestructiveTypes) > 0 {
+		parts = append(parts, "Destructive: "+joinTypeCounts(summary.DestructiveTypes))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func joinTypeCounts(types []delta.MetadataTypeSummary) string {
+	parts := make([]string, len(types))
+	for i, t := range types {
+		parts[i] = fmt.Sprintf("%s(%d)", t.Name, t.Count)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // rehydrateSelectedCommits reconstructs a minimal SelectedCommits slice from

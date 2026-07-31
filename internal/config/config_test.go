@@ -180,3 +180,50 @@ quickDeploy:
 		t.Errorf("QuickDeploy = %+v, want %+v", cfg.QuickDeploy, want)
 	}
 }
+
+// TestLoad_AISection_DefaultsToDisabledWhenOmitted is task 2.1 (RED, mirrors
+// TestLoad_QuickDeploySection_DefaultsToBothFalseWhenOmitted): an absent
+// `ai:` section loads with the zero value — Enabled=false — no defaulting
+// entry needed (ai-pr-summary spec: "AI Configuration Is Optional And
+// Zero-Value-Safe").
+func TestLoad_AISection_DefaultsToDisabledWhenOmitted(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, `
+branches:
+  integration: INT
+`)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if cfg.AI != (config.AIConfig{}) {
+		t.Errorf("AI = %+v, want zero value (disabled)", cfg.AI)
+	}
+}
+
+// TestLoad_AISection_RoundTripsWhenExplicit proves an explicit `ai:` section
+// round-trips through Load exactly as configured.
+func TestLoad_AISection_RoundTripsWhenExplicit(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, `
+branches:
+  integration: INT
+
+ai:
+  enabled: true
+  endpoint: http://localhost:11434
+  model: qwen2.5-coder:3b
+`)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	want := config.AIConfig{Enabled: true, Endpoint: "http://localhost:11434", Model: "qwen2.5-coder:3b"}
+	if cfg.AI != want {
+		t.Errorf("AI = %+v, want %+v", cfg.AI, want)
+	}
+}

@@ -78,6 +78,26 @@ type QuickDeployConfig struct {
 	AllowProduction bool `yaml:"allowProduction"`
 }
 
+// AIConfig gates the optional local-model PR title/description suggestion
+// (ai-pr-summary, closing HU-014's deferred "Idea Futura"). Zero-value-safe
+// like QuickDeployConfig: the zero value (Enabled=false, empty
+// Endpoint/Model) IS the safe "feature off" default, so Load applies no
+// defaulting entry for this section — an entirely omitted `ai:` block is
+// exactly as valid as an explicit `enabled: false`.
+type AIConfig struct {
+	// Endpoint is the local, HTTP-reachable, OpenAI-compatible model
+	// server root (e.g. "http://localhost:11434" for Ollama). Required
+	// when Enabled is true.
+	Endpoint string `yaml:"endpoint"`
+	// Model is the configured model name/tag (e.g. "qwen2.5-coder:3b").
+	// Required when Enabled is true.
+	Model string `yaml:"model"`
+	// Enabled turns the AI-suggestion affordance and CheckAI doctor check
+	// on; false (default) means neither is wired at all (main.go leaves
+	// Deps.GenerateSummary and Checker.AI nil).
+	Enabled bool `yaml:"enabled"`
+}
+
 // Config is the parsed, defaulted deploydeck.yaml.
 type Config struct {
 	// Branches maps a logical environment name (e.g. "integration", "uat",
@@ -117,4 +137,8 @@ type Config struct {
 	// QuickDeploy gates HU-015's opt-in Salesforce quick deploy execution.
 	// Both fields zero-value-safe (false); see QuickDeployConfig.
 	QuickDeploy QuickDeployConfig `yaml:"quickDeploy"`
+
+	// AI gates the optional local-model PR title/description suggestion.
+	// Zero-value-safe (Enabled=false); see AIConfig.
+	AI AIConfig `yaml:"ai"`
 }

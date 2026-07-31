@@ -1,6 +1,7 @@
 package prereq
 
 import (
+	"github.com/malavolta/DeployDeck/internal/ai"
 	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
@@ -47,4 +48,11 @@ type Checker struct {
 	// Checker built before HU-014, and every existing checker test that
 	// never sets it — skips CheckGH entirely, reporting OK.
 	GH github.Client
+
+	// AI is the local-model client backing the informative, non-blocking
+	// AI endpoint/model availability doctor check (ai-pr-summary,
+	// CheckAI). A nil AI — every Checker built before this slice, and
+	// every existing checker test that never sets it — skips CheckAI
+	// entirely, reporting OK.
+	AI ai.Client
 }

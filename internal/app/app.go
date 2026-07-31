@@ -286,6 +286,17 @@ type Deps struct {
 	// startup update check entirely (same nil-degrades convention as
 	// NewChecker/Delta/Runs/Edit above).
 	CheckUpdate func(ctx context.Context) (hasUpdate bool, latest string, err error)
+	// GenerateSummary drafts a PR title/description suggestion from an
+	// OPTIONAL local model (ai-pr-summary, closing HU-014's deferred "Idea
+	// Futura"). It is a plain-typed SCALAR seam (design ADR-1, mirrors
+	// CheckUpdate): main composes the real internal/ai.Client behind this
+	// closure so internal/app never imports net/http or internal/ai
+	// directly (boundary_test.go). commitSubjects and componentSummary are
+	// built from data already on Model (m.plan.SelectedCommits, m.summary)
+	// — no new git/HTTP call originates in internal/app. nil disables the
+	// AI-suggestion affordance entirely (same nil-degrades convention as
+	// CheckUpdate/NewChecker/Delta/Runs/Edit above).
+	GenerateSummary func(ctx context.Context, ticket string, commitSubjects []string, componentSummary string) (title, description string, err error)
 }
 
 // Model is the Bubble Tea model. It holds the current State, the cumulative
@@ -422,6 +433,22 @@ type Model struct {
 	remoteErr  error
 	prURL      string
 	prErr      error
+
+	// AI suggestion (ai-pr-summary, closing HU-014's deferred "Idea
+	// Futura"): aiTitle/aiDescription hold the last-generated suggestion
+	// (empty until a request succeeds); aiPending is true while a request
+	// is in flight (guards against a second concurrent request); aiAccepted
+	// is set ONLY by the second, distinct 'a' press and is the sole switch
+	// effectiveTitle() reads — a generated-but-unaccepted suggestion never
+	// reaches gh pr create (spec: "Explicit Accept Overrides Only The
+	// PR-Creation Title Source"). aiErr records a failed/degraded request
+	// for internal bookkeeping only; the view never surfaces it (spec:
+	// "Silent Graceful Degradation").
+	aiTitle       string
+	aiDescription string
+	aiAccepted    bool
+	aiPending     bool
+	aiErr         error
 
 	// PickVerification
 	verification git.PickVerification
@@ -563,6 +590,21 @@ func (m Model) Err() error { return m.err }
 
 // Plan exposes the cumulative DeploymentPlan (for tests and callers).
 func (m Model) Plan() git.DeploymentPlan { return m.plan }
+
+// effectiveTitle is the SINGLE source of truth for which title every
+// PR-creation slot uses (design ADR-3): the accepted AI title when
+// aiAccepted, else the pre-existing github.SuggestedTitle formula. It is
+// read by BOTH viewPRData (the displayed title/preview command/compare-URL
+// block) and createPRCmd (the actual `gh pr create --title` argument), so
+// the displayed command can never drift from the executed one. A
+// generated-but-unaccepted suggestion (aiTitle set, aiAccepted false) does
+// NOT change the result — only the explicit second 'a' accept does.
+func (m Model) effectiveTitle() string {
+	if m.aiAccepted {
+		return m.aiTitle
+	}
+	return github.SuggestedTitle(m.plan.Ticket, m.plan.TargetBranch)
+}
 
 // Verification exposes the post-pick verification result.
 func (m Model) Verification() git.PickVerification { return m.verification }

@@ -113,6 +113,43 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		// AIConfig validation is task 2.1 (RED): absent ai (zero value) is
+		// off/valid; enabled:true with an empty endpoint or model fails;
+		// both set passes (ai-pr-summary spec: "AI Configuration Is
+		// Optional And Zero-Value-Safe").
+		{
+			name:    "absent ai block (zero value) is off and valid",
+			mutate:  func(c *config.Config) {},
+			wantErr: false,
+		},
+		{
+			name: "ai enabled with empty endpoint fails",
+			mutate: func(c *config.Config) {
+				c.AI = config.AIConfig{Enabled: true, Model: "qwen2.5-coder:3b"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "ai enabled with empty model fails",
+			mutate: func(c *config.Config) {
+				c.AI = config.AIConfig{Enabled: true, Endpoint: "http://localhost:11434"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "ai enabled with endpoint and model passes",
+			mutate: func(c *config.Config) {
+				c.AI = config.AIConfig{Enabled: true, Endpoint: "http://localhost:11434", Model: "qwen2.5-coder:3b"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "ai disabled with empty endpoint/model still passes",
+			mutate: func(c *config.Config) {
+				c.AI = config.AIConfig{Enabled: false}
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

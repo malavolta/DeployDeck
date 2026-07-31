@@ -32,6 +32,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onPrereqDone(msg)
 	case updateCheckDoneMsg:
 		return m.onUpdateCheckDone(msg)
+	case aiSuggestDoneMsg:
+		return m.onAISuggestDone(msg)
 	case resumeDetectMsg:
 		return m.onResumeDetect(msg)
 	case originalBranchMsg:
@@ -141,6 +143,28 @@ func (m Model) onUpdateCheckDone(msg updateCheckDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.updateAvailable = true
 	m.updateLatest = msg.latest
+	return m, nil
+}
+
+// onAISuggestDone lands the ai-pr-summary suggestion request's result
+// (task 4.6/4.7). It ALWAYS clears aiPending first (the in-flight guard),
+// then degrades an error or an empty title identically to a silent no-op —
+// aiErr is recorded for internal bookkeeping only, no title/description
+// change occurs, and the flow continues unaffected (spec: "Silent Graceful
+// Degradation"). A non-empty title sets aiTitle/aiDescription as a
+// PROPOSED suggestion; aiAccepted is left untouched — only the explicit
+// second 'a' press (keyPushPreparation) ever sets it.
+func (m Model) onAISuggestDone(msg aiSuggestDoneMsg) (tea.Model, tea.Cmd) {
+	m.aiPending = false
+
+	if msg.err != nil || msg.title == "" {
+		m.aiErr = msg.err
+		return m, nil
+	}
+
+	m.aiErr = nil
+	m.aiTitle = msg.title
+	m.aiDescription = msg.description
 	return m, nil
 }
 

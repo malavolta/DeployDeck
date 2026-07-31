@@ -73,6 +73,12 @@ func (c *Checker) Check(ctx context.Context) ([]PrereqCheck, error) {
 	}
 	all = append(all, ghCheck)
 
+	aiCheck, err := c.CheckAI(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, aiCheck)
+
 	lockCheck, err := c.CheckLock(ctx)
 	if err != nil {
 		return nil, err

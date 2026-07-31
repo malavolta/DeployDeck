@@ -739,12 +739,13 @@ func (m Model) viewPushPreparation() string {
 // + manual data when the origin form is unrecognized).
 func (m Model) viewPRData() string {
 	var b strings.Builder
-	title := github.SuggestedTitle(m.plan.Ticket, m.plan.TargetBranch)
+	title := m.effectiveTitle()
 
 	b.WriteString("\n  PR sugerido:\n")
 	b.WriteString("  base:    " + m.plan.TargetBranch + "\n")
 	b.WriteString("  compare: " + m.plan.PromotionBranch + "\n")
 	b.WriteString("  title:   " + title + "\n")
+	b.WriteString(m.viewAIBlock())
 
 	ghCmd := fmt.Sprintf("gh pr create --base %s --head %s --title %q", m.plan.TargetBranch, m.plan.PromotionBranch, title)
 
@@ -790,6 +791,39 @@ func (m Model) viewPRData() string {
 		b.WriteString("  Crea el PR manualmente con base/compare/title de arriba.\n")
 	}
 	b.WriteString(footer("q salir"))
+	return b.String()
+}
+
+// viewAIBlock renders the ai-pr-summary on-demand affordance shown on
+// viewPRData (task 4.10/4.11): absent entirely when no
+// Deps.GenerateSummary is configured (spec: "No ai config leaves pushReady
+// unchanged" — every pre-existing pushReady screen is byte-for-byte
+// unaffected), otherwise one of four states — no suggestion yet (request
+// hint), pending (in-flight indicator), generated-but-unaccepted (shown for
+// review + accept hint, but NOT yet the effective title — design ADR-3),
+// or accepted (confirmation; effectiveTitle() already reflects it in every
+// other slot on this screen).
+func (m Model) viewAIBlock() string {
+	if m.deps.GenerateSummary == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("\n  Sugerencia IA:\n")
+	switch {
+	case m.aiAccepted:
+		b.WriteString("  [OK] sugerencia aceptada (title de arriba)\n")
+	case m.aiPending:
+		b.WriteString("  Generando sugerencia...\n")
+	case m.aiTitle != "":
+		b.WriteString("  " + m.aiTitle + "\n")
+		if m.aiDescription != "" {
+			b.WriteString("  " + m.aiDescription + "\n")
+		}
+		b.WriteString("  a aceptar esta sugerencia (el title de arriba no cambia hasta aceptar)\n")
+	default:
+		b.WriteString("  a solicitar una sugerencia de titulo/descripcion\n")
+	}
 	return b.String()
 }
 

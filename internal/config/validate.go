@@ -51,6 +51,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("config: delta is configured but sourceDirs is empty")
 	}
 
+	if c.AI.Enabled && (c.AI.Endpoint == "" || c.AI.Model == "") {
+		return fmt.Errorf("config: ai is enabled but endpoint or model is empty")
+	}
+
 	return nil
 }
 

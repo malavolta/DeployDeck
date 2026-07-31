@@ -7,23 +7,29 @@ import (
 
 // TestApp_NeverImportsExecSeam is the architecture-invariant boundary test
 // (HU-006 tasks 10.37/10.38, extended by 11.6 to cover the whole package,
-// further extended by HU-019 3.11 for the scalar CheckUpdate seam):
+// further extended by HU-019 3.11 for the scalar CheckUpdate seam, and by
+// ai-pr-summary task 4.1 for the scalar Deps.GenerateSummary seam):
 // internal/app must NEVER exec git/sf directly, nor reach the network or the
-// version/update leaves itself. It reaches every external command ONLY
-// through the services (internal/git.Service, internal/salesforce.Client),
+// version/update/ai leaves themselves. It reaches every external command
+// ONLY through the services (internal/git.Service, internal/salesforce.Client),
 // which themselves funnel through internal/exec; it reaches update
 // availability ONLY through the scalar Deps.CheckUpdate func main composes
-// (design ADR-2: "app stays I/O-free and HTTP-free"). Therefore
-// internal/app's OWN (non-test) source files must import none of:
+// (design ADR-2: "app stays I/O-free and HTTP-free"), and it reaches the
+// local-model suggestion ONLY through the scalar Deps.GenerateSummary func
+// main composes (ai-pr-summary design ADR-1). Therefore internal/app's OWN
+// (non-test) source files must import none of:
 //
 //   - "os/exec"                     — a raw process launch, bypassing the seam,
 //   - "github.com/malavolta/DeployDeck/internal/exec"    — the seam itself (only services may hold it),
 //   - "net/http"                    — the HTTP seam belongs to internal/update
-//     only; app's Deps.CheckUpdate is a stdlib scalar func, never a *http.Client,
+//     and internal/ai only; app's Deps.CheckUpdate/Deps.GenerateSummary are
+//     stdlib scalar funcs, never a *http.Client,
 //   - "github.com/malavolta/DeployDeck/internal/version" — a typed dependency here would invert the
 //     Main->App->leaf direction (ADR-2's rejected alternative), and
 //   - "github.com/malavolta/DeployDeck/internal/update"  — likewise; the version/update comparison
 //     lives in main.defaultCheckUpdate, never in app.
+//   - "github.com/malavolta/DeployDeck/internal/ai"      — likewise; the local-model HTTP client
+//     lives behind main's Deps.GenerateSummary closure, never in app directly.
 //
 // This is a DIRECT-import check, not a transitive one: bubbletea's
 // tea.ExecProcess transitively pulls in os/exec for interactive $EDITOR /
@@ -49,6 +55,7 @@ func TestApp_NeverImportsExecSeam(t *testing.T) {
 		"net/http",
 		"github.com/malavolta/DeployDeck/internal/version",
 		"github.com/malavolta/DeployDeck/internal/update",
+		"github.com/malavolta/DeployDeck/internal/ai",
 	}
 	for _, f := range forbidden {
 		if contains(pkg.Imports, f) {

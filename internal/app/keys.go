@@ -376,6 +376,26 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.pushPhase = pushPRConfirm
 			}
 			return m, nil
+		case "a":
+			// Context-sensitive, two-press AI-suggestion affordance
+			// (ai-pr-summary design ADR-7): pending or already-accepted is a
+			// strict no-op (guards a second concurrent request and a
+			// re-request after accept); no suggestion yet + a configured dep
+			// requests one; an unaccepted, already-generated suggestion is
+			// ACCEPTED by this second press — the only place aiAccepted is
+			// ever set. A nil dep (AI not configured) leaves 'a' inert
+			// entirely (spec: "No ai config leaves pushReady unchanged").
+			switch {
+			case m.aiPending || m.aiAccepted:
+				return m, nil
+			case m.aiTitle != "":
+				m.aiAccepted = true
+				return m, nil
+			case m.deps.GenerateSummary != nil:
+				m.aiPending = true
+				return m, m.aiSuggestCmd()
+			}
+			return m, nil
 		case "q", "esc":
 			return m, m.quitCmd()
 		}

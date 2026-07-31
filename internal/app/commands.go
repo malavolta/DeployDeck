@@ -46,6 +46,11 @@ const resumeDetectTimeout = 5 * time.Second
 // itself may run before the courtesy notice is skipped.
 const updateCheckTimeout = 3 * time.Second
 
+// aiSuggestTimeout bounds one AI-suggestion request (ai-pr-summary design's
+// Data Flow: "ctx=WithTimeout"), mirroring updateCheckTimeout's discipline —
+// a slow/unreachable local model must never stall the pushReady screen.
+const aiSuggestTimeout = 15 * time.Second
+
 // --- Messages ---
 
 // prereqDoneMsg carries the HU-001 prereq report (or an error).
@@ -61,6 +66,15 @@ type updateCheckDoneMsg struct {
 	hasUpdate bool
 	latest    string
 	err       error
+}
+
+// aiSuggestDoneMsg carries the ai-pr-summary suggestion request's result (or
+// an error). onAISuggestDone treats err!=nil and title=="" identically — a
+// silent skip (spec: "Silent Graceful Degradation").
+type aiSuggestDoneMsg struct {
+	title       string
+	description string
+	err         error
 }
 
 // discoverDoneMsg carries the assembled HU-002 discovery result and the
@@ -405,6 +419,30 @@ func (m Model) checkUpdateCmd() tea.Cmd {
 		defer cancel()
 		hasUpdate, latest, err := checkUpdate(ctx)
 		return updateCheckDoneMsg{hasUpdate: hasUpdate, latest: latest, err: err}
+	}
+}
+
+// aiSuggestCmd requests an ai-pr-summary suggestion via the injected scalar
+// Deps.GenerateSummary. nil disables the affordance entirely (same
+// nil-degrades convention as checkUpdateCmd's Deps.CheckUpdate) — keyPushPreparation's
+// guard already checks this before firing the request, but the command
+// itself stays defensive. ticket/commitSubjects/componentSummary are built
+// ENTIRELY from data already on Model (design's Data Flow) — no new
+// git/HTTP call originates here; the aiSuggestTimeout-bounded ctx is the
+// only thing crossing into main's composed closure.
+func (m Model) aiSuggestCmd() tea.Cmd {
+	generateSummary := m.deps.GenerateSummary
+	if generateSummary == nil {
+		return nil
+	}
+	ticket := m.plan.Ticket
+	subjects := commitSubjects(m.plan.SelectedCommits)
+	componentSummary := renderComponentSummary(m.summary)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), aiSuggestTimeout)
+		defer cancel()
+		title, description, err := generateSummary(ctx, ticket, subjects, componentSummary)
+		return aiSuggestDoneMsg{title: title, description: description, err: err}
 	}
 }
 
@@ -1197,12 +1235,16 @@ func (m Model) pruneRunsCmd() tea.Cmd {
 // (keyPushPreparation's pushPRConfirm gate) — never implicitly, and never on
 // the compare-fallback path. Raw is preserved on both success and failure so a
 // failed creation can still show gh's output. A nil GH client returns an error
-// rather than panicking (the flow degrades to manual data).
+// rather than panicking (the flow degrades to manual data). The title comes
+// from effectiveTitle() (ai-pr-summary design ADR-3): the accepted AI title
+// ONLY after the explicit second 'a' accept, else the pre-existing
+// github.SuggestedTitle formula — the exact same source viewPRData displays,
+// so the executed command can never drift from the shown one.
 func (m Model) createPRCmd() tea.Cmd {
 	gh := m.deps.GH
 	base := m.plan.TargetBranch
 	head := m.plan.PromotionBranch
-	title := github.SuggestedTitle(m.plan.Ticket, m.plan.TargetBranch)
+	title := m.effectiveTitle()
 	ctx := m.ctx()
 	return func() tea.Msg {
 		if gh == nil {

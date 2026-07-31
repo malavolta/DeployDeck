@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/malavolta/DeployDeck/internal/ai"
 	"github.com/malavolta/DeployDeck/internal/app"
 	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/delta"
@@ -216,7 +217,50 @@ func defaultChecker(dir string) (*prereq.Checker, error) {
 		Lock:   lock,
 		// GH backs the informative, non-blocking gh doctor check (HU-014).
 		GH: github.New(runner),
+		// AI backs the informative, non-blocking AI model doctor check
+		// (ai-pr-summary); nil (composeAIClient's degrade) when cfg.AI is
+		// disabled/absent, mirroring GH's nil-skip discipline.
+		AI: composeAIClient(cfg),
 	}, nil
+}
+
+// composeAIClient builds the real internal/ai.Client backing Checker.AI/
+// Deps.GenerateSummary when cfg.AI is enabled, else nil (design ADR-7:
+// "main wires Deps.GenerateSummary and Checker.AI ONLY when
+// cfg.AI.Enabled" — the same nil-degrades convention every other optional
+// dep in this file follows). composeGenerateSummary calls this same helper
+// so the ai.New(...) construction is defined once and shared by both call
+// sites.
+// aiHTTPClientTimeout backstops the AI HTTP client so no request is ever fully
+// unbounded, even if a future call site forgets its own context deadline. The
+// per-call contexts still govern normal operation (Doctor: doctorProbeTimeout;
+// GenerateSummary: aiSuggestCmd's 15s); this is the outer safety net.
+const aiHTTPClientTimeout = 30 * time.Second
+
+func composeAIClient(cfg config.Config) ai.Client {
+	if !cfg.AI.Enabled {
+		return nil
+	}
+	return ai.New(cfg.AI.Endpoint, cfg.AI.Model, &http.Client{Timeout: aiHTTPClientTimeout})
+}
+
+// composeGenerateSummary builds the scalar app.Deps.GenerateSummary closure
+// (design ADR-1) over composeAIClient's real internal/ai.Client. It is the
+// real service wired into app.Deps.GenerateSummary; internal/app never
+// imports net/http/internal/ai directly (boundary_test.go).
+func composeGenerateSummary(cfg config.Config) func(ctx context.Context, ticket string, commitSubjects []string, componentSummary string) (title, description string, err error) {
+	client := composeAIClient(cfg)
+	if client == nil {
+		return nil
+	}
+	return func(ctx context.Context, ticket string, commitSubjects []string, componentSummary string) (string, string, error) {
+		result, err := client.GenerateSummary(ctx, ai.SummaryRequest{
+			Ticket:           ticket,
+			CommitSubjects:   commitSubjects,
+			ComponentSummary: componentSummary,
+		})
+		return result.Title, result.Description, err
+	}
 }
 
 // defaultRunTUI composes the real NewOSRunner-backed services and launches the
@@ -241,6 +285,10 @@ func defaultRunTUI(dir string) error {
 		NewChecker:  defaultChecker,
 		Edit:        editHandoff,
 		CheckUpdate: defaultCheckUpdate,
+		// GenerateSummary backs the optional ai-pr-summary suggestion
+		// affordance; nil (composeGenerateSummary's degrade) when cfg.AI is
+		// disabled/absent.
+		GenerateSummary: composeGenerateSummary(cfg),
 		// Now is left nil: production uses the real time.Now clock.
 	}
 
