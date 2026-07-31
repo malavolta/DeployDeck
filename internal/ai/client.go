@@ -94,10 +94,17 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+// generationTemperature pins a low sampling temperature so titles/descriptions
+// are deterministic and the small model rambles/hallucinates less (tuned
+// empirically against qwen2.5-coder:3b). Sent on the OpenAI-compatible request;
+// runtimes that ignore it are unaffected.
+const generationTemperature = 0.2
+
 type chatCompletionRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
-	Stream   bool          `json:"stream"`
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Stream      bool          `json:"stream"`
+	Temperature float64       `json:"temperature"`
 }
 
 type chatCompletionResponse struct {
@@ -122,7 +129,8 @@ func (c *client) GenerateSummary(ctx context.Context, req SummaryRequest) (Summa
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-		Stream: false,
+		Stream:      false,
+		Temperature: generationTemperature,
 	})
 	if err != nil {
 		return SummaryResult{}, fmt.Errorf("ai: encoding request: %w", err)

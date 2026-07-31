@@ -17,12 +17,27 @@ const (
 
 // systemPrompt instructs the model to respond with the exact two-label,
 // plain-text contract ParseSummary parses (design ADR-2) — NOT JSON, which
-// small models routinely emit invalid.
-const systemPrompt = `You are an assistant that drafts a conventional-commit-style pull request title and description from a list of commit subjects and a summary of changed metadata.
-Respond with EXACTLY two labeled sections in plain text — no markdown code fences, no JSON:
-TITLE: <a single-line, conventional-commit-style title, at most 120 characters>
-DESCRIPTION: <a short description of the change, may span multiple lines>
-Do not include anything else in your response.`
+// small models routinely emit invalid. The explicit conventional-commit type
+// list, the anti-hallucination rule, and the one-shot example were tuned
+// empirically against a local 3B model (qwen2.5-coder:3b): without them the
+// model produced non-prefixed titles and invented changes (e.g. documentation)
+// not present in the inputs.
+const systemPrompt = `You draft a conventional-commit-style pull request title and description from a list of commit subjects and a summary of changed metadata.
+
+Rules:
+- The TITLE MUST begin with a conventional-commit type: feat, fix, chore, refactor, test, docs, perf, build, or ci, optionally with a scope in parentheses. Single line, imperative mood, at most 120 characters.
+- The DESCRIPTION MUST summarize ONLY the changes stated in the commit subjects. Do NOT invent changes (such as documentation) that are not listed. Do NOT restate, recompute, or reinterpret the metadata counts.
+- Respond with EXACTLY these two labeled plain-text sections, nothing else, no markdown fences, no JSON:
+TITLE: <title>
+DESCRIPTION: <2 to 4 concise sentences>
+
+Example
+Commit subjects:
+- fix: handle empty cart on checkout
+- test: cover empty cart path
+Output:
+TITLE: fix(checkout): guard against an empty cart
+DESCRIPTION: Add a guard so checkout no longer fails on an empty cart. Add a test covering the empty-cart path.`
 
 // Build composes the system and user prompt sent to the local model
 // (design ADR-1/ADR-4). It is pure: componentSummary is a pre-rendered
