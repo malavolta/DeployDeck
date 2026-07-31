@@ -70,15 +70,17 @@ jobs:
 
           test -f dist/checksums.txt || { echo "missing dist/checksums.txt"; exit 1; }
 
-          # macOS (darwin) amd64 + arm64, Linux amd64 + arm64, Windows amd64+arm64 archives.
+          # macOS (darwin) amd64 + arm64, Linux amd64 + arm64, Windows amd64 archives.
+          # Case-insensitive: the archive prefix is the project name (DeployDeck),
+          # and Linux runners have a case-sensitive filesystem, so a lowercased
+          # glob would not match. `find -iname` sidesteps that.
           for pattern in \
-            "dist/deploydeck_*darwin*amd64*.tar.gz" \
-            "dist/deploydeck_*darwin*arm64*.tar.gz" \
-            "dist/deploydeck_*linux*amd64*.tar.gz" \
-            "dist/deploydeck_*linux*arm64*.tar.gz" \
-            "dist/deploydeck_*windows*amd64*.zip"; do
-            matches=$(ls $pattern 2>/dev/null | wc -l)
-            if [ "$matches" -lt 1 ]; then
+            "*darwin*amd64*.tar.gz" \
+            "*darwin*arm64*.tar.gz" \
+            "*linux*amd64*.tar.gz" \
+            "*linux*arm64*.tar.gz" \
+            "*windows*amd64*.zip"; do
+            if [ -z "$(find dist -iname "$pattern" | head -n1)" ]; then
               echo "expected at least one file matching: $pattern"
               exit 1
             fi
