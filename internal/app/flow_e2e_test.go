@@ -13,6 +13,7 @@ import (
 	execpkg "github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // gitRun runs a real git command in dir for test setup, failing the test on
@@ -76,6 +77,33 @@ func setupFlowRepo(t *testing.T) string {
 	gitRun(t, local, "config", "user.name", "ana")
 	gitRun(t, local, "config", "user.email", "ana@example.com")
 
+	return local
+}
+
+// setupSourceResolutionRepo checks out feature/PROJ-1 LOCALLY on top of
+// setupFlowRepo's clone (which stays on "main") — git's checkout DWIM
+// creates a local tracking branch, reproducing D1's repro: a branch present
+// both locally and as its origin/ twin.
+func setupSourceResolutionRepo(t *testing.T) string {
+	t.Helper()
+	local := setupFlowRepo(t)
+	gitRun(t, local, "checkout", "feature/PROJ-1")
+	return local
+}
+
+// setupSourceConfirmRepo extends setupFlowRepo with a SECOND, genuinely
+// distinct candidate branch (hotfix/PROJ-1, off UAT), pushed from the clone
+// itself, then returns to feature/PROJ-1 — the "still ambiguous after
+// dedupe" scenario D2's confirm prompt targets.
+func setupSourceConfirmRepo(t *testing.T) string {
+	t.Helper()
+	local := setupFlowRepo(t)
+	gitRun(t, local, "checkout", "-b", "hotfix/PROJ-1", "origin/UAT")
+	writeFile(t, local, "h.cls", "content H\n")
+	gitRun(t, local, "add", ".")
+	gitRun(t, local, "commit", "-m", "PROJ-1 hotfix")
+	gitRun(t, local, "push", "origin", "hotfix/PROJ-1")
+	gitRun(t, local, "checkout", "feature/PROJ-1")
 	return local
 }
 
@@ -210,4 +238,107 @@ func TestHU_FullFlow_PrereqToPickVerification(t *testing.T) {
 	if !strings.Contains(m.View(), "origin/UAT") {
 		t.Errorf("verification view should name the promotion target")
 	}
+}
+
+// TestHU_FullFlow_SourceResolutionDedupe_NoConfirmNeeded is task 4.2's
+// dedupe scenario: a local+origin twin, promoted to the first pipeline
+// environment (no suggestion applies), reaches StateCommitSelection
+// DIRECTLY — D1 alone fixes the repro, no D2 confirm needed.
+func TestHU_FullFlow_SourceResolutionDedupe_NoConfirmNeeded(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test shells out to real git")
+	}
+	local := setupSourceResolutionRepo(t)
+
+	deps := Deps{
+		Git:    git.New(execpkg.NewOSRunner()),
+		Config: flowConfig(),
+		Dir:    local,
+		Runs:   runs.NewWriter(local),
+	}
+	m := New(deps)
+	m = driveOnPrereqDone(t, m)
+	if m.originalBranch != "feature/PROJ-1" {
+		t.Fatalf("originalBranch = %q, want feature/PROJ-1 (captured at startup)", m.originalBranch)
+	}
+
+	m = advance(t, m, keyPress("enter")) // main menu -> Promocionar
+	m = typeString(m, "PROJ-1")
+	m = advance(t, m, keyPress("enter"))
+	if m.State() != StateCommitDiscovery {
+		t.Fatalf("after ticket enter: %v", m.State())
+	}
+	m = advance(t, m, run(t, m.discoverCmd()))
+	if m.State() != StateCommitSelection {
+		t.Fatalf("dedupe path should reach StateCommitSelection directly (no confirm), got %v (err=%v)", m.State(), m.Err())
+	}
+	if len(m.items) == 0 {
+		t.Fatalf("expected a non-empty discovered range, got 0 items")
+	}
+}
+
+// TestHU_FullFlow_SourceConfirm_AcceptAndDecline is task 4.2's confirm-prompt
+// scenarios: 2 genuinely distinct candidates, no suggestion, checked out on
+// one -> StateSourceConfirm. "s" accepts and reaches StateCommitSelection
+// non-empty; "n" declines and degrades to zero items.
+func TestHU_FullFlow_SourceConfirm_AcceptAndDecline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test shells out to real git")
+	}
+
+	newModel := func(t *testing.T) Model {
+		t.Helper()
+		local := setupSourceConfirmRepo(t)
+		deps := Deps{
+			Git:    git.New(execpkg.NewOSRunner()),
+			Config: flowConfig(),
+			Dir:    local,
+			Runs:   runs.NewWriter(local),
+		}
+		m := New(deps)
+		m = driveOnPrereqDone(t, m)
+		if m.originalBranch != "feature/PROJ-1" {
+			t.Fatalf("originalBranch = %q, want feature/PROJ-1 (captured at startup)", m.originalBranch)
+		}
+		m = advance(t, m, keyPress("enter")) // main menu -> Promocionar
+		m = typeString(m, "PROJ-1")
+		m = advance(t, m, keyPress("enter"))
+		if m.State() != StateCommitDiscovery {
+			t.Fatalf("after ticket enter: %v", m.State())
+		}
+		m = advance(t, m, run(t, m.discoverCmd()))
+		if m.State() != StateSourceConfirm {
+			t.Fatalf("genuinely ambiguous + current-branch match should reach StateSourceConfirm, got %v (err=%v)", m.State(), m.Err())
+		}
+		if !strings.Contains(m.View(), "feature/PROJ-1") {
+			t.Fatalf("confirm prompt should name the pending candidate feature/PROJ-1:\n%s", m.View())
+		}
+		return m
+	}
+
+	t.Run("accept (s) runs the ranged discover", func(t *testing.T) {
+		m := newModel(t)
+		m = advance(t, m, keyPress("s"))
+		if m.State() != StateCommitDiscovery {
+			t.Fatalf("s should re-enter StateCommitDiscovery pending confirmSourceCmd, got %v", m.State())
+		}
+		m = advance(t, m, run(t, m.confirmSourceCmd()))
+		if m.State() != StateCommitSelection {
+			t.Fatalf("accepted confirm should reach StateCommitSelection, got %v (err=%v)", m.State(), m.Err())
+		}
+		if len(m.items) == 0 {
+			t.Fatalf("expected a non-empty discovered range after accepting, got 0 items")
+		}
+	})
+
+	t.Run("decline (n) degrades with zero items", func(t *testing.T) {
+		m := newModel(t)
+		m = advance(t, m, keyPress("n"))
+		if m.State() != StateCommitSelection {
+			t.Fatalf("n should degrade straight to StateCommitSelection, got %v", m.State())
+		}
+		if len(m.items) != 0 {
+			t.Fatalf("declined confirm must not select any range, got %d items", len(m.items))
+		}
+	})
 }

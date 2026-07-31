@@ -78,11 +78,17 @@ type aiSuggestDoneMsg struct {
 }
 
 // discoverDoneMsg carries the assembled HU-002 discovery result and the
-// resolved single source branch (or an error).
+// resolved single source branch (or an error). confirm is true when pass-1
+// discovery resolved to resolveNeedsConfirm — source is then only a PENDING
+// current-branch suggestion, and result carries the base (message+branch
+// only) discovery; onDiscoverDone then routes to StateSourceConfirm instead
+// of StateCommitSelection. false (the zero value) preserves every
+// pre-existing resolved/degrade discoverDoneMsg exactly.
 type discoverDoneMsg struct {
-	result git.DiscoverResult
-	source git.Branch
-	err    error
+	result  git.DiscoverResult
+	source  git.Branch
+	confirm bool
+	err     error
 }
 
 // depWarningsMsg carries HU-003 per-file dependency warnings (best-effort).
@@ -465,16 +471,22 @@ func (m Model) runPrereqCmd() tea.Cmd {
 	}
 }
 
-// discoverCmd runs HU-002 discovery in two composed passes through the git
-// service: first message+branch search (to resolve the single source), then a
-// ranged discovery with (preliminary target, resolved source) to produce the
-// classified OrderedCommits HU-003 consumes.
+// discoverCmd runs HU-002 discovery's PASS 1: message+branch search, then
+// resolveSource — threading m.originalBranch as the current-branch confirm
+// candidate, NO new git/exec call. resolveReady runs the ranged discovery
+// inline (PASS 2, unchanged) producing the classified OrderedCommits HU-003
+// consumes; resolveNeedsConfirm returns the base result with the PENDING
+// candidate and confirm=true WITHOUT running the ranged discover — the
+// user's "s" on StateSourceConfirm fires confirmSourceCmd (PASS 2) instead.
+// resolveDegrade (or no preliminary target) degrades to message-only
+// results, unchanged.
 func (m Model) discoverCmd() tea.Cmd {
 	g := m.deps.Git
 	dir := m.deps.Dir
 	cfg := m.deps.Config
 	ticket := m.ticket
 	prelim := m.prelim
+	currentBranch := m.originalBranch
 	ctx := m.ctx()
 	return func() tea.Msg {
 		base, err := g.Discover(ctx, dir, git.DiscoverOptions{Ticket: ticket})
@@ -482,21 +494,59 @@ func (m Model) discoverCmd() tea.Cmd {
 			return discoverDoneMsg{err: err}
 		}
 
-		source, ok := resolveSource(base.CandidateBranches, cfg, prelim)
-		if !ok || prelim == "" {
-			// Degrade to message-only results (no single source / no target).
+		source, outcome := resolveSource(base.CandidateBranches, cfg, prelim, currentBranch)
+		switch outcome {
+		case resolveNeedsConfirm:
+			return discoverDoneMsg{result: base, source: source, confirm: true}
+		case resolveReady:
+			if prelim == "" {
+				// Degrade to message-only results (no target).
+				return discoverDoneMsg{result: base}
+			}
+			full, err := g.Discover(ctx, dir, git.DiscoverOptions{
+				Ticket: ticket,
+				Target: prelim,
+				Source: sourceRefName(source),
+			})
+			if err != nil {
+				return discoverDoneMsg{err: err}
+			}
+			return discoverDoneMsg{result: full, source: source}
+		default: // resolveDegrade
+			// Degrade to message-only results (no single source).
 			return discoverDoneMsg{result: base}
 		}
+	}
+}
 
+// confirmSourceCmd runs HU-002 discovery's PASS 2 for the StateSourceConfirm
+// accept path: once the user presses "s", it funnels the pending candidate
+// through the SAME UNMODIFIED git.SelectSingleSource against the base
+// candidates, then runs the ranged discover, returning the SAME
+// discoverDoneMsg shape (confirm: false) so onDiscoverDone routes it
+// straight to StateCommitSelection.
+func (m Model) confirmSourceCmd() tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	ticket := m.ticket
+	prelim := m.prelim
+	candidates := m.discovery.CandidateBranches
+	pending := m.source.Name
+	ctx := m.ctx()
+	return func() tea.Msg {
+		sel, err := git.SelectSingleSource(candidates, pending)
+		if err != nil {
+			return discoverDoneMsg{err: err}
+		}
 		full, err := g.Discover(ctx, dir, git.DiscoverOptions{
 			Ticket: ticket,
 			Target: prelim,
-			Source: sourceRefName(source),
+			Source: sourceRefName(sel),
 		})
 		if err != nil {
 			return discoverDoneMsg{err: err}
 		}
-		return discoverDoneMsg{result: full, source: source}
+		return discoverDoneMsg{result: full, source: sel}
 	}
 }
 

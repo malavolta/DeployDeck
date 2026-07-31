@@ -260,6 +260,91 @@ func TestHU002_Discover_E2E_Variants(t *testing.T) {
 	})
 }
 
+// TestHU002_Discover_E2E_SourceResolutionDedupe is task 4.1: a local+origin
+// twin, promoted to the first pipeline environment, resolves to exactly 1
+// deduped candidate with a non-empty range; a distinct-candidates companion
+// proves dedupe never over-collapses two genuinely different branches.
+func TestHU002_Discover_E2E_SourceResolutionDedupe(t *testing.T) {
+	t.Run("local+origin twin dedupes to 1 candidate with a non-empty range", func(t *testing.T) {
+		dir := newTempRepo(t)
+		runner := exec.NewOSRunner()
+		svc := git.New(runner)
+		ctx := context.Background()
+
+		runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+		runGit(t, runner, dir, "push", "origin", "UAT")
+
+		runGit(t, runner, dir, "checkout", "-b", "feature/PROJ-3", "UAT")
+		sha := writeAndCommit(t, runner, dir, "a.txt", "a\n", "PROJ-3: change")
+		runGit(t, runner, dir, "push", "origin", "feature/PROJ-3")
+
+		base, err := svc.Discover(ctx, dir, git.DiscoverOptions{Ticket: "PROJ-3"})
+		if err != nil {
+			t.Fatalf("Discover (pass 1): unexpected error: %v", err)
+		}
+		if len(base.CandidateBranches) != 1 {
+			t.Fatalf("expected exactly 1 deduped candidate, got %d: %+v", len(base.CandidateBranches), base.CandidateBranches)
+		}
+
+		resolvedSource, err := git.SelectSingleSource(base.CandidateBranches, "")
+		if err != nil {
+			t.Fatalf("expected the single deduped candidate to auto-resolve without an explicit selection, got error: %v", err)
+		}
+		if resolvedSource.Name != "feature/PROJ-3" {
+			t.Fatalf("resolved source = %q, want the bare/local form feature/PROJ-3", resolvedSource.Name)
+		}
+
+		full, err := svc.Discover(ctx, dir, git.DiscoverOptions{
+			Ticket: "PROJ-3",
+			Target: "UAT",
+			Source: resolvedSource.Name,
+		})
+		if err != nil {
+			t.Fatalf("Discover (pass 2): unexpected error: %v", err)
+		}
+		if len(full.OrderedCommits) != 1 || full.OrderedCommits[0].SHA != sha {
+			t.Fatalf("expected exactly 1 ordered commit (%s), not a dead end, got %+v", sha, full.OrderedCommits)
+		}
+	})
+
+	t.Run("distinct candidates are never over-collapsed", func(t *testing.T) {
+		dir := newTempRepo(t)
+		runner := exec.NewOSRunner()
+		svc := git.New(runner)
+		ctx := context.Background()
+
+		runGit(t, runner, dir, "checkout", "-b", "UAT", "main")
+		runGit(t, runner, dir, "push", "origin", "UAT")
+
+		runGit(t, runner, dir, "checkout", "-b", "feature/PROJ-4-a", "UAT")
+		writeAndCommit(t, runner, dir, "a.txt", "a\n", "PROJ-4: change a")
+		runGit(t, runner, dir, "push", "origin", "feature/PROJ-4-a")
+
+		runGit(t, runner, dir, "checkout", "-b", "hotfix/PROJ-4-b", "UAT")
+		writeAndCommit(t, runner, dir, "b.txt", "b\n", "PROJ-4: change b")
+		runGit(t, runner, dir, "push", "origin", "hotfix/PROJ-4-b")
+
+		candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-4")
+		if err != nil {
+			t.Fatalf("CandidateBranches: unexpected error: %v", err)
+		}
+		if len(candidates) != 2 {
+			t.Fatalf("expected 2 genuinely distinct candidates, got %d: %+v", len(candidates), candidates)
+		}
+
+		if _, err := git.SelectSingleSource(candidates, ""); !errors.Is(err, git.ErrMultipleSourceBranches) {
+			t.Fatalf("expected an unresolved ambiguous selection to block with ErrMultipleSourceBranches, got: %v", err)
+		}
+		resolved, err := git.SelectSingleSource(candidates, "feature/PROJ-4-a")
+		if err != nil {
+			t.Fatalf("expected selecting feature/PROJ-4-a to succeed, got error: %v", err)
+		}
+		if resolved.Name != "feature/PROJ-4-a" {
+			t.Fatalf("resolved source = %q, want feature/PROJ-4-a", resolved.Name)
+		}
+	})
+}
+
 func commitSHASet(commits []git.Commit) map[string]bool {
 	set := make(map[string]bool, len(commits))
 	for _, c := range commits {

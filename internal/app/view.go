@@ -48,6 +48,8 @@ func (m Model) viewBody() string {
 		return m.viewSandboxSelect()
 	case StateTicketInput:
 		return m.viewTicket()
+	case StateSourceConfirm:
+		return m.viewSourceConfirm()
 	case StateCommitDiscovery:
 		return header("Buscando commits") + fmt.Sprintf("\n  Ticket: %s\n  Buscando...\n", m.ticket)
 	case StateCommitSelection:
@@ -239,6 +241,15 @@ func (m Model) viewTicket() string {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
 	b.WriteString(footer("Enter buscar   Esc volver"))
+	return b.String()
+}
+
+// viewSourceConfirm renders the pending m.source.Name confirm prompt.
+func (m Model) viewSourceConfirm() string {
+	var b strings.Builder
+	b.WriteString(header("Confirmar Rama Origen"))
+	b.WriteString(fmt.Sprintf("\n  ¿Usar la rama actual '%s' como origen? [s/N]\n", m.source.Name))
+	b.WriteString(footer("s confirmar   n/N/Enter declinar   Esc volver"))
 	return b.String()
 }
 

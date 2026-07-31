@@ -164,6 +164,10 @@ const (
 	// (Group 4): it lists cfg.Sandboxes and, on confirm, pre-creates a
 	// validate-mode run and fires validateCmd. Reached from StatePackageSelect.
 	StateSandboxSelect
+	// StateSourceConfirm is the current-branch confirm prompt: reached when
+	// resolveSource yields resolveNeedsConfirm (m.source/m.discovery carry
+	// the pending candidate/base result; no new Model fields). Appended last.
+	StateSourceConfirm
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,

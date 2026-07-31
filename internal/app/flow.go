@@ -29,15 +29,30 @@ func sourceRefName(b git.Branch) string {
 	return strings.TrimPrefix(b.Name, "origin/")
 }
 
-// resolveSource picks the single source branch for a discovery run from the
-// candidate branches, honoring RF-002's suggested default (the previous
-// pipeline environment) while still enforcing single-source selection. ok is
-// false when no unambiguous single source can be resolved (zero candidates,
-// or multiple with no suggestion) — the caller then degrades to message-only
-// results.
-func resolveSource(candidates []git.Branch, cfg config.Config, target string) (git.Branch, bool) {
+// resolveOutcome is resolveSource's tri-state result: resolveReady means the
+// caller may run the ranged discover immediately; resolveNeedsConfirm means
+// the branch is only a PENDING current-branch suggestion the user must
+// explicitly confirm; resolveDegrade means no unambiguous single source
+// could be resolved (the pre-existing degrade-to-message-only behavior).
+type resolveOutcome int
+
+const (
+	resolveDegrade resolveOutcome = iota
+	resolveReady
+	resolveNeedsConfirm
+)
+
+// resolveSource picks the single source branch for a discovery run,
+// honoring RF-002's suggested default FIRST, then — only when no suggestion
+// applies and discovery is still genuinely ambiguous (2+ candidates) —
+// offering currentBranch (already-captured via m.originalBranch, guarded
+// against "" and "HEAD", matched via sourceRefName) as a PENDING suggestion
+// the caller must explicitly confirm. A single candidate always resolves
+// ready via the UNMODIFIED git.SelectSingleSource, regardless of
+// currentBranch — no confirm is ever needed for an unambiguous source.
+func resolveSource(candidates []git.Branch, cfg config.Config, target, currentBranch string) (git.Branch, resolveOutcome) {
 	if len(candidates) == 0 {
-		return git.Branch{}, false
+		return git.Branch{}, resolveDegrade
 	}
 
 	selected := ""
@@ -45,11 +60,19 @@ func resolveSource(candidates []git.Branch, cfg config.Config, target string) (g
 		selected = suggested.Name
 	}
 
+	if selected == "" && len(candidates) > 1 && currentBranch != "" && currentBranch != "HEAD" {
+		for _, c := range candidates {
+			if sourceRefName(c) == currentBranch {
+				return c, resolveNeedsConfirm
+			}
+		}
+	}
+
 	branch, err := git.SelectSingleSource(candidates, selected)
 	if err != nil {
-		return git.Branch{}, false
+		return git.Branch{}, resolveDegrade
 	}
-	return branch, true
+	return branch, resolveReady
 }
 
 // selectedCommits returns the DiscoveredCommits the user currently has

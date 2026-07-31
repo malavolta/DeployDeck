@@ -30,14 +30,46 @@ func (s *Service) ListBranches(ctx context.Context, dir string) ([]Branch, error
 // contains ticket (HU-002: "Buscar ramas remotas y locales que contengan
 // el ticket"), via `git branch --list '*<ticket>*'` for each of local and
 // remote-tracking refs — the same underlying listing ListBranches uses,
-// scoped with a glob pattern.
+// scoped with a glob pattern. A pushed branch present both locally and as
+// its origin/ counterpart is collapsed into a SINGLE candidate
+// (dedupeByLocalName) so a logical branch is never counted twice — scoped to
+// CandidateBranches ONLY; ListBranches/branchesByPattern stay unmodified,
+// since the standalone-delta base picker requires local+remote as separate
+// rows.
 func (s *Service) CandidateBranches(ctx context.Context, dir, ticket string) ([]Branch, error) {
 	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.branchesByPattern(ctx, root, "*"+ticket+"*")
+	branches, err := s.branchesByPattern(ctx, root, "*"+ticket+"*")
+	if err != nil {
+		return nil, err
+	}
+	return dedupeByLocalName(branches), nil
+}
+
+// dedupeByLocalName collapses a local branch and its origin/ remote-tracking
+// twin (e.g. "X" and "origin/X") into a single entry, keeping the bare/local
+// form. Genuinely distinct branches are never collapsed, and first-seen
+// order is preserved. Scoped to CandidateBranches only — never called by
+// ListBranches/branchesByPattern.
+func dedupeByLocalName(branches []Branch) []Branch {
+	local := make(map[string]bool, len(branches))
+	for _, b := range branches {
+		if !b.Remote {
+			local[b.Name] = true
+		}
+	}
+
+	deduped := make([]Branch, 0, len(branches))
+	for _, b := range branches {
+		if b.Remote && local[strings.TrimPrefix(b.Name, "origin/")] {
+			continue
+		}
+		deduped = append(deduped, b)
+	}
+	return deduped
 }
 
 // branchesByPattern lists local and remote-tracking branches already

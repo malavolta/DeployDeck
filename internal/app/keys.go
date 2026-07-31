@@ -27,6 +27,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keySandboxSelect(msg)
 	case StateTicketInput:
 		return m.keyTicket(msg)
+	case StateSourceConfirm:
+		return m.keySourceConfirm(msg)
 	case StateCommitSelection:
 		return m.keySelection(msg)
 	case StateTargetSelection:
@@ -802,6 +804,23 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// keySourceConfirm handles StateSourceConfirm: `s` fires confirmSourceCmd;
+// `n`/`N`/`enter` (default-No) reuse onDiscoverDone with the unchanged base
+// result to degrade straight to StateCommitSelection; `esc` backs out.
+func (m Model) keySourceConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "s":
+		m.state = StateCommitDiscovery
+		return m, m.confirmSourceCmd()
+	case "n", "N", "enter":
+		return m.onDiscoverDone(discoverDoneMsg{result: m.discovery})
+	case "esc":
+		m.state = StateTicketInput
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m Model) keySelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

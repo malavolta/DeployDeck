@@ -485,6 +485,11 @@ func (m Model) onDiscoverDone(msg discoverDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.discovery = msg.result
 	m.source = msg.source
+	if msg.confirm {
+		// Pass 1 needs-confirm: park on StateSourceConfirm, no items yet.
+		m.state = StateSourceConfirm
+		return m, nil
+	}
 	m.items = git.NewCommitSelectionItems(msg.result.OrderedCommits, m.ticket)
 	m.cursor = 0
 	m.state = StateCommitSelection
