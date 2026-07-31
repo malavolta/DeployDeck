@@ -26,10 +26,13 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./... -race
-        # Real-org e2e tests self-skip: they gate on the DEPLOYDECK_E2E_ORG
-        # env var (unset here), so this step never touches a real Salesforce
-        # org or a real GitHub token.
+        run: go test ./... -race -short
+        # e2e tests self-skip in CI in two complementary ways, so the runner
+        # never needs `sf`/`sfdx-git-delta`, a real Salesforce org, or a real
+        # GitHub token:
+        #  - git/sgd integration tests gate on `testing.Short()` → skipped by -short
+        #  - real-org tests gate on DEPLOYDECK_E2E_ORG (unset here)
+        # Both run locally with `-count=1` (no -short) and DEPLOYDECK_E2E_ORG set.
 
   goreleaser-check:
     name: goreleaser check + snapshot
