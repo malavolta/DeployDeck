@@ -52,30 +52,37 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# ACTIVATION-GATED: replace <OWNER> below once the homebrew-tap repo exists
-# under the real GitHub org/user (see docs/ACTIVATION-CHECKLIST.md step b).
-# Publishing here requires a write-scoped token (step c) supplied to
-# goreleaser-action as HOMEBREW_TAP_TOKEN in .github/workflows/release.yml.
-# `goreleaser check`/`--snapshot` validate this stanza's shape without
-# pushing anywhere.
-brews:
+# Homebrew Cask, published to malavolta/homebrew-tap on release. Uses
+# homebrew_casks because `brews` (formula generation) was removed in
+# goreleaser v2.16. Casks are macOS-only; Linux users install via
+# `go install` or the release tarball. Publishing needs the
+# HOMEBREW_TAP_TOKEN secret (Contents: write on the tap repo).
+homebrew_casks:
   - name: deploydeck
+    binaries:
+      - deploydeck
     repository:
       owner: "malavolta"
-      name: homebrew-tap # PLACEHOLDER — repo does not exist yet
+      name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
     homepage: "https://github.com/malavolta/DeployDeck"
     description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
-    license: "Apache-2.0"
+    # The binary is not signed/notarized, so strip the Gatekeeper quarantine
+    # attribute on install or macOS blocks the first run.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/deploydeck"]
+          end
 
-# ACTIVATION-GATED: replace <OWNER> below once the scoop-bucket repo exists.
-# Same token/repo prerequisites as brews above (steps b/c).
+# Scoop manifest, published to malavolta/scoop-bucket on release (Windows).
+# Needs the SCOOP_TOKEN secret (Contents: write on the bucket repo).
 scoops:
   - name: deploydeck
     repository:
       owner: "malavolta"
-      name: scoop-bucket # PLACEHOLDER — repo does not exist yet
+      name: scoop-bucket
       token: "{{ .Env.SCOOP_TOKEN }}"
     homepage: "https://github.com/malavolta/DeployDeck"
     description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
