@@ -1,109 +1,80 @@
 # Release Pipeline Activation Checklist (HU-019)
 
-This checklist captures the infrastructure prerequisites for **real
-publication** of DeployDeck releases (Homebrew formula / Scoop manifest
-updates pushed to their repos, and installable `brew`/`scoop`/`go install`
-paths). None of it is delivered by the `release` change — it is deferred
-on purpose, per design ADR-5 ("Ships-now vs infra-gated split") and the
-`release-pipeline` spec's "Real Publication Activation Prerequisites"
-requirement.
+**STATUS: COMPLETE — v0.1.0 shipped 2026-07-31.**
+[Release](https://github.com/malavolta/DeployDeck/releases/tag/v0.1.0) ·
+[homebrew-tap](https://github.com/malavolta/homebrew-tap) ·
+[scoop-bucket](https://github.com/malavolta/scoop-bucket)
 
-**Explicitly infra-gated / documented-not-exercised by this change:**
+This checklist captured the infrastructure prerequisites for **real
+publication** of DeployDeck releases (Homebrew cask / Scoop manifest pushed to
+their repos, and installable `brew`/`scoop`/`go install` paths). The `release`
+change deferred them on purpose, per design ADR-5 ("Ships-now vs infra-gated
+split") and the `release-pipeline` spec's "Real Publication Activation
+Prerequisites" requirement. Everything below is now done; this file is kept as
+the record of what was set up.
 
-- **AC2's "se actualizan la formula...manifiesto" clause** — i.e. that a
-  real release actually updates the Homebrew formula and Scoop manifest in
-  their respective repos. CI only validates that `goreleaser check` passes
-  and that a `--snapshot --clean` dry-run *renders* a formula/manifest
-  locally under `dist/` without publishing anywhere (see
-  `.github/workflows/ci.yml`'s `goreleaser-check` job). No test or CI job
-  asserts a real tap/bucket repo was updated.
-- **AC3 in full** (`brew install <org>/tap/deploydeck` and
-  `scoop install deploydeck` actually working) — both require steps (b),
-  (c), and (d) below, none of which exist yet.
-
-These are never represented as passing, done, or exercised by this change's
-tests or CI. Do not close them by inspection of `.goreleaser.yaml` alone —
-they require the steps below to actually happen.
-
-## Steps
+## Steps (all complete)
 
 ### (a) Real module path — DONE
 
-`origin` is `git@github.com:malavolta/DeployDeck.git` and the module path has
-been renamed. All four sub-steps are complete:
+`origin` is `git@github.com:malavolta/DeployDeck.git` and the module was renamed
+to `github.com/malavolta/DeployDeck` across `go.mod`, every internal import, the
+`.goreleaser.yaml` ldflags, and the README/docs.
 
-1. `go.mod`: now `module github.com/malavolta/DeployDeck`.
-2. Every internal import path is `github.com/malavolta/DeployDeck/internal/...`.
-3. `.goreleaser.yaml`'s `ldflags` `-X` symbol paths are
-   `github.com/malavolta/DeployDeck/internal/version.*`.
-4. README's `go install` examples use the real module path.
+### (b) Auxiliary repositories — DONE
 
-Verified with `go build ./...`, `go vet ./...`, `gofmt -l`, and
-`go test -short ./...` (all green).
+Two public repos hold the generated install recipes (goreleaser pushes to them
+on every release; they hold no source code):
 
-### (b) Create the auxiliary repositories
+- [`malavolta/homebrew-tap`](https://github.com/malavolta/homebrew-tap) →
+  `Casks/deploydeck.rb`.
+- [`malavolta/scoop-bucket`](https://github.com/malavolta/scoop-bucket) →
+  `deploydeck.json`.
 
-- `homebrew-tap` — a GitHub repo named `homebrew-tap` under the real owner,
-  holding generated `.rb` Homebrew formulas (goreleaser's `brews:` pipe
-  pushes here on a real release).
-- `scoop-bucket` — a GitHub repo holding generated `.json` Scoop manifests
-  (goreleaser's `scoops:` pipe pushes here on a real release).
+### (c) Write-scoped token — DONE
 
-Until these exist, `.goreleaser.yaml`'s `brews:`/`scoops:` `repository:`
-blocks point at the placeholder owner `<OWNER>`.
+A fine-grained PAT with **Contents: Read and write** on both repos is wired as
+the `HOMEBREW_TAP_TOKEN` and `SCOOP_TOKEN` repository secrets (a single token
+serves both, same owner). The default `GITHUB_TOKEN` creates the GitHub Release
+but cannot push to the separate tap/bucket repos — hence the dedicated token.
 
-### (c) Provision and wire the write-scoped token
+### (d) Public vs. private — DECIDED: public
 
-goreleaser needs a token with push access to `homebrew-tap` and
-`scoop-bucket` to open the formula/manifest update commit/PR. Provision a
-fine-grained (or classic, contents:write-scoped) GitHub token and add it as
-repository secrets:
+`malavolta/DeployDeck` and both auxiliary repos are **public**, so
+`brew`/`scoop`/`go install` and the update-check need no per-user token.
 
-- `HOMEBREW_TAP_TOKEN` — consumed by `.goreleaser.yaml`'s `brews[].token`
-  and referenced in `.github/workflows/release.yml`.
-- `SCOOP_TOKEN` — consumed by `.goreleaser.yaml`'s `scoops[].token`, same
-  workflow.
+### (e) First tag — DONE
 
-The default `GITHUB_TOKEN` (already wired in `release.yml`) is sufficient
-for the GitHub Release itself, but not for pushing to the separate tap/bucket
-repos — that needs the dedicated token(s) above.
+`v0.1.0` was tagged and pushed, triggering `.github/workflows/release.yml`
+(`goreleaser release --clean`): six binaries + checksums in the GitHub Release,
+plus the cask and manifest pushed to the tap/bucket. The repository variable
+`RELEASE_ACTIVATED=true` un-gates the workflow.
 
-### (d) Public vs. private repository — DECIDED: public
-
-`malavolta/DeployDeck` and the `homebrew-tap`/`scoop-bucket` repos will be
-**public**. Consequences:
-
-- `brew`/`scoop install` and `go install` work with **no per-user token** for
-  end users; the update-check's GitHub API call also needs no auth.
-- No per-user token setup step is needed in the README install docs.
-
-Still to enforce: the repo is currently **private** — it must be flipped to
-public (and the tap/bucket repos created public) as part of steps (b)/(e).
-
-### (e) Cut the first real semver tag
-
-Once (a)-(d) are done:
+Future releases need only a new tag:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-This triggers `.github/workflows/release.yml`, which runs
-`goreleaser release --clean` — building, archiving, checksumming, creating
-the GitHub Release, and (now that (b)/(c) are wired) pushing the updated
-Homebrew formula and Scoop manifest to their repos.
+## Fixes made during activation
 
-## What already works without this checklist
+The release config had never actually run in CI (no remote existed), so three
+latent issues surfaced on the first real run and were fixed:
 
-- `deploydeck --version` (ldflags-injected `internal/version`).
-- The non-blocking update-notification banner (`internal/update`), which
-  degrades silently on any failure — including a 401 from a private repo
-  before step (d) is decided.
-- `goreleaser check` and `goreleaser release --snapshot --clean` in CI
-  (`.github/workflows/ci.yml`), validating the whole pipeline shape and
-  producing local `dist/` artifacts on every PR, without publishing.
-- `go build ./cmd/deploydeck` from a local checkout (works today). A remote
-  `go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest` is now on
-  the real module path, but still needs a public repo (step (d)) and a tagged
-  release (step (e)) before it resolves.
+- **`brews` → `homebrew_casks`.** goreleaser removed `brews` (formula
+  generation) in v2.16. The cask is macOS-only and carries a Gatekeeper
+  quarantine `postflight` hook because the binary is unsigned.
+- **`release.yml` `permissions: contents: write`.** Without it the default
+  `GITHUB_TOKEN` is read-only and goreleaser cannot create the Release (it
+  failed before publishing anything).
+- **CI `-short` + case-insensitive artifact assertion.** `ci.yml` now runs
+  `go test ./... -race -short` (integration e2e self-skip on the runner) and
+  matches the `DeployDeck_*` archives with `find -iname` (the Linux runner
+  filesystem is case-sensitive).
+
+## What the binary does on its own
+
+- `deploydeck --version` — ldflags-injected `internal/version`.
+- The non-blocking update-notification banner (`internal/update`) checks the
+  GitHub Releases API and degrades silently on any failure.

@@ -22,8 +22,8 @@ go build ./cmd/deploydeck
 ./deploydeck --version
 ```
 
-Or install straight into `$GOBIN` without a local checkout. This needs a
-published tag (see the activation checklist) and a public repository:
+Or install straight into `$GOBIN` without a local checkout (the repo is
+public and tagged, so this resolves):
 
 ```sh
 go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest
@@ -55,54 +55,46 @@ times out, or the current build is a `dev` build, DeployDeck stays silent —
 it never shows an error and never nags. This check contacts no server
 besides GitHub, sends no credentials, and can't hang the TUI.
 
-## Installation (once released) — ACTIVATION-GATED
+## Installation
 
-The install paths below are documented for when the project has cut a real
-release; they are **not usable yet**. See "Activation checklist" for why.
+DeployDeck is published — see the
+[latest release](https://github.com/malavolta/DeployDeck/releases/latest).
+Pick whatever fits your platform:
 
 ```sh
-# Homebrew (macOS/Linux) — once the tap exists:
+# Homebrew (macOS) — installs the cask from the tap
 brew install malavolta/tap/deploydeck
 
-# Scoop (Windows) — once the bucket exists:
+# Scoop (Windows)
 scoop bucket add deploydeck https://github.com/malavolta/scoop-bucket
 scoop install deploydeck
 
-# go install against a real tagged release:
-go install github.com/malavolta/DeployDeck/cmd/deploydeck@vX.Y.Z
+# Go (any OS)
+go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest
 ```
 
-Every release is built by `.goreleaser.yaml` and validated in CI
-(`.github/workflows/ci.yml` runs `goreleaser check` and a
-`--snapshot --clean` dry-run on every PR, asserting `dist/` contains the
-macOS/Linux/Windows binaries, checksums, a Homebrew formula, and a Scoop
-manifest — without publishing anything). Real publication is driven by
-`.github/workflows/release.yml` on a `v*` tag push, but that workflow is
-inert until the checklist below is complete.
+You can also download a prebuilt binary (macOS/Linux/Windows · amd64/arm64)
+straight from the [Releases page](https://github.com/malavolta/DeployDeck/releases).
 
-## Activation checklist
+> **Homebrew note:** DeployDeck ships as a Homebrew **cask**, which is
+> macOS-only. On Linux, use `go install` or the release tarball.
 
-Real publication (Homebrew formula / Scoop manifest actually pushed, and
-`brew`/`scoop install` actually working) needs infrastructure this change
-does **not** provide. It is deferred and documented, not silently marked
-done:
+## Releasing
 
-1. ~~**Real module path**~~ — **DONE.** `go.mod` is
-   `module github.com/malavolta/DeployDeck` and `.goreleaser.yaml`'s ldflags
-   use `-X github.com/malavolta/DeployDeck/internal/version...`.
-2. **Create the `homebrew-tap` and `scoop-bucket` repositories** under the
-   real GitHub owner — `.goreleaser.yaml`'s `brews:`/`scoops:` stanzas
-   currently point at a placeholder `<OWNER>`.
-3. **Provision and wire a write-scoped GitHub token** as the
-   `HOMEBREW_TAP_TOKEN`/`SCOOP_TOKEN` repository secrets consumed by
-   `.github/workflows/release.yml`.
-4. **Decide public vs. private repository** — this determines whether
-   `brew`/`scoop install` (and `go install`) need a per-user token, and the
-   install docs above must be updated once decided (currently pending, per
-   the story's open question).
-5. **Cut the first real `vX.Y.Z` tag** — this is what actually triggers
-   `.github/workflows/release.yml` and, once steps 1-4 are done, produces a
-   real GitHub Release plus tap/bucket updates.
+Releases are fully automated by [GoReleaser](https://goreleaser.com) through
+`.github/workflows/release.yml`. To cut a new version, push a semver tag:
 
-See `docs/ACTIVATION-CHECKLIST.md` for the full checklist with rationale and
-cross-references to the `release-pipeline` spec's infra-gated requirement.
+```sh
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+That builds the macOS/Linux/Windows binaries, publishes a GitHub Release with
+checksums, and pushes the updated Homebrew cask and Scoop manifest to
+[`malavolta/homebrew-tap`](https://github.com/malavolta/homebrew-tap) and
+[`malavolta/scoop-bucket`](https://github.com/malavolta/scoop-bucket). Every PR
+also runs `goreleaser check` plus a `--snapshot` dry-run in CI
+(`.github/workflows/ci.yml`) without publishing.
+
+The full activation history (how the tap/bucket, tokens, and first tag were set
+up) lives in [`docs/ACTIVATION-CHECKLIST.md`](docs/ACTIVATION-CHECKLIST.md).
