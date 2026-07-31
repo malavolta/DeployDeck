@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 func TestWriter_Create_WritesRunJSONAndValidateJSON(t *testing.T) {

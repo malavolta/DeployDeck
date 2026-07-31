@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // TestChecker_CheckLock_NilLock_SkipsWithOK confirms a nil Lock keeps the

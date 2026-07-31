@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // ResolutionSide selects which version of a binary conflict to keep.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // TestOSRunner_FeedsRequestStdinToChildProcess proves CommandRequest.Stdin

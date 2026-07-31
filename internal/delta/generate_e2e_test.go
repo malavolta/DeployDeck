@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/delta"
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // testE2EOrgFixtureDir is the real Salesforce Node fixture committed at the

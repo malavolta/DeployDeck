@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 func validConfig() config.Config {

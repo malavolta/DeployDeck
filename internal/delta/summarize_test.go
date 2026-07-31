@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"deploydeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/delta"
 )
 
 // TestSummarize_TableDriven pins HU-008's five ACs in one table: per-type

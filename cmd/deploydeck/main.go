@@ -18,17 +18,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"deploydeck/internal/app"
-	"deploydeck/internal/config"
-	"deploydeck/internal/delta"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
-	"deploydeck/internal/update"
-	"deploydeck/internal/version"
+	"github.com/malavolta/DeployDeck/internal/app"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/update"
+	"github.com/malavolta/DeployDeck/internal/version"
 )
 
 // githubAPIBaseURL is the production GitHub API root defaultCheckUpdate

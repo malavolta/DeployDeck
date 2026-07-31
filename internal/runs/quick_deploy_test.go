@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // TestQuickDeployEligible_TableDriven is task 1.4 (RED): a pure table test

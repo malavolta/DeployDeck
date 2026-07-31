@@ -28,8 +28,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 func TestE2ERealOrg_Cancel(t *testing.T) {

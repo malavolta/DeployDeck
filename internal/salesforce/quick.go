@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // QuickDeployResult is a `sf project deploy quick --json` call's outcome.

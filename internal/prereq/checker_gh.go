@@ -3,7 +3,7 @@ package prereq
 import (
 	"context"
 
-	"deploydeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/github"
 )
 
 // CheckGH reports gh CLI availability/authentication as an informative,

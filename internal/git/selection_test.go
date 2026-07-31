@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestNewCommitSelectionItems_TableDriven drives HU-003's selection model:

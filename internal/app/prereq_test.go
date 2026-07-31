@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // TestModel_PrereqCheck_To_TicketInput drives the first transition directly

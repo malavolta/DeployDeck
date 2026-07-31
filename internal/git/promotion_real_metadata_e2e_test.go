@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestRealMetadataPromotion_E2E is a HIGH-REALISM promotion end-to-end test

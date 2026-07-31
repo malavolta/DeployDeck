@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/version"
+	"github.com/malavolta/DeployDeck/internal/version"
 )
 
 // TestString proves internal/version.String() formats the ldflags-injected

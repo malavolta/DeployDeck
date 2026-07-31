@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // fakeProber is a table-driven test double for prereq.ProcessProber. It

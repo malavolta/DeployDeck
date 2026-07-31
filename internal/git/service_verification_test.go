@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestService_VerifyPromotedContent_DetectsPartialPromotion pins AC10 (tasks

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // ComponentFailure is one metadata deploy error (HU-011 AC: "se muestran

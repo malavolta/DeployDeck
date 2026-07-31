@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // rePromoteEnvConfig mirrors internal/git/source_suggestion_test.go's

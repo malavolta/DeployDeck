@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // View renders the update-notice banner (HU-019) followed by the current

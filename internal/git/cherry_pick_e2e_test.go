@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestHU006_CherryPick_E2E is the consolidated HU-006 Test E2E from

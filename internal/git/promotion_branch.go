@@ -6,7 +6,7 @@ package git
 import (
 	"strings"
 
-	"deploydeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 // RenderBranchName renders format via a literal strings.NewReplacer token

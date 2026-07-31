@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 func TestOSRunner_MergesEnvOntoInheritedProcessEnvironment(t *testing.T) {

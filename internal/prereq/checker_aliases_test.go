@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 func TestChecker_CheckAliases_MissingAlias_BlocksThatSandbox(t *testing.T) {

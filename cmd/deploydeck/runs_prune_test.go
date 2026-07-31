@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // seedPruneRun writes a minimal run.json under dir/.deploydeck/runs/<id>/ with

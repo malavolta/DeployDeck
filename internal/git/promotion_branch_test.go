@@ -3,8 +3,8 @@ package git_test
 import (
 	"testing"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestRenderBranchName_TableDriven proves branchFormat is rendered via a

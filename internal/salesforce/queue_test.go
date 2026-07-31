@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // deployQueueSOQL mirrors the exact query internal/salesforce's

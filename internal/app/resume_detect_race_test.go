@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // TestOnResumeDetect_IgnoredOffMainMenu is HOLE A RED: startup

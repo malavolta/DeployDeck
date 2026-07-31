@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/delta"
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // TestService_Generate_ComposesArgs_TableDriven proves Generate composes

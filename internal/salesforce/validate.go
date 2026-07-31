@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // testLevelRunSpecifiedTests is the one sf CLI TestLevel value that carries

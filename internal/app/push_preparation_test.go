@@ -6,10 +6,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/runs"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // pushGit builds a git.Service backed by a FakeRunner canned for the push

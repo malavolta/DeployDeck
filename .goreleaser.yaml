@@ -35,9 +35,9 @@ builds:
     # a cell here.
     ldflags:
       - -s -w
-        -X deploydeck/internal/version.Version={{.Version}}
-        -X deploydeck/internal/version.Commit={{.Commit}}
-        -X deploydeck/internal/version.Date={{.Date}}
+        -X github.com/malavolta/DeployDeck/internal/version.Version={{.Version}}
+        -X github.com/malavolta/DeployDeck/internal/version.Commit={{.Commit}}
+        -X github.com/malavolta/DeployDeck/internal/version.Date={{.Date}}
 
 archives:
   - id: deploydeck

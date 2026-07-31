@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // AuthState classifies gh's availability/authentication, derived from ONE

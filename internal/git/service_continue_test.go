@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestService_ContinueCherryPick_GatedThenRuns pins AC3+AC5 (tasks

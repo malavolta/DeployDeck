@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // This file is the design.md Threat Matrix "PR / argument composition" proof:

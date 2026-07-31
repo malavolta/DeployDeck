@@ -9,12 +9,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"deploydeck/internal/delta"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // reportCallTimeout bounds a single `sf project deploy report` invocation

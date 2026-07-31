@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // setupInlineDeleteRepo builds a bare "origin" remote seeded with main, plus

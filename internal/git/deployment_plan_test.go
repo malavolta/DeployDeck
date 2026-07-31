@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestGenerateDeploymentPlan_TableDriven proves confirming a valid

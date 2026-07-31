@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"deploydeck/internal/version"
+	"github.com/malavolta/DeployDeck/internal/version"
 )
 
 // TestDefaultCheckUpdate_DegradesOnError proves defaultCheckUpdate degrades

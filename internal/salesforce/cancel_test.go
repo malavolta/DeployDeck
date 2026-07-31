@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // cancelArgs mirrors the exact `sf project deploy cancel` invocation

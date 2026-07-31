@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // TestChecker_CheckGH_NilGH_SkipsAndReportsOK is task 4.1 (RED)'s

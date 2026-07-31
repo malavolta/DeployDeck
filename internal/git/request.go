@@ -1,6 +1,6 @@
 package git
 
-import "deploydeck/internal/exec"
+import "github.com/malavolta/DeployDeck/internal/exec"
 
 // nonInteractiveEnv is layered onto every git CommandRequest built by
 // newRequest so `git cherry-pick --continue` (and any other git command)

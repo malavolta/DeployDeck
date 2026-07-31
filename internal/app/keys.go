@@ -6,10 +6,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // handleKey routes a key press to the current-state handler.

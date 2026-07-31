@@ -11,12 +11,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/delta"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // fakeClock is an injectable, mutable clock so ValidationPolling's deadline

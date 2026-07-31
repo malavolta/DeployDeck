@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/config"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // --- 4.1/4.2: selectOrphans pure orphan-correlation rule --------------------

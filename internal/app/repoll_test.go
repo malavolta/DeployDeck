@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // conflictModel builds a Model parked on the conflict screen with one

@@ -21,7 +21,7 @@ The system MUST provide an `internal/version` package exposing `Version`
 
 #### Scenario: Built with ldflags
 
-- GIVEN the binary is built with `-X deploydeck/internal/version.Version=1.2.3`
+- GIVEN the binary is built with `-X github.com/malavolta/DeployDeck/internal/version.Version=1.2.3`
 - WHEN `deploydeck --version` runs
 - THEN it prints `1.2.3`
 

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestHU005_PromotionBranch_E2E is the consolidated end-to-end scenario

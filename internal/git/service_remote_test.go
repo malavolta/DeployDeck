@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestService_RemoteURL_ReturnsTrimmedOriginURL is task 1.3 (RED): RemoteURL

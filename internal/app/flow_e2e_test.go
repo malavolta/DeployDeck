@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"deploydeck/internal/config"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/config"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // gitRun runs a real git command in dir for test setup, failing the test on

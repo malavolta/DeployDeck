@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // nonInteractiveGitEnv mirrors the env internal/git.Service injects into

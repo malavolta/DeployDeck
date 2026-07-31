@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/update"
+	"github.com/malavolta/DeployDeck/internal/update"
 )
 
 // TestChecker_Latest_Success proves Latest decodes the GitHub Releases

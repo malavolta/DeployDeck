@@ -3,7 +3,7 @@ package git_test
 import (
 	"testing"
 
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 func discoveredCommit(sha string, merge bool, status git.EquivalenceStatus) git.DiscoveredCommit {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"deploydeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 func writeFixture(t *testing.T, dir, contents string) {

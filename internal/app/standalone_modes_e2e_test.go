@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/delta"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // freshAtMainMenu drives a brand-new Model from StatePrereqCheck through a

@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/delta"
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // apexClass is a minimal, org-independent Apex class body; sgd only diffs the

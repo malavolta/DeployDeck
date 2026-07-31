@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 func newFakeCheckerWithGitConfig(t *testing.T, root string, configResult exec.CommandResult) *prereq.Checker {

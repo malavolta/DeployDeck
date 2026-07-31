@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // e2eOrgAlias returns the DEPLOYDECK_E2E_ORG alias, skipping the calling

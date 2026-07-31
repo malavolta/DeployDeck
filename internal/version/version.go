@@ -2,9 +2,9 @@
 // binary. Version, Commit, and Date are string variables (not constants) so
 // they can be set at link time via:
 //
-//	-ldflags "-X deploydeck/internal/version.Version=1.2.3 \
-//	          -X deploydeck/internal/version.Commit=abc123 \
-//	          -X deploydeck/internal/version.Date=2026-01-01"
+//	-ldflags "-X github.com/malavolta/DeployDeck/internal/version.Version=1.2.3 \
+//	          -X github.com/malavolta/DeployDeck/internal/version.Commit=abc123 \
+//	          -X github.com/malavolta/DeployDeck/internal/version.Date=2026-01-01"
 //
 // A binary built without any -X injection keeps Version at its "dev"
 // default, so `deploydeck --version` and the update-notification's

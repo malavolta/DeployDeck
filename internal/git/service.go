@@ -5,7 +5,7 @@
 package git
 
 import (
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // Service wraps a Runner to provide git operations. It carries no directory

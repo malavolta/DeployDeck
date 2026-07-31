@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // FixCommand suggestions for below-minimum/missing tool versions.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // Orgs runs `sf org list --json` and decodes the envelope's result object

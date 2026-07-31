@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 func TestOSRunner_NonZeroExitIsDataNotRunnerError(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // ErrContinueBlocked is returned by ContinueCherryPick when the continue-gate

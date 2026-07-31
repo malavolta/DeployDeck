@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/delta"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // fakeBranchListRunner cans the exact sequence of git commands ListBranches

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // runGitAllow runs a git command like runGit but does NOT fail the test on a

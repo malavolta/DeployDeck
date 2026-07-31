@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"deploydeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 func TestConfig_SandboxFor(t *testing.T) {

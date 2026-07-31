@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 func TestOSRunner_ContextTimeoutReturnsErrorWithoutHanging(t *testing.T) {

@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"deploydeck/internal/config"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/config"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // pickIndexConfig mirrors flowConfig(): a single UAT destination, mapped to a

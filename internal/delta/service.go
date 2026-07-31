@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // Request is one delta-generation invocation's parameters.

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // deployQueueSOQL mirrors internal/salesforce's private deployQueueSOQL

@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // setupCleanRepo initializes a real, clean temp git repo with one commit — a

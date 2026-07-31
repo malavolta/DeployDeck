@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // deployQueueSOQL is HU-009's exact query (HISTORIAS.md:606-614,

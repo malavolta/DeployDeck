@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // CancelResult is a `sf project deploy cancel --json` call's outcome. Only the

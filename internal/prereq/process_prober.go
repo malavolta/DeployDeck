@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // OSProcessProber checks process liveness and start-time via `ps`, run

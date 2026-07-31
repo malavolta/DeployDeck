@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // This file is the consolidated HU-001 "Test E2E" deliverable

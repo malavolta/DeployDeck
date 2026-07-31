@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // commitLogLine builds one raw `git log --format='%H%x09%h%x09%an%x09%aI%x09%P%x09%s'`

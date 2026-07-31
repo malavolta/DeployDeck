@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestCommit_IsMerge_TableDriven proves merge-commit detection is derived

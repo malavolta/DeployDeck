@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestService_CommitsInRange_OrdersTopologically_OverridingInvertedAuthorDates

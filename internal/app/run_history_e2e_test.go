@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
-	"deploydeck/internal/runs"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // TestE2E_RunHistory_SeedsOfferDeclineResume is the consolidated HU-013 CI-safe

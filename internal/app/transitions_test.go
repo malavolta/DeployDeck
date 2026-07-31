@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // testConfig is a small, valid config: two environments (only UAT has a

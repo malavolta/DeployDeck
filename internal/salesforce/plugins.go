@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // oclifPlugin mirrors one entry from the TOP-LEVEL JSON ARRAY that

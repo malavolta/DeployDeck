@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 func TestSelectSingleSource_TableDriven(t *testing.T) {

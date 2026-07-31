@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/config"
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/config"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // rePromoteConfig mirrors rePromoteEnvConfig() (internal/app/re_promote_test.go)

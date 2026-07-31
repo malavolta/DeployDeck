@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // historyModel parks a Model on StateRunHistory holding the given runs.

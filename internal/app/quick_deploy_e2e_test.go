@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // This file is the consolidated HU-015 Test E2E group (Group 5,

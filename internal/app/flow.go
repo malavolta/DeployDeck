@@ -3,8 +3,8 @@ package app
 import (
 	"strings"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // preliminaryTarget picks the default destination branch used to compute the

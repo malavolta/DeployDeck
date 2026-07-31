@@ -27,18 +27,19 @@ they require the steps below to actually happen.
 
 ## Steps
 
-### (a) Decide the real module path
+### (a) Real module path — DONE
 
-Blocked today on no `origin` remote — `go.mod` currently reads
-`module deploydeck`. Once a real GitHub repo exists:
+`origin` is `git@github.com:malavolta/DeployDeck.git` and the module path has
+been renamed. All four sub-steps are complete:
 
-1. `go.mod`: `module deploydeck` → `module github.com/<owner>/deploydeck`.
-2. Update every internal import path accordingly (`deploydeck/internal/...`
-   → `github.com/<owner>/deploydeck/internal/...`).
-3. `.goreleaser.yaml`'s `ldflags` block: update the `-X` symbol paths from
-   `deploydeck/internal/version.*` to
-   `github.com/<owner>/deploydeck/internal/version.*`.
-4. README's `go install`/`go build` examples: update the module path.
+1. `go.mod`: now `module github.com/malavolta/DeployDeck`.
+2. Every internal import path is `github.com/malavolta/DeployDeck/internal/...`.
+3. `.goreleaser.yaml`'s `ldflags` `-X` symbol paths are
+   `github.com/malavolta/DeployDeck/internal/version.*`.
+4. README's `go install` examples use the real module path.
+
+Verified with `go build ./...`, `go vet ./...`, `gofmt -l`, and
+`go test -short ./...` (all green).
 
 ### (b) Create the auxiliary repositories
 
@@ -109,7 +110,7 @@ Homebrew formula and Scoop manifest to their repos.
 - `goreleaser check` and `goreleaser release --snapshot --clean` in CI
   (`.github/workflows/ci.yml`), validating the whole pipeline shape and
   producing local `dist/` artifacts on every PR, without publishing.
-- `go build ./cmd/deploydeck` / `go install deploydeck/cmd/deploydeck@latest`
-  against the current placeholder module path (works today; only the
-  *convenience* of a short `github.com/<owner>/...` path and a tagged
-  release are gated on this checklist).
+- `go build ./cmd/deploydeck` from a local checkout (works today). A remote
+  `go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest` is now on
+  the real module path, but still needs a public repo (step (d)) and a tagged
+  release (step (e)) before it resolves.

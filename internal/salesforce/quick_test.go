@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // quickArgs mirrors the exact `sf project deploy quick` invocation QuickDeploy

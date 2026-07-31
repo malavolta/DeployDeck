@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestModel_DeltaAllowed_ThreadsAbortedFlag proves the run's real `aborted`

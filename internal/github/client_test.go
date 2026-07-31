@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/github"
 )
 
 // TestClient_AuthStatus is task 2.3 (RED): a single `gh auth status`

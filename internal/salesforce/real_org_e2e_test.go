@@ -31,10 +31,10 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/delta"
-	"deploydeck/internal/exec"
-	"deploydeck/internal/runs"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // e2eOrgAlias returns the DEPLOYDECK_E2E_ORG alias, skipping the calling test

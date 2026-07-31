@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 func runGit(t *testing.T, runner exec.Runner, dir string, args ...string) exec.CommandResult {

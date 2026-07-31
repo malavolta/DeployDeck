@@ -3,7 +3,7 @@ package update_test
 import (
 	"testing"
 
-	"deploydeck/internal/update"
+	"github.com/malavolta/DeployDeck/internal/update"
 )
 
 // TestHasNewer proves the hand-rolled semver comparison used by the

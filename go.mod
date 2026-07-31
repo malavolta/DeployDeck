@@ -1,4 +1,4 @@
-module deploydeck
+module github.com/malavolta/DeployDeck
 
 go 1.26.5
 

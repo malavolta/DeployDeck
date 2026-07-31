@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"deploydeck/internal/config"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // ProductionBranchName is the destination branch HU-004 treats as the

@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"deploydeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 // TestLoad_DeltaConfig_ParsesConfiguredFields proves HU-007's delta section

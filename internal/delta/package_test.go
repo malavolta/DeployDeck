@@ -3,7 +3,7 @@ package delta_test
 import (
 	"testing"
 
-	"deploydeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/delta"
 )
 
 const packageXMLFixture = `<?xml version="1.0" encoding="UTF-8"?>

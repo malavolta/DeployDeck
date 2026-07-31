@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // TestCheckUpdateCmd_NilDeps_ReturnsNil proves the nil-degrades convention

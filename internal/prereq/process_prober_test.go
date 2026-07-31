@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // psLayout mirrors the fixed-width layout `ps -o lstart=` prints under the C

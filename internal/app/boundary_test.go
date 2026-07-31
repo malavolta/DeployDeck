@@ -17,12 +17,12 @@ import (
 // internal/app's OWN (non-test) source files must import none of:
 //
 //   - "os/exec"                     — a raw process launch, bypassing the seam,
-//   - "deploydeck/internal/exec"    — the seam itself (only services may hold it),
+//   - "github.com/malavolta/DeployDeck/internal/exec"    — the seam itself (only services may hold it),
 //   - "net/http"                    — the HTTP seam belongs to internal/update
 //     only; app's Deps.CheckUpdate is a stdlib scalar func, never a *http.Client,
-//   - "deploydeck/internal/version" — a typed dependency here would invert the
+//   - "github.com/malavolta/DeployDeck/internal/version" — a typed dependency here would invert the
 //     Main->App->leaf direction (ADR-2's rejected alternative), and
-//   - "deploydeck/internal/update"  — likewise; the version/update comparison
+//   - "github.com/malavolta/DeployDeck/internal/update"  — likewise; the version/update comparison
 //     lives in main.defaultCheckUpdate, never in app.
 //
 // This is a DIRECT-import check, not a transitive one: bubbletea's
@@ -39,16 +39,16 @@ func TestApp_NeverImportsExecSeam(t *testing.T) {
 
 	// Non-vacuous guard: internal/app must actually compose the git service
 	// (proving this test inspects a real, wired package — not an empty one).
-	if !contains(pkg.Imports, "deploydeck/internal/git") {
-		t.Fatalf("internal/app must compose deploydeck/internal/git; direct imports were: %v", pkg.Imports)
+	if !contains(pkg.Imports, "github.com/malavolta/DeployDeck/internal/git") {
+		t.Fatalf("internal/app must compose github.com/malavolta/DeployDeck/internal/git; direct imports were: %v", pkg.Imports)
 	}
 
 	forbidden := []string{
 		"os/exec",
-		"deploydeck/internal/exec",
+		"github.com/malavolta/DeployDeck/internal/exec",
 		"net/http",
-		"deploydeck/internal/version",
-		"deploydeck/internal/update",
+		"github.com/malavolta/DeployDeck/internal/version",
+		"github.com/malavolta/DeployDeck/internal/update",
 	}
 	for _, f := range forbidden {
 		if contains(pkg.Imports, f) {

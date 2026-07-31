@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 func TestService_Status_DistinguishesCleanVsDirty(t *testing.T) {

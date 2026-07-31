@@ -1,10 +1,10 @@
 package prereq
 
 import (
-	"deploydeck/internal/config"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/salesforce"
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // Status is the outcome of one PrereqCheck.

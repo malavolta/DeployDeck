@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"deploydeck/internal/exec"
-	"deploydeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
 )
 
 // TestHU002_Discover_E2E is the consolidated end-to-end scenario from

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // TestRealMetadataPromotion_AppFlow_E2E drives DeployDeck's internal/app Model

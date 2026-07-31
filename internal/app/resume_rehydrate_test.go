@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/prereq"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // setupDoubleConflictRepo3 seeds a local clone with a "UAT" target and a

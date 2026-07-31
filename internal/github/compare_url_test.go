@@ -3,7 +3,7 @@ package github_test
 import (
 	"testing"
 
-	"deploydeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/github"
 )
 
 // TestCompareURL is task 2.1 (RED): a load-bearing table test covering every

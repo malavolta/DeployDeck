@@ -1,6 +1,6 @@
 package git
 
-import "deploydeck/internal/config"
+import "github.com/malavolta/DeployDeck/internal/config"
 
 // environmentPipelineOrder is the fixed promotion sequence (RF-002) used
 // to derive the "previous validated environment" for a target branch.

@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"deploydeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/exec"
 )
 
 // Client is the read-only Salesforce CLI shim.

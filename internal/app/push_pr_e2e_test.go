@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	execpkg "deploydeck/internal/exec"
-	"deploydeck/internal/git"
-	"deploydeck/internal/github"
-	"deploydeck/internal/runs"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // gitOut runs a git command in dir for test assertions, returning trimmed

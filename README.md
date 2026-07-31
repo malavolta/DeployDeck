@@ -22,12 +22,11 @@ go build ./cmd/deploydeck
 ./deploydeck --version
 ```
 
-Or install straight into `$GOBIN` without a local checkout (works today —
-this does not depend on the activation checklist below, only on the module
-path, which currently is the placeholder `deploydeck`):
+Or install straight into `$GOBIN` without a local checkout. This needs a
+published tag (see the activation checklist) and a public repository:
 
 ```sh
-go install deploydeck/cmd/deploydeck@latest
+go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest
 ```
 
 ## Usage
@@ -42,7 +41,7 @@ deploydeck --version      # prints the build's version/commit/date, or "dev"
 ## Version reporting
 
 `deploydeck --version` reports the version baked in at build time via
-`-ldflags -X deploydeck/internal/version.Version=...` (plus `Commit`/`Date`
+`-ldflags -X github.com/malavolta/DeployDeck/internal/version.Version=...` (plus `Commit`/`Date`
 when the build sets them). A binary built without those `-X` flags — e.g.
 plain `go build`/`go run` — reports `dev`.
 
@@ -63,14 +62,14 @@ release; they are **not usable yet**. See "Activation checklist" for why.
 
 ```sh
 # Homebrew (macOS/Linux) — once the tap exists:
-brew install <owner>/tap/deploydeck
+brew install malavolta/tap/deploydeck
 
 # Scoop (Windows) — once the bucket exists:
-scoop bucket add deploydeck https://github.com/<owner>/scoop-bucket
+scoop bucket add deploydeck https://github.com/malavolta/scoop-bucket
 scoop install deploydeck
 
-# go install against a real tagged release, once the module path is renamed:
-go install github.com/<owner>/deploydeck/cmd/deploydeck@vX.Y.Z
+# go install against a real tagged release:
+go install github.com/malavolta/DeployDeck/cmd/deploydeck@vX.Y.Z
 ```
 
 Every release is built by `.goreleaser.yaml` and validated in CI
@@ -88,11 +87,9 @@ Real publication (Homebrew formula / Scoop manifest actually pushed, and
 does **not** provide. It is deferred and documented, not silently marked
 done:
 
-1. **Real module path** — once a real `origin`/GitHub repo exists, rename
-   `module deploydeck` in `go.mod` to `module github.com/<owner>/deploydeck`,
-   and update the ldflags path (`-X deploydeck/internal/version...` →
-   `-X github.com/<owner>/deploydeck/internal/version...`) in
-   `.goreleaser.yaml`.
+1. ~~**Real module path**~~ — **DONE.** `go.mod` is
+   `module github.com/malavolta/DeployDeck` and `.goreleaser.yaml`'s ldflags
+   use `-X github.com/malavolta/DeployDeck/internal/version...`.
 2. **Create the `homebrew-tap` and `scoop-bucket` repositories** under the
    real GitHub owner — `.goreleaser.yaml`'s `brews:`/`scoops:` stanzas
    currently point at a placeholder `<OWNER>`.

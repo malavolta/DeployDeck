@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"deploydeck/internal/git"
-	"deploydeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
 // --- 3.1/3.2: derivePickIndex (pure, design's locked formula) --------------
