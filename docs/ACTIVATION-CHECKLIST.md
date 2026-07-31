@@ -68,24 +68,17 @@ The default `GITHUB_TOKEN` (already wired in `release.yml`) is sufficient
 for the GitHub Release itself, but not for pushing to the separate tap/bucket
 repos — that needs the dedicated token(s) above.
 
-### (d) Public vs. private repository decision
+### (d) Public vs. private repository — DECIDED: public
 
-This is the story's pending/open decision (see design.md "Open Questions"
-and the `release-pipeline` spec's Real Publication Activation Prerequisites
-requirement, item (d)):
+`malavolta/DeployDeck` and the `homebrew-tap`/`scoop-bucket` repos will be
+**public**. Consequences:
 
-- **Public repo**: `brew`/`scoop install` and `go install` work with no
-  per-user token for end users; the update-check's GitHub API call also
-  needs no auth.
-- **Private repo**: end users need a personal GitHub token configured for
-  `brew`/`scoop`/`go install` to authenticate against GitHub, and the
-  install docs (README's "Installation (once released)" section) need an
-  explicit per-user token setup step. `internal/update.Checker.Latest`
-  already treats a 401 (unauthorized) identically to any other failure —
-  silent skip, no nag — so a private repo does not require app-code changes,
-  only documentation.
+- `brew`/`scoop install` and `go install` work with **no per-user token** for
+  end users; the update-check's GitHub API call also needs no auth.
+- No per-user token setup step is needed in the README install docs.
 
-Update README's install instructions once this is decided.
+Still to enforce: the repo is currently **private** — it must be flipped to
+public (and the tap/bucket repos created public) as part of steps (b)/(e).
 
 ### (e) Cut the first real semver tag
 

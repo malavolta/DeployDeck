@@ -61,22 +61,22 @@ checksum:
 brews:
   - name: deploydeck
     repository:
-      owner: "<OWNER>" # PLACEHOLDER — set at activation checklist step (a)/(b)
+      owner: "malavolta"
       name: homebrew-tap # PLACEHOLDER — repo does not exist yet
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/<OWNER>/deploydeck" # PLACEHOLDER
+    homepage: "https://github.com/malavolta/DeployDeck"
     description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
-    license: "MIT" # PLACEHOLDER — confirm actual license at activation
+    license: "Apache-2.0"
 
 # ACTIVATION-GATED: replace <OWNER> below once the scoop-bucket repo exists.
 # Same token/repo prerequisites as brews above (steps b/c).
 scoops:
   - name: deploydeck
     repository:
-      owner: "<OWNER>" # PLACEHOLDER — set at activation checklist step (a)/(b)
+      owner: "malavolta"
       name: scoop-bucket # PLACEHOLDER — repo does not exist yet
       token: "{{ .Env.SCOOP_TOKEN }}"
-    homepage: "https://github.com/<OWNER>/deploydeck" # PLACEHOLDER
+    homepage: "https://github.com/malavolta/DeployDeck"
     description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
-    license: "MIT" # PLACEHOLDER — confirm actual license at activation
+    license: "Apache-2.0"
