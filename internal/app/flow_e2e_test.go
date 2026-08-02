@@ -263,7 +263,13 @@ func TestHU_FullFlow_SourceResolutionDedupe_NoConfirmNeeded(t *testing.T) {
 	}
 
 	m = advance(t, m, keyPress("enter")) // main menu -> Promocionar
-	m = typeString(m, "PROJ-1")
+	// Ticket-from-branch auto-suggest already seeds "PROJ-1" from
+	// originalBranch ("feature/PROJ-1" matches flowConfig's "PROJ-[0-9]+"),
+	// so no typing is needed here — typing it again would append onto the
+	// pre-filled buffer instead of replacing it.
+	if m.ticket != "PROJ-1" {
+		t.Fatalf("ticket should be auto-seeded from originalBranch, got %q", m.ticket)
+	}
 	m = advance(t, m, keyPress("enter"))
 	if m.State() != StateCommitDiscovery {
 		t.Fatalf("after ticket enter: %v", m.State())
@@ -301,7 +307,13 @@ func TestHU_FullFlow_SourceConfirm_AcceptAndDecline(t *testing.T) {
 			t.Fatalf("originalBranch = %q, want feature/PROJ-1 (captured at startup)", m.originalBranch)
 		}
 		m = advance(t, m, keyPress("enter")) // main menu -> Promocionar
-		m = typeString(m, "PROJ-1")
+		// Ticket-from-branch auto-suggest already seeds "PROJ-1" from
+		// originalBranch ("feature/PROJ-1" matches flowConfig's
+		// "PROJ-[0-9]+"), so no typing is needed here — typing it again
+		// would append onto the pre-filled buffer instead of replacing it.
+		if m.ticket != "PROJ-1" {
+			t.Fatalf("ticket should be auto-seeded from originalBranch, got %q", m.ticket)
+		}
 		m = advance(t, m, keyPress("enter"))
 		if m.State() != StateCommitDiscovery {
 			t.Fatalf("after ticket enter: %v", m.State())

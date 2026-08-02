@@ -200,6 +200,31 @@ func TestModel_PackageReview_EmptyBlocksUntilOverride(t *testing.T) {
 	}
 }
 
+// TestModel_PackageReview_ActionKeysCaseInsensitive is a case-insensitive-keys
+// bug fix, same shape as keySourceConfirm's s/S fix: the override (o) and
+// edit (e) single-letter ACTION keys must also accept their uppercase forms.
+func TestModel_PackageReview_ActionKeysCaseInsensitive(t *testing.T) {
+	deps := Deps{Dir: "/repo", Config: validationConfig()}
+
+	t.Run("uppercase O overrides an empty package like lowercase o", func(t *testing.T) {
+		m := reviewedModel(t, deps, true)
+		next, _ := m.Update(keyPress("O"))
+		nm := next.(Model)
+		if !nm.emptyConfirmed {
+			t.Fatal("uppercase O should set emptyConfirmed, same as lowercase o")
+		}
+	})
+
+	t.Run("uppercase E edits the selection like lowercase e", func(t *testing.T) {
+		m := reviewedModel(t, deps, false)
+		next, _ := m.Update(keyPress("E"))
+		nm := next.(Model)
+		if nm.State() != StateCommitSelection {
+			t.Fatalf("uppercase E should route to StateCommitSelection, got %v", nm.State())
+		}
+	})
+}
+
 // --- 7.7 QueueReview entry (superseded by HU-009: see queue_review_test.go) -
 //
 // QueueReview was originally an inert pass-through (tasks 7.7/7.8): confirm

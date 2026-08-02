@@ -230,6 +230,9 @@ func (m Model) viewTicket() string {
 	b.WriteString(header("Promocionar Commits"))
 	b.WriteString("\n  Ticket o incidencia\n\n")
 	b.WriteString("  " + m.ticket + "_\n")
+	if m.ticketFromBranch && m.ticket != "" {
+		b.WriteString("\n  (sugerido desde la rama actual)\n")
+	}
 	if len(m.deps.Config.TicketPatterns) > 0 {
 		b.WriteString("\n  Patrones configurados:\n")
 		for _, p := range m.deps.Config.TicketPatterns {

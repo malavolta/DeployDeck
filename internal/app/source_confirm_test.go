@@ -133,6 +133,22 @@ func TestKeySourceConfirm(t *testing.T) {
 		}
 	})
 
+	// Bug fix: uppercase S (shifted/caps input) was silently dropped even
+	// though the decline key already accepted both "n" and "N" — an
+	// inconsistency within this same handler. S must produce the SAME result
+	// as lowercase s.
+	t.Run("S (uppercase) confirms exactly like lowercase s", func(t *testing.T) {
+		m := sourceConfirmModel(t)
+		next, cmd := m.Update(keyPress("S"))
+		nm := next.(Model)
+		if nm.State() != StateCommitDiscovery {
+			t.Fatalf("S should transition to StateCommitDiscovery, got %v", nm.State())
+		}
+		if cmd == nil {
+			t.Fatal("S should fire a non-nil command (confirmSourceCmd)")
+		}
+	})
+
 	for _, key := range []string{"n", "N", "enter"} {
 		t.Run("decline via "+key, func(t *testing.T) {
 			m := sourceConfirmModel(t)

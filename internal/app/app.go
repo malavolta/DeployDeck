@@ -319,6 +319,13 @@ type Model struct {
 
 	// TicketInput
 	ticket string
+	// ticketFromBranch is true while ticket still holds the PRISTINE value
+	// auto-seeded from m.originalBranch (keyMainMenu, via
+	// git.TicketFromBranch) — never set for a manually-typed ticket. It
+	// drives viewTicket's suggestion hint and is cleared the instant the
+	// user edits the buffer (keyTicket's rune-append/backspace), so the hint
+	// never lingers over a value the user has changed.
+	ticketFromBranch bool
 
 	// Discovery / Selection
 	discovery   git.DiscoverResult

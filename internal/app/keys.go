@@ -478,6 +478,20 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.standaloneMode = "validate"
 		default:
 			m.standaloneMode = ""
+			// Ticket-from-branch auto-suggest: only the full-flow entry
+			// (target == StateTicketInput) lands here. Seed the ticket
+			// buffer from the current branch (captured async at the
+			// StateMainMenu landing via originalBranchCmd) ONLY when it is
+			// still empty — a pre-existing ticket (e.g. from a prior visit)
+			// is never overwritten. A non-matching or not-yet-captured
+			// originalBranch ("" — the graceful timing path) makes
+			// git.TicketFromBranch return "", so nothing is seeded.
+			if m.ticket == "" {
+				if seed := git.TicketFromBranch(m.originalBranch, m.deps.Config.TicketPatterns); seed != "" {
+					m.ticket = seed
+					m.ticketFromBranch = true
+				}
+			}
 		}
 		m.state = entry.target
 		return m, nil
@@ -797,21 +811,28 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if n := len(m.ticket); n > 0 {
 			m.ticket = m.ticket[:n-1]
 		}
+		// Editing an auto-seeded buffer makes it no longer a pristine
+		// suggestion: clear the flag so viewTicket's hint stops rendering.
+		m.ticketFromBranch = false
 		return m, nil
 	default:
 		if msg.Type == tea.KeyRunes {
 			m.ticket += string(msg.Runes)
 		}
+		// Same rationale as backspace above.
+		m.ticketFromBranch = false
 		return m, nil
 	}
 }
 
-// keySourceConfirm handles StateSourceConfirm: `s` fires confirmSourceCmd;
-// `n`/`N`/`enter` (default-No) reuse onDiscoverDone with the unchanged base
-// result to degrade straight to StateCommitSelection; `esc` backs out.
+// keySourceConfirm handles StateSourceConfirm: `s`/`S` fires confirmSourceCmd
+// (bug fix: the confirm key must be case-insensitive, matching the decline
+// key's existing n/N handling); `n`/`N`/`enter` (default-No) reuse
+// onDiscoverDone with the unchanged base result to degrade straight to
+// StateCommitSelection; `esc` backs out.
 func (m Model) keySourceConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "s":
+	case "s", "S":
 		m.state = StateCommitDiscovery
 		return m, m.confirmSourceCmd()
 	case "n", "N", "enter":
@@ -1004,10 +1025,13 @@ func (m Model) keyDeltaGeneration(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // keyPackageReview handles the HU-008 review screen: confirm proceeds to the
-// HU-009 QueueReview stop, an empty package is blocked until an explicit `o`
-// override, `e` edits the selection, `q` quits. HU-018's standalone delta
-// (design ADR-3) forks `enter`/`e` into terminal no-ops: standaloneMode=="" —
-// the unchanged full flow — is UNTOUCHED by either branch below.
+// HU-009 QueueReview stop, an empty package is blocked until an explicit
+// `o`/`O` override, `e`/`E` edits the selection, `q` quits. Bug fix: the
+// override and edit action keys accept both cases (same case-insensitivity
+// fix as keySourceConfirm's s/S), while typed-buffer and navigation keys
+// elsewhere are left untouched. HU-018's standalone delta (design ADR-3)
+// forks `enter`/`e` into terminal no-ops: standaloneMode=="" — the unchanged
+// full flow — is UNTOUCHED by either branch below.
 func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
@@ -1017,7 +1041,7 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.confirmPackageReview()
-	case "o":
+	case "o", "O":
 		// Explicit override for an empty package (delta-generation spec:
 		// "validation only proceeds after the user explicitly confirms an
 		// override").
@@ -1026,7 +1050,7 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 		}
 		return m, nil
-	case "e":
+	case "e", "E":
 		if m.standaloneMode == "delta" {
 			// Neutralized: standalone delta never ran commit selection, so
 			// there is no selection to edit.
