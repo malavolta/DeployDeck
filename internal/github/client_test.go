@@ -61,15 +61,18 @@ func TestClient_AuthStatus(t *testing.T) {
 // TestClient_CreatePR_Success_ParsesURLAndKeepsRaw is task 2.5 (RED):
 // CreatePR runs a fully non-interactive, arg-slice `gh pr create` (never a
 // shell), parses the resulting URL from stdout on success, and preserves
-// Raw (HU-014 AC5/AC7).
+// Raw (HU-014 AC5/AC7). The body is a multi-line string to prove it is
+// passed through the discrete args slice intact — never a shell, which
+// would mangle embedded newlines.
 func TestClient_CreatePR_Success_ParsesURLAndKeepsRaw(t *testing.T) {
 	runner := exec.NewFakeRunner()
 	prURL := "https://github.com/org/repo/pull/42"
-	wantArgs := []string{"pr", "create", "--base", "main", "--head", "deploy/PROJ-1-to-main", "--title", "PROJ-1 - Promote changes to main", "--body", ""}
+	body := "Summary line.\n\nMore detail on a second line."
+	wantArgs := []string{"pr", "create", "--base", "main", "--head", "deploy/PROJ-1-to-main", "--title", "PROJ-1 - Promote changes to main", "--body", body}
 	runner.When("gh", wantArgs, exec.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
 
 	c := github.New(runner)
-	url, raw, err := c.CreatePR(context.Background(), "main", "deploy/PROJ-1-to-main", "PROJ-1 - Promote changes to main")
+	url, raw, err := c.CreatePR(context.Background(), "main", "deploy/PROJ-1-to-main", "PROJ-1 - Promote changes to main", body)
 	if err != nil {
 		t.Fatalf("CreatePR: unexpected error: %v", err)
 	}
@@ -100,11 +103,12 @@ func TestClient_CreatePR_Success_ParsesURLAndKeepsRaw(t *testing.T) {
 // (HU-014 AC7).
 func TestClient_CreatePR_Failure_ReturnsErrorAndKeepsRaw(t *testing.T) {
 	runner := exec.NewFakeRunner()
-	args := []string{"pr", "create", "--base", "main", "--head", "deploy/PROJ-1-to-main", "--title", "title", "--body", ""}
+	body := "AI-drafted description"
+	args := []string{"pr", "create", "--base", "main", "--head", "deploy/PROJ-1-to-main", "--title", "title", "--body", body}
 	runner.When("gh", args, exec.CommandResult{ExitCode: 1, Stderr: []byte("pull request create failed: no commits between main and deploy/PROJ-1-to-main")})
 
 	c := github.New(runner)
-	url, raw, err := c.CreatePR(context.Background(), "main", "deploy/PROJ-1-to-main", "title")
+	url, raw, err := c.CreatePR(context.Background(), "main", "deploy/PROJ-1-to-main", "title", body)
 	if err == nil {
 		t.Fatal("CreatePR: expected an error on non-zero exit")
 	}
@@ -123,7 +127,7 @@ func TestClient_CreatePR_RunnerError_KeepsEmptyRawAndReturnsError(t *testing.T) 
 	runner := exec.NewFakeRunner() // no canned response: Runner error
 
 	c := github.New(runner)
-	url, _, err := c.CreatePR(context.Background(), "main", "head-branch", "title")
+	url, _, err := c.CreatePR(context.Background(), "main", "head-branch", "title", "body")
 	if err == nil {
 		t.Fatal("CreatePR: expected an error when gh cannot be run at all")
 	}

@@ -45,10 +45,11 @@ func ghRunner(auth string) *execpkg.FakeRunner {
 	return fr
 }
 
-// cannPRCreate registers the exact `gh pr create` arg-slice for base/head/title
-// so createPRCmd's call is matched (and recorded) by the FakeRunner.
-func cannPRCreate(fr *execpkg.FakeRunner, base, head, title string, result execpkg.CommandResult) {
-	fr.When("gh", []string{"pr", "create", "--base", base, "--head", head, "--title", title, "--body", ""}, result)
+// cannPRCreate registers the exact `gh pr create` arg-slice for
+// base/head/title/body so createPRCmd's call is matched (and recorded) by
+// the FakeRunner.
+func cannPRCreate(fr *execpkg.FakeRunner, base, head, title, body string, result execpkg.CommandResult) {
+	fr.When("gh", []string{"pr", "create", "--base", base, "--head", head, "--title", title, "--body", body}, result)
 }
 
 // calledWith reports whether the FakeRunner recorded a call with exactly the
@@ -231,7 +232,7 @@ func TestModel_PushPreparation_NoPRWithoutExplicitConfirm(t *testing.T) {
 
 	// Authed path: g reveals the confirm gate WITHOUT creating; y creates.
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, title, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+	cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
 	m.pushPhase = pushReady
@@ -292,7 +293,7 @@ func TestModel_PushPreparation_PRSuccessRecordsURL(t *testing.T) {
 	}
 
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, title, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
+	cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
 
 	m := New(Deps{Dir: dir, Config: testConfig(), GH: github.New(fr), Runs: writer})
 	m.state = StatePushPreparation
@@ -334,7 +335,7 @@ func TestModel_PushPreparation_PRFailureShowsManualData(t *testing.T) {
 	title := "PROJ-1 - Promote changes to UAT"
 
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, title, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("no commits between UAT and " + branch)})
+	cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 1, Stderr: []byte("no commits between UAT and " + branch)})
 
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
@@ -458,4 +459,47 @@ func TestApp_BoundaryStillHolds_WithGHWired(t *testing.T) {
 	if m.deps.GH == nil {
 		t.Fatal("Deps.GH should be wired onto the model")
 	}
+}
+
+// TestCreatePRCmd_BodyWiring_TracksEffectiveDescription is Feature A's body
+// wiring proof: createPRCmd passes effectiveDescription() as the `gh pr
+// create --body` arg — an accepted AI description reaches the fake's
+// captured body, while an unaccepted (even if generated) one still sends an
+// empty body (the historical `gh pr create --body ""` default).
+func TestCreatePRCmd_BodyWiring_TracksEffectiveDescription(t *testing.T) {
+	branch := "deploy/PROJ-1-to-UAT"
+	title := "PROJ-1 - Promote changes to UAT"
+
+	t.Run("not accepted: body is empty even with a generated description", func(t *testing.T) {
+		fr := ghRunner("authed")
+		cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+
+		m := New(Deps{GH: github.New(fr)})
+		m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
+		m.aiDescription = "AI drafted description" // generated but NOT accepted
+		m.aiAccepted = false
+
+		m.createPRCmd()()
+
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", title, "--body", "") {
+			t.Fatalf("an unaccepted suggestion should send an empty body, calls: %v", fr.Calls)
+		}
+	})
+
+	t.Run("accepted: body is the accepted aiDescription", func(t *testing.T) {
+		fr := ghRunner("authed")
+		cannPRCreate(fr, "UAT", branch, title, "AI drafted description", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
+
+		m := New(Deps{GH: github.New(fr)})
+		m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
+		m.aiTitle = title
+		m.aiDescription = "AI drafted description"
+		m.aiAccepted = true
+
+		m.createPRCmd()()
+
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", title, "--body", "AI drafted description") {
+			t.Fatalf("an accepted suggestion should send its aiDescription as the body, calls: %v", fr.Calls)
+		}
+	})
 }

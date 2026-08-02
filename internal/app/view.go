@@ -761,7 +761,12 @@ func (m Model) viewPRData() string {
 	b.WriteString("  title:   " + title + "\n")
 	b.WriteString(m.viewAIBlock())
 
-	ghCmd := fmt.Sprintf("gh pr create --base %s --head %s --title %q", m.plan.TargetBranch, m.plan.PromotionBranch, title)
+	// The shown command mirrors createPRCmd's actual invocation exactly
+	// (createPRCmd's contract: the displayed command must never drift from
+	// the executed one) — including --body, sourced from the SAME
+	// effectiveDescription() createPRCmd calls. %q safely escapes any
+	// newline in a multi-line AI description.
+	ghCmd := fmt.Sprintf("gh pr create --base %s --head %s --title %q --body %q", m.plan.TargetBranch, m.plan.PromotionBranch, title, m.effectiveDescription())
 
 	if m.authState == github.AuthAuthenticated {
 		b.WriteString("\n  gh detectado y autenticado. Comando de PR:\n")

@@ -617,6 +617,22 @@ func (m Model) effectiveTitle() string {
 	return github.SuggestedTitle(m.plan.Ticket, m.plan.TargetBranch)
 }
 
+// effectiveDescription mirrors effectiveTitle(): the SINGLE source of truth
+// for which body every PR-creation slot uses — the accepted AI description
+// when aiAccepted, else "" (the historical default when no AI suggestion is
+// accepted; gh pr create previously hardcoded --body ""). It is read by BOTH
+// viewPRData's shown gh command preview and createPRCmd's actual `gh pr
+// create --body` argument, so the displayed command can never drift from the
+// executed one. A generated-but-unaccepted suggestion (aiDescription set,
+// aiAccepted false) does NOT change the result — only the explicit second
+// 'a' accept does.
+func (m Model) effectiveDescription() string {
+	if m.aiAccepted {
+		return m.aiDescription
+	}
+	return ""
+}
+
 // Verification exposes the post-pick verification result.
 func (m Model) Verification() git.PickVerification { return m.verification }
 

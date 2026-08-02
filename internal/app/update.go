@@ -1032,6 +1032,15 @@ func (m Model) onPushDone(msg pushDoneMsg) (tea.Model, tea.Cmd) {
 // and branches on authState (authed → offer PR; absent/unauthenticated → show
 // the compare URL, or the raw origin + manual data when it could not be
 // derived).
+//
+// ai-pr-summary (Feature B, proactive suggestion): the instant the screen
+// settles here, a suggestion is requested automatically when Deps.GenerateSummary
+// is configured and none is already in flight or held (m.aiTitle == "" &&
+// !m.aiPending) — the user no longer has to press `a` once just to see it.
+// This mirrors the first 'a' press's own request branch (keyPushPreparation)
+// but fires it proactively; it NEVER auto-accepts — aiAccepted is set ONLY by
+// an explicit second 'a', so effectiveTitle()/effectiveDescription() still
+// gate on it (no silent override).
 func (m Model) onPrepDone(msg prepDoneMsg) (tea.Model, tea.Cmd) {
 	m.authState = msg.auth
 	m.originURL = msg.originURL
@@ -1039,7 +1048,13 @@ func (m Model) onPrepDone(msg prepDoneMsg) (tea.Model, tea.Cmd) {
 	m.compareErr = msg.compareErr
 	m.remoteErr = msg.remoteErr
 	m.pushPhase = pushReady
-	return m, nil
+
+	var cmd tea.Cmd
+	if m.deps.GenerateSummary != nil && m.aiTitle == "" && !m.aiPending {
+		m.aiPending = true
+		cmd = m.aiSuggestCmd()
+	}
+	return m, tea.Batch(cmd)
 }
 
 // onPrCreated lands the HU-014 `gh pr create` outcome. A failure surfaces the

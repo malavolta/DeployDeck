@@ -1286,21 +1286,23 @@ func (m Model) pruneRunsCmd() tea.Cmd {
 // the compare-fallback path. Raw is preserved on both success and failure so a
 // failed creation can still show gh's output. A nil GH client returns an error
 // rather than panicking (the flow degrades to manual data). The title comes
-// from effectiveTitle() (ai-pr-summary design ADR-3): the accepted AI title
-// ONLY after the explicit second 'a' accept, else the pre-existing
-// github.SuggestedTitle formula — the exact same source viewPRData displays,
-// so the executed command can never drift from the shown one.
+// from effectiveTitle() and the body from effectiveDescription() (ai-pr-summary
+// design ADR-3): the accepted AI title/description ONLY after the explicit
+// second 'a' accept, else the pre-existing github.SuggestedTitle formula /
+// "" body — the exact same sources viewPRData displays, so the executed
+// command can never drift from the shown one.
 func (m Model) createPRCmd() tea.Cmd {
 	gh := m.deps.GH
 	base := m.plan.TargetBranch
 	head := m.plan.PromotionBranch
 	title := m.effectiveTitle()
+	body := m.effectiveDescription()
 	ctx := m.ctx()
 	return func() tea.Msg {
 		if gh == nil {
 			return prCreatedMsg{err: errors.New("app: no gh client configured")}
 		}
-		url, raw, err := gh.CreatePR(ctx, base, head, title)
+		url, raw, err := gh.CreatePR(ctx, base, head, title, body)
 		return prCreatedMsg{url: url, raw: raw, err: err}
 	}
 }

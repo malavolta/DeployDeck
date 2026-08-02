@@ -30,16 +30,17 @@ type Client interface {
 	// failure mode requiring separate error handling.
 	AuthStatus(ctx context.Context) AuthState
 	// CreatePR runs `gh pr create --base <base> --head <head> --title
-	// <title> --body ""` (fully non-interactive — --body forces it —
-	// args passed as a discrete slice, NEVER through a shell). On success
-	// it returns the created PR's URL parsed from stdout. Raw (the
+	// <title> --body <body>` (fully non-interactive — --body forces it,
+	// even when body is "" — args passed as a discrete slice, NEVER
+	// through a shell, so a multi-line body is passed through safely). On
+	// success it returns the created PR's URL parsed from stdout. Raw (the
 	// command's combined stdout+stderr) is preserved on BOTH success and
 	// failure so a caller can show it after a failed creation (HU-014
 	// AC7). CreatePR NEVER runs unless the caller has already obtained
 	// explicit user confirmation — this package enforces the non-shell,
 	// non-interactive argument shape; the confirm gate itself lives in the
 	// caller (internal/app's StatePushPreparation).
-	CreatePR(ctx context.Context, base, head, title string) (url, raw string, err error)
+	CreatePR(ctx context.Context, base, head, title, body string) (url, raw string, err error)
 }
 
 // client is the Runner-backed Client implementation.
@@ -68,10 +69,10 @@ func (c *client) AuthStatus(ctx context.Context) AuthState {
 }
 
 // CreatePR implements Client.CreatePR.
-func (c *client) CreatePR(ctx context.Context, base, head, title string) (string, string, error) {
+func (c *client) CreatePR(ctx context.Context, base, head, title, body string) (string, string, error) {
 	req := exec.CommandRequest{
 		Name: "gh",
-		Args: []string{"pr", "create", "--base", base, "--head", head, "--title", title, "--body", ""},
+		Args: []string{"pr", "create", "--base", base, "--head", head, "--title", title, "--body", body},
 	}
 
 	result, err := c.runner.Run(ctx, req)

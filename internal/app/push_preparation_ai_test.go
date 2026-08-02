@@ -34,7 +34,7 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 
 	t.Run("requested but not accepted keeps the formula title on gh pr create", func(t *testing.T) {
 		fr := ghRunner("authed")
-		cannPRCreate(fr, "UAT", branch, formulaTitle, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+		cannPRCreate(fr, "UAT", branch, formulaTitle, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 		m := New(Deps{
 			Dir:             "/repo",
@@ -77,9 +77,10 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		}
 	})
 
-	t.Run("requested then accepted (second a) sends the AI title as one discrete arg", func(t *testing.T) {
+	t.Run("requested then accepted (second a) sends the AI title and description as discrete args", func(t *testing.T) {
 		fr := ghRunner("authed")
-		cannPRCreate(fr, "UAT", branch, aiTitle, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
+		aiDescription := "AI drafted description"
+		cannPRCreate(fr, "UAT", branch, aiTitle, aiDescription, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
 
 		m := New(Deps{
 			Dir:             "/repo",
@@ -122,8 +123,8 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		prMsg := cmd5()
 		_, _ = next5.(Model).Update(prMsg)
 
-		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", "") {
-			t.Fatalf("gh pr create should use the accepted AI title %q as ONE discrete arg, calls: %v", aiTitle, fr.Calls)
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", aiDescription) {
+			t.Fatalf("gh pr create should use the accepted AI title %q and description %q as discrete args, calls: %v", aiTitle, aiDescription, fr.Calls)
 		}
 		if n := prCreateCalls(fr); n != 1 {
 			t.Fatalf("expected exactly 1 gh pr create call, got %d", n)
@@ -131,11 +132,15 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 	})
 }
 
-// TestModel_PushPreparation_AISuggestion_NeverAutoFiresAfterPush is task
-// 5.2/spec's "Suggestion never auto-fires after push" proof: landing on
-// pushReady right after a successful push must never call
-// Deps.GenerateSummary on its own.
-func TestModel_PushPreparation_AISuggestion_NeverAutoFiresAfterPush(t *testing.T) {
+// TestModel_PushPreparation_AISuggestion_AutoFiresOnPushReady supersedes the
+// former "never auto-fires after push" spec (proactive-suggestion revision):
+// landing on pushReady right after a successful push now DOES proactively
+// call Deps.GenerateSummary — the user no longer has to press `a` once just
+// to see a suggestion. It still never auto-accepts: aiAccepted is set ONLY
+// by an explicit second 'a' (keyPushPreparation), so effectiveTitle()/
+// effectiveDescription() keep gating on it, and gh pr create is unaffected
+// until that explicit accept.
+func TestModel_PushPreparation_AISuggestion_AutoFiresOnPushReady(t *testing.T) {
 	branch := "deploy/PROJ-1-to-UAT"
 	var calls int
 
@@ -144,7 +149,7 @@ func TestModel_PushPreparation_AISuggestion_NeverAutoFiresAfterPush(t *testing.T
 		Config:          testConfig(),
 		Git:             pushGit("/repo", branch, "git@github.com:org/repo.git", true),
 		GH:              github.New(ghRunner("authed")),
-		GenerateSummary: aiDep("PROJ-1 - AI drafted title", "", &calls),
+		GenerateSummary: aiDep("PROJ-1 - AI drafted title", "AI drafted description", &calls),
 	})
 	m.state = StatePushPreparation
 	m.pushPhase = pushConfirm
@@ -154,19 +159,76 @@ func TestModel_PushPreparation_AISuggestion_NeverAutoFiresAfterPush(t *testing.T
 	pushMsg := cmd()
 	next2, cmd2 := next.(Model).Update(pushMsg)
 	prepMsg := cmd2()
-	next3, _ := next2.(Model).Update(prepMsg)
+	next3, cmd3 := next2.(Model).Update(prepMsg)
 	nm3 := next3.(Model)
 
 	if nm3.pushPhase != pushReady {
 		t.Fatalf("expected to land on pushReady, got %v", nm3.pushPhase)
 	}
-	if calls != 0 {
-		t.Fatalf("Deps.GenerateSummary must never be called automatically after push, got %d call(s)", calls)
+	if !nm3.aiPending {
+		t.Fatal("landing on pushReady should auto-fire the AI suggestion request (aiPending)")
 	}
-	if nm3.aiTitle != "" || nm3.aiPending {
-		t.Fatalf("no AI request should be in flight or completed without an explicit 'a', got aiTitle=%q aiPending=%v", nm3.aiTitle, nm3.aiPending)
+	if cmd3 == nil {
+		t.Fatal("onPrepDone should return the auto-fired aiSuggestCmd")
 	}
-	if !strings.Contains(nm3.View(), "a solicitar") {
-		t.Errorf("pushReady should offer the request affordance, not an auto-fired suggestion\n%s", nm3.View())
+	if !strings.Contains(nm3.View(), "Generando") {
+		t.Errorf("pushReady should show the pending indicator while the auto-fired request is in flight\n%s", nm3.View())
+	}
+
+	// Land the auto-fired request's result.
+	aiMsg := cmd3()
+	next4, _ := nm3.Update(aiMsg)
+	nm4 := next4.(Model)
+
+	if calls != 1 {
+		t.Fatalf("Deps.GenerateSummary should be called exactly once automatically, got %d call(s)", calls)
+	}
+	if nm4.aiTitle != "PROJ-1 - AI drafted title" || nm4.aiDescription != "AI drafted description" {
+		t.Fatalf("the auto-fired suggestion should populate aiTitle/aiDescription, got title=%q description=%q", nm4.aiTitle, nm4.aiDescription)
+	}
+	if nm4.aiAccepted {
+		t.Fatal("auto-firing must never auto-accept — only an explicit second 'a' accepts")
+	}
+	if !strings.Contains(nm4.View(), "PROJ-1 - AI drafted title") {
+		t.Errorf("pushReady should show the auto-fetched suggestion for review\n%s", nm4.View())
+	}
+}
+
+// TestModel_PushPreparation_AISuggestion_NoAutoFireWithoutConfig mirrors
+// every other nil-degrades Deps convention in this package: with no
+// Deps.GenerateSummary configured, landing on pushReady never sets aiPending
+// and never returns a command (spec: "No ai config leaves pushReady
+// unchanged").
+func TestModel_PushPreparation_AISuggestion_NoAutoFireWithoutConfig(t *testing.T) {
+	branch := "deploy/PROJ-1-to-UAT"
+
+	m := New(Deps{
+		Dir:    "/repo",
+		Config: testConfig(),
+		Git:    pushGit("/repo", branch, "git@github.com:org/repo.git", true),
+		GH:     github.New(ghRunner("authed")),
+	})
+	m.state = StatePushPreparation
+	m.pushPhase = pushConfirm
+	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
+
+	next, cmd := m.Update(keyPress("p"))
+	pushMsg := cmd()
+	next2, cmd2 := next.(Model).Update(pushMsg)
+	prepMsg := cmd2()
+	next3, cmd3 := next2.(Model).Update(prepMsg)
+	nm3 := next3.(Model)
+
+	if nm3.pushPhase != pushReady {
+		t.Fatalf("expected to land on pushReady, got %v", nm3.pushPhase)
+	}
+	if nm3.aiPending {
+		t.Fatal("no Deps.GenerateSummary should never set aiPending")
+	}
+	if cmd3 != nil {
+		t.Fatal("no Deps.GenerateSummary should return a nil cmd from onPrepDone")
+	}
+	if strings.Contains(nm3.View(), "Sugerencia IA") {
+		t.Errorf("no AI config should show no AI block at all\n%s", nm3.View())
 	}
 }

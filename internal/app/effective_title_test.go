@@ -41,3 +41,38 @@ func TestEffectiveTitle_Accepted_UsesAITitle(t *testing.T) {
 		t.Fatalf("effectiveTitle() = %q, want the accepted aiTitle", got)
 	}
 }
+
+// TestEffectiveDescription_UnacceptedSuggestion_IsEmpty mirrors
+// TestEffectiveTitle_UnacceptedSuggestion_UsesFormulaTitle for the
+// description slot: with no AI suggestion accepted, effectiveDescription()
+// is "" (the historical gh pr create --body "" default) even when
+// aiDescription is set.
+func TestEffectiveDescription_UnacceptedSuggestion_IsEmpty(t *testing.T) {
+	m := New(Deps{})
+	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT"}
+
+	if got := m.effectiveDescription(); got != "" {
+		t.Fatalf("effectiveDescription() = %q, want empty (no AI accepted)", got)
+	}
+
+	// Generating (but not accepting) a suggestion must not change the
+	// effective description either.
+	m.aiDescription = "PROJ-1 - AI drafted description"
+	if got := m.effectiveDescription(); got != "" {
+		t.Fatalf("effectiveDescription() with an unaccepted aiDescription = %q, want empty", got)
+	}
+}
+
+// TestEffectiveDescription_Accepted_UsesAIDescription mirrors
+// TestEffectiveTitle_Accepted_UsesAITitle: once aiAccepted is set,
+// effectiveDescription() returns aiDescription instead of "".
+func TestEffectiveDescription_Accepted_UsesAIDescription(t *testing.T) {
+	m := New(Deps{})
+	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT"}
+	m.aiDescription = "PROJ-1 - AI drafted description"
+	m.aiAccepted = true
+
+	if got := m.effectiveDescription(); got != "PROJ-1 - AI drafted description" {
+		t.Fatalf("effectiveDescription() = %q, want the accepted aiDescription", got)
+	}
+}

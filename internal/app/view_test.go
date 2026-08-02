@@ -73,9 +73,29 @@ func TestView_AI_UnacceptedSuggestion_ShowsTitleAndAcceptHint(t *testing.T) {
 	if !strings.Contains(v, "PROJ-1 - AI drafted title") {
 		t.Errorf("an unaccepted suggestion should still be shown for review, got:\n%s", v)
 	}
+	if !strings.Contains(v, "AI drafted description") {
+		t.Errorf("the AI-generated description should be shown alongside the title for review, got:\n%s", v)
+	}
 	formulaTitle := github.SuggestedTitle("PROJ-1", "UAT")
 	if !strings.Contains(v, "title:   "+formulaTitle) {
 		t.Errorf("an unaccepted suggestion must NOT replace the effective title line, got:\n%s", v)
+	}
+}
+
+// TestView_AI_UnacceptedSuggestion_NoDescription_OmitsDescriptionLine is a
+// companion to TestView_AI_UnacceptedSuggestion_ShowsTitleAndAcceptHint: when
+// the AI reply carries a title but no description, viewAIBlock renders no
+// empty description line.
+func TestView_AI_UnacceptedSuggestion_NoDescription_OmitsDescriptionLine(t *testing.T) {
+	m := pushReadyModel(Deps{GenerateSummary: func(ctx context.Context, ticket string, commitSubjects []string, componentSummary string) (string, string, error) {
+		return "", "", nil
+	}})
+	m.aiTitle = "PROJ-1 - AI drafted title"
+
+	v := m.View()
+	wantBlock := "  PROJ-1 - AI drafted title\n  a aceptar esta sugerencia"
+	if !strings.Contains(v, wantBlock) {
+		t.Errorf("with no AI description, the title line should be followed directly by the accept hint (no blank description line), got:\n%s", v)
 	}
 }
 

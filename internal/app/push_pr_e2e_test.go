@@ -78,7 +78,7 @@ func TestHU014_PushPR_E2E_Consolidated(t *testing.T) {
 	}
 	prURL := "https://github.com/org/repo/pull/7"
 	ghFake := ghRunner("authed")
-	cannPRCreate(ghFake, "UAT", branch, title, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
+	cannPRCreate(ghFake, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
 
 	m := New(Deps{Dir: local, Config: flowConfig(), Git: realGit, GH: github.New(ghFake), Runs: writer})
 	m.state = StateSucceeded
@@ -213,7 +213,7 @@ func TestHU014_PushPR_E2E_Consolidated(t *testing.T) {
 	// ---- PR-creation failure → error + manual data, flow continues ----
 	t.Run("authenticated PR creation failure shows manual data", func(t *testing.T) {
 		ghFail := ghRunner("authed")
-		cannPRCreate(ghFail, "UAT", branch, title, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("pull request create failed: no commits between UAT and " + branch)})
+		cannPRCreate(ghFail, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 1, Stderr: []byte("pull request create failed: no commits between UAT and " + branch)})
 
 		mc := New(Deps{Dir: local, Config: flowConfig(), Git: realGit, GH: github.New(ghFail)})
 		mc.state = StatePushPreparation
