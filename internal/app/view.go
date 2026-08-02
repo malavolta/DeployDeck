@@ -862,6 +862,40 @@ func (m Model) validationBody() string {
 			b.WriteString(fmt.Sprintf("  - %s.%s: %s\n", f.Class, f.Method, f.Message))
 		}
 	}
+	// Coverage warnings: THIS is the field that carries the real reason for
+	// a Failed status caused by insufficient test coverage (bug fix). An
+	// empty Name means the warning is org-wide, not tied to one class.
+	if len(r.CodeCoverageWarnings) > 0 {
+		b.WriteString("\n  Cobertura de codigo:\n")
+		for _, w := range r.CodeCoverageWarnings {
+			label := w.Name
+			if label == "" {
+				label = "cobertura global"
+			}
+			b.WriteString(fmt.Sprintf("  - [%s] %s\n", label, w.Message))
+		}
+	}
+	// Org-level error (bug fix): surfaces when the failure has no
+	// per-component/per-test detail at all, e.g. an errorStatusCode
+	// condition.
+	if r.ErrorMessage != "" {
+		if r.ErrorStatusCode != "" {
+			b.WriteString(fmt.Sprintf("\n  [XX] Error (%s): %s\n", r.ErrorStatusCode, r.ErrorMessage))
+		} else {
+			b.WriteString(fmt.Sprintf("\n  [XX] Error: %s\n", r.ErrorMessage))
+		}
+	}
+	if r.Status == "Canceled" && r.CanceledByName != "" {
+		b.WriteString(fmt.Sprintf("\n  Cancelado por: %s\n", r.CanceledByName))
+	}
+	// Invariant (bug fix): a Failed report must never render without a
+	// reason. If none of the structured reasons above fired, say so
+	// explicitly rather than silently showing "Failed" with nothing else.
+	if r.Status == "Failed" &&
+		len(r.ComponentFailures) == 0 && len(r.TestFailures) == 0 &&
+		len(r.CodeCoverageWarnings) == 0 && r.ErrorMessage == "" {
+		b.WriteString("\n  [XX] La validacion fallo sin detalle estructurado; revisa el JSON crudo.\n")
+	}
 	return b.String()
 }
 

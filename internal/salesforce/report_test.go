@@ -135,6 +135,67 @@ func TestClient_ReportDeploy_ParsesTestFailures(t *testing.T) {
 	}
 }
 
+// TestClient_ReportDeploy_ParsesCoverageWarningsAndOrgError is the HU-011 bug
+// fix: a Failed report with zero componentFailures/testFailures can still
+// carry the REAL failure reason under details.runTestResult.
+// codeCoverageWarnings[] (a code-coverage shortfall) and/or the top-level
+// errorMessage/errorStatusCode (an org-level error) — both must survive
+// parsing, not be silently dropped.
+func TestClient_ReportDeploy_ParsesCoverageWarningsAndOrgError(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000007EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 1,
+		Stdout: []byte(`{"status":1,"result":{
+			"status":"Failed",
+			"numberComponentsTotal":0,
+			"numberComponentsDeployed":0,
+			"numberComponentErrors":0,
+			"numberTestsTotal":0,
+			"numberTestsCompleted":0,
+			"numberTestErrors":0,
+			"errorMessage":"INVALID_STATUS: metadata coverage failure",
+			"errorStatusCode":"INVALID_STATUS",
+			"details":{
+				"componentFailures":[],
+				"runTestResult":{
+					"failures":[],
+					"codeCoverageWarnings":[
+						{"id":"","message":"Average test coverage across all Apex Classes and Triggers is 0%, at least 75% test coverage is required.","name":null,"namespace":""}
+					]
+				}
+			}
+		}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000007EAA", "UAT_SANDBOX", "/repo")
+	if err != nil {
+		t.Fatalf("a parseable terminal report must not error: %v", err)
+	}
+	if len(got.CodeCoverageWarnings) != 1 {
+		t.Fatalf("expected 1 coverage warning, got %d: %+v", len(got.CodeCoverageWarnings), got.CodeCoverageWarnings)
+	}
+	w := got.CodeCoverageWarnings[0]
+	if w.Name != "" {
+		t.Errorf("expected empty Name for an org-wide coverage warning (null name), got %q", w.Name)
+	}
+	if !strings.Contains(w.Message, "test coverage") {
+		t.Errorf("expected the coverage warning message to be parsed, got %q", w.Message)
+	}
+	if got.ErrorMessage != "INVALID_STATUS: metadata coverage failure" {
+		t.Errorf("ErrorMessage not parsed, got %q", got.ErrorMessage)
+	}
+	if got.ErrorStatusCode != "INVALID_STATUS" {
+		t.Errorf("ErrorStatusCode not parsed, got %q", got.ErrorStatusCode)
+	}
+}
+
 func TestClient_ReportDeploy_CLIErrorSurfacesMessageAndRaw(t *testing.T) {
 	fr := exec.NewFakeRunner()
 	args := []string{

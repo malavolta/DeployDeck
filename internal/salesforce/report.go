@@ -26,6 +26,19 @@ type TestFailure struct {
 	Message string
 }
 
+// CodeCoverageWarning is one code-coverage shortfall reported by the test
+// run (bug fix: a Failed status can be caused by insufficient coverage with
+// zero componentFailures/testFailures — this is the field that carries the
+// real reason), decoded from the report's
+// details.runTestResult.codeCoverageWarnings entries (name, namespace,
+// message). Name is empty when the API reports a null/empty name, which
+// means the warning is org-wide rather than tied to one class.
+type CodeCoverageWarning struct {
+	Name      string
+	Namespace string
+	Message   string
+}
+
 // DeployReport is a parsed `sf project deploy report --json` response.
 type DeployReport struct {
 	// Status is the job's current state, e.g. "Queued", "InProgress",
@@ -41,8 +54,19 @@ type DeployReport struct {
 	NumberTestsCompleted int
 	NumberTestErrors     int
 
-	ComponentFailures []ComponentFailure
-	TestFailures      []TestFailure
+	// ErrorMessage is the org-level error message for a Failed report that
+	// has no per-component/per-test detail (e.g. an errorStatusCode
+	// condition). Often empty even on a real failure.
+	ErrorMessage string
+	// ErrorStatusCode is the status code paired with ErrorMessage.
+	ErrorStatusCode string
+	// CanceledByName is who canceled the job, populated when Status ==
+	// "Canceled".
+	CanceledByName string
+
+	ComponentFailures    []ComponentFailure
+	TestFailures         []TestFailure
+	CodeCoverageWarnings []CodeCoverageWarning
 
 	// Raw is the command's captured stdout+stderr, kept for diagnostics
 	// and display even when the call errored (HU-011 AC: "Guardar cada
@@ -73,6 +97,13 @@ type reportResultEnvelope struct {
 	NumberTestsCompleted int `json:"numberTestsCompleted"`
 	NumberTestErrors     int `json:"numberTestErrors"`
 
+	// ErrorMessage/ErrorStatusCode/CanceledByName are additive, backward-
+	// compatible fields (bug fix): a report without them still decodes fine,
+	// leaving these at their zero value ("").
+	ErrorMessage    string `json:"errorMessage"`
+	ErrorStatusCode string `json:"errorStatusCode"`
+	CanceledByName  string `json:"canceledByName"`
+
 	Details struct {
 		ComponentFailures []struct {
 			FullName      string `json:"fullName"`
@@ -85,6 +116,14 @@ type reportResultEnvelope struct {
 				MethodName string `json:"methodName"`
 				Message    string `json:"message"`
 			} `json:"failures"`
+			// CodeCoverageWarnings is additive (bug fix): a report without it
+			// still decodes fine, leaving this nil. Name is nullable in the
+			// API and left "" (org-wide) when null.
+			CodeCoverageWarnings []struct {
+				Name      string `json:"name"`
+				Namespace string `json:"namespace"`
+				Message   string `json:"message"`
+			} `json:"codeCoverageWarnings"`
 		} `json:"runTestResult"`
 	} `json:"details"`
 }
@@ -169,6 +208,9 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 		NumberTestsTotal:         decoded.NumberTestsTotal,
 		NumberTestsCompleted:     decoded.NumberTestsCompleted,
 		NumberTestErrors:         decoded.NumberTestErrors,
+		ErrorMessage:             decoded.ErrorMessage,
+		ErrorStatusCode:          decoded.ErrorStatusCode,
+		CanceledByName:           decoded.CanceledByName,
 		Raw:                      raw,
 	}
 	for _, f := range decoded.Details.ComponentFailures {
@@ -183,6 +225,13 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 			Class:   f.Name,
 			Method:  f.MethodName,
 			Message: f.Message,
+		})
+	}
+	for _, w := range decoded.Details.RunTestResult.CodeCoverageWarnings {
+		report.CodeCoverageWarnings = append(report.CodeCoverageWarnings, CodeCoverageWarning{
+			Name:      w.Name,
+			Namespace: w.Namespace,
+			Message:   w.Message,
 		})
 	}
 

@@ -852,3 +852,69 @@ func TestModel_View_RendersValidationScreens(t *testing.T) {
 		}
 	}
 }
+
+// TestModel_View_RendersFailureReasonsWithoutComponentOrTestFailures is the
+// HU-011 bug fix: a Failed report with NO componentFailures/testFailures must
+// still surface its real reason — a code-coverage shortfall, an org-level
+// errorMessage, or (for Canceled) who canceled — never just "Failed" with
+// nothing else. A report with none of those renders an explicit fallback
+// line instead of silently looking like a failure with no cause.
+func TestModel_View_RendersFailureReasonsWithoutComponentOrTestFailures(t *testing.T) {
+	t.Run("org-wide code coverage warning renders as the failure reason", func(t *testing.T) {
+		m := New(Deps{Dir: "/repo", Config: validationConfig()})
+		m.state = StateFailed
+		m.report = salesforce.DeployReport{
+			Status: "Failed",
+			CodeCoverageWarnings: []salesforce.CodeCoverageWarning{
+				{Name: "", Message: "Average test coverage across all Apex Classes and Triggers is 0%, at least 75% test coverage is required."},
+			},
+		}
+		v := m.View()
+		if !strings.Contains(v, "Average test coverage across all Apex Classes and Triggers is 0%") {
+			t.Errorf("failure view should surface the coverage warning message, got:\n%s", v)
+		}
+		if !strings.Contains(v, "cobertura global") {
+			t.Errorf("an org-wide (Name empty) coverage warning should be labeled as org-wide coverage, got:\n%s", v)
+		}
+	})
+
+	t.Run("org-level errorMessage renders as the failure reason", func(t *testing.T) {
+		m := New(Deps{Dir: "/repo", Config: validationConfig()})
+		m.state = StateFailed
+		m.report = salesforce.DeployReport{
+			Status:          "Failed",
+			ErrorMessage:    "INVALID_STATUS: something went wrong",
+			ErrorStatusCode: "INVALID_STATUS",
+		}
+		v := m.View()
+		if !strings.Contains(v, "INVALID_STATUS: something went wrong") {
+			t.Errorf("failure view should surface the org-level errorMessage, got:\n%s", v)
+		}
+		if !strings.Contains(v, "INVALID_STATUS") {
+			t.Errorf("failure view should surface the errorStatusCode, got:\n%s", v)
+		}
+	})
+
+	t.Run("canceledByName renders on a Canceled status", func(t *testing.T) {
+		m := New(Deps{Dir: "/repo", Config: validationConfig()})
+		m.state = StateCanceled
+		m.report = salesforce.DeployReport{
+			Status:         "Canceled",
+			CanceledByName: "Jane Doe",
+		}
+		v := m.View()
+		if !strings.Contains(v, "Jane Doe") {
+			t.Errorf("canceled view should surface who canceled, got:\n%s", v)
+		}
+	})
+
+	t.Run("no structured reason at all falls back to an explicit notice", func(t *testing.T) {
+		m := New(Deps{Dir: "/repo", Config: validationConfig()})
+		m.state = StateFailed
+		m.report = salesforce.DeployReport{Status: "Failed"}
+		v := m.View()
+		if !strings.Contains(v, "sin detalle estructurado") {
+			t.Errorf("a Failed report with zero structured detail should render an explicit fallback line, got:\n%s", v)
+		}
+	})
+}
