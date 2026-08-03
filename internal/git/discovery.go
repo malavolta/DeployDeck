@@ -3,6 +3,8 @@ package git
 import (
 	"context"
 	"fmt"
+
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 // DeletedSourceBranchWarning reports whether search results suggest the
@@ -104,6 +106,13 @@ type DiscoverOptions struct {
 	// or an env branch per RF-002). Empty skips range-based
 	// ordering/classification, same as an empty Target.
 	Source string
+	// Cfg is threaded through to CandidateBranches (design D1) so its
+	// promotion-branch exclusion filter is derived from the caller's real
+	// configured branchFormat rather than a hardcoded prefix. A zero-value
+	// Cfg (BranchFormat == "") makes PromotionBranchMatcher return nil,
+	// which CandidateBranches treats as "skip filtering" — so callers that
+	// omit Cfg keep the prior unfiltered behavior.
+	Cfg config.Config
 }
 
 // DiscoverResult is the assembled outcome of a ticket search: message
@@ -141,7 +150,7 @@ func (s *Service) Discover(ctx context.Context, dir string, opts DiscoverOptions
 		return DiscoverResult{}, err
 	}
 
-	candidates, err := s.CandidateBranches(ctx, dir, opts.Ticket)
+	candidates, err := s.CandidateBranches(ctx, dir, opts.Ticket, opts.Cfg)
 	if err != nil {
 		return DiscoverResult{}, err
 	}

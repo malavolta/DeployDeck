@@ -223,7 +223,12 @@ func TestModel_View_RendersScreens(t *testing.T) {
 	pv.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", SandboxAlias: "UAT_SBX", SelectedCommits: ordered[:1]}
 	pv.branchName = "deploy/PROJ-1-to-UAT"
 	pvView := pv.View()
-	for _, want := range []string{"deploy/PROJ-1-to-UAT", "git cherry-pick aaa111", "git checkout -b deploy/PROJ-1-to-UAT origin/UAT"} {
+	// "-x" is asserted here (not just "git cherry-pick aaa111") so the
+	// preview stays in lockstep with the executed command: CherryPick
+	// (service_cherrypick.go's cherryPickArgs) runs `git cherry-pick -x
+	// <sha>` for its provenance trailer (design D4); the preview must show
+	// exactly what will run, never a stale command shape.
+	for _, want := range []string{"deploy/PROJ-1-to-UAT", "git cherry-pick -x aaa111", "git checkout -b deploy/PROJ-1-to-UAT origin/UAT"} {
 		if !strings.Contains(pvView, want) {
 			t.Errorf("plan preview view missing %q\n%s", want, pvView)
 		}

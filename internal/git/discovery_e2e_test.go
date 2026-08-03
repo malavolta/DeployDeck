@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
 )
@@ -102,7 +103,7 @@ func TestHU002_Discover_E2E(t *testing.T) {
 
 	// === Assert: candidate branches are listed by name, and single-source
 	// enforcement requires an explicit choice among them. ===
-	candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-1")
+	candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-1", config.Config{})
 	if err != nil {
 		t.Fatalf("CandidateBranches: unexpected error: %v", err)
 	}
@@ -324,7 +325,7 @@ func TestHU002_Discover_E2E_SourceResolutionDedupe(t *testing.T) {
 		writeAndCommit(t, runner, dir, "b.txt", "b\n", "PROJ-4: change b")
 		runGit(t, runner, dir, "push", "origin", "hotfix/PROJ-4-b")
 
-		candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-4")
+		candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-4", config.Config{})
 		if err != nil {
 			t.Fatalf("CandidateBranches: unexpected error: %v", err)
 		}

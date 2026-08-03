@@ -4,6 +4,7 @@
 package git
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/malavolta/DeployDeck/internal/config"
@@ -57,6 +58,62 @@ func IsProtectedBranch(cfg config.Config, branch string) bool {
 		}
 	}
 	return false
+}
+
+// promotionBranchTokenPattern matches the two BranchFormat substitution
+// tokens config.AllowedBranchFormatTokens allows — config.Validate rejects
+// any other "{{...}}" token before a Config ever reaches here, so matching
+// exactly these two literal tokens (not a generic "{{...}}" shape) is safe.
+var promotionBranchTokenPattern = regexp.MustCompile(`\{\{ticket\}\}|\{\{target\}\}`)
+
+// PromotionBranchMatcher compiles cfg.BranchFormat into an ANCHORED regex
+// matching the tool's own promotion-branch shape — the FULL rendered name,
+// not just its literal prefix. This replaces a prior prefix-only match
+// (design D1 over-exclusion fix): a prefix match wrongly excluded
+// legitimate source branches that merely START WITH the same literal text
+// but aren't actually promotion branches (e.g. "deploy/DEMO-2", which has
+// no "-to-<target>" suffix at all and is a real user branch). Literal
+// segments are regexp.QuoteMeta'd; "{{ticket}}"/"{{target}}" become
+// "[^/]+" (a non-empty branch segment that never crosses a "/"); the whole
+// pattern is anchored with ^...$ so a branch must match the ENTIRE shape,
+// not merely contain it.
+//
+// Returns nil — the caller's signal to SKIP filtering entirely rather than
+// drop every candidate — when cfg.BranchFormat is empty, or when stripping
+// its tokens leaves no literal content at all (e.g. a bare "{{ticket}}"
+// format). Either case would otherwise compile a degenerate pattern
+// ("^$" or "^[^/]+$") that matches virtually any simple single-segment
+// candidate branch name, not just the tool's own promotion branches —
+// which is exactly the "would drop the entire candidate set" failure mode
+// PromotionBranchPrefix's old "" guard existed to prevent.
+func PromotionBranchMatcher(cfg config.Config) *regexp.Regexp {
+	format := cfg.BranchFormat
+	if format == "" {
+		return nil
+	}
+	if promotionBranchTokenPattern.ReplaceAllString(format, "") == "" {
+		return nil
+	}
+
+	var pattern strings.Builder
+	pattern.WriteString("^")
+	last := 0
+	for _, loc := range promotionBranchTokenPattern.FindAllStringIndex(format, -1) {
+		pattern.WriteString(regexp.QuoteMeta(format[last:loc[0]]))
+		pattern.WriteString("[^/]+")
+		last = loc[1]
+	}
+	pattern.WriteString(regexp.QuoteMeta(format[last:]))
+	pattern.WriteString("$")
+
+	re, err := regexp.Compile(pattern.String())
+	if err != nil {
+		// Unreachable in practice — QuoteMeta'd literals plus a fixed
+		// "[^/]+" token always compile — but never let a malformed pattern
+		// panic or silently over-match; skip filtering instead.
+		return nil
+	}
+	return re
 }
 
 // RegisterPromotionBranch saves branchName as plan's final promotion

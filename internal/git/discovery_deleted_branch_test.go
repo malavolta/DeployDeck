@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
 )
@@ -36,7 +37,7 @@ func TestDeletedSourceBranchWarning_Integration(t *testing.T) {
 		t.Fatalf("expected the commit to still be found by message search after the branch was deleted")
 	}
 
-	candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-1")
+	candidates, err := svc.CandidateBranches(ctx, dir, "PROJ-1", config.Config{})
 	if err != nil {
 		t.Fatalf("CandidateBranches: unexpected error: %v", err)
 	}

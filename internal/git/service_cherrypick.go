@@ -175,10 +175,15 @@ func IsContiguousSelection(fullOrdered, selected []DiscoveredCommit) bool {
 }
 
 // cherryPickArgs is the full arg list for the initial cherry-pick:
-// `-c commit.gpgsign=false cherry-pick <revs...>`.
+// `-c commit.gpgsign=false cherry-pick -x <revs...>`. -x (design D4) makes
+// git append a `(cherry picked from commit <sha>)` trailer to each applied
+// commit's message, identifying its source SHA (spec: "Cherry-Pick Source
+// Provenance Trailer"). Only the initial pick needs it explicitly —
+// continueArgs/skipArgs resume the SAME sequencer invocation, which
+// remembers -x across --continue/--skip.
 func cherryPickArgs(revs []string) []string {
 	args := append([]string(nil), gpgSignOff...)
-	args = append(args, "cherry-pick")
+	args = append(args, "cherry-pick", "-x")
 	return append(args, revs...)
 }
 

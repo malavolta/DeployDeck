@@ -3,14 +3,16 @@ package app
 import "github.com/charmbracelet/lipgloss"
 
 // styleOK/styleWarn/styleErr/styleDim render the semantic color for a status
-// token (design D1). styleBold marks a screen's title/header. Under the
+// token (design D1/D2). styleBold marks a screen's title/header. Under the
 // package's Ascii TestMain baseline every style renders byte-identical plain
 // text (lipgloss's Ascii profile strips all escape codes); under a real TTY
-// color profile each renders its semantic color.
+// color profile each renders its semantic color. OK/warning/error use the
+// BRIGHT ANSI palette (design D2) rather than the base palette — muted base
+// colors are hard to read on dark-theme terminals.
 var (
-	styleOK   = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
-	styleWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // amber/yellow
-	styleErr  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
+	styleOK   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
+	styleWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // bright yellow
+	styleErr  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // bright red
 	styleBold = lipgloss.NewStyle().Bold(true)
 	styleDim  = lipgloss.NewStyle().Faint(true)
 )

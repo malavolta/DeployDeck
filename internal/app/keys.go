@@ -870,9 +870,11 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ticketFromBranch = false
 			return m, nil
 		}
+		m.notice = ""
 		m.state = StatePrereqCheck
 		return m, nil
 	case "esc":
+		m.notice = ""
 		m.state = StatePrereqCheck
 		return m, nil
 	case "backspace":
@@ -906,6 +908,7 @@ func (m Model) keySourceConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "N", "enter":
 		return m.onDiscoverDone(discoverDoneMsg{result: m.discovery})
 	case "esc":
+		m.notice = ""
 		m.state = StateTicketInput
 		return m, nil
 	}
@@ -930,6 +933,7 @@ func (m Model) keySelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.confirmSelection()
 	case "esc":
+		m.notice = ""
 		m.state = StateTicketInput
 		return m, nil
 	}
@@ -939,7 +943,7 @@ func (m Model) keySelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) confirmSelection() (tea.Model, tea.Cmd) {
 	plan, err := git.GenerateDeploymentPlan(m.ticket, m.items)
 	if err != nil {
-		m.notice = "select at least one commit before continuing"
+		m.notice = "selecciona al menos un commit para continuar"
 		return m, nil
 	}
 	m.notice = ""
@@ -977,6 +981,7 @@ func (m Model) keyTarget(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.confirmTarget()
 	case "esc":
+		m.notice = ""
 		m.state = StateCommitSelection
 		return m, nil
 	}
@@ -1009,6 +1014,7 @@ func (m Model) keyPlanPreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m, spin := m.startSpinner()
 		return m, tea.Batch(m.branchCreateCmd(), spin)
 	case "esc":
+		m.notice = ""
 		m.state = StateTargetSelection
 		return m, nil
 	}
@@ -1163,6 +1169,7 @@ func (m Model) keyQueueReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.queueErr = nil
 		return m, m.queueCmd()
 	case "esc":
+		m.notice = ""
 		m.state = StatePackageReview
 		return m, nil
 	}

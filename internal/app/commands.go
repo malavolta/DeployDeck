@@ -494,7 +494,7 @@ func (m Model) discoverCmd() tea.Cmd {
 	currentBranch := m.originalBranch
 	ctx := m.ctx()
 	return func() tea.Msg {
-		base, err := g.Discover(ctx, dir, git.DiscoverOptions{Ticket: ticket})
+		base, err := g.Discover(ctx, dir, git.DiscoverOptions{Ticket: ticket, Cfg: cfg})
 		if err != nil {
 			return discoverDoneMsg{err: err}
 		}
@@ -512,6 +512,7 @@ func (m Model) discoverCmd() tea.Cmd {
 				Ticket: ticket,
 				Target: prelim,
 				Source: sourceRefName(source),
+				Cfg:    cfg,
 			})
 			if err != nil {
 				return discoverDoneMsg{err: err}
@@ -533,6 +534,7 @@ func (m Model) discoverCmd() tea.Cmd {
 func (m Model) confirmSourceCmd() tea.Cmd {
 	g := m.deps.Git
 	dir := m.deps.Dir
+	cfg := m.deps.Config
 	ticket := m.ticket
 	prelim := m.prelim
 	candidates := m.discovery.CandidateBranches
@@ -547,6 +549,7 @@ func (m Model) confirmSourceCmd() tea.Cmd {
 			Ticket: ticket,
 			Target: prelim,
 			Source: sourceRefName(sel),
+			Cfg:    cfg,
 		})
 		if err != nil {
 			return discoverDoneMsg{err: err}

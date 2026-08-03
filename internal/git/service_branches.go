@@ -3,7 +3,10 @@ package git
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/malavolta/DeployDeck/internal/config"
 )
 
 // Branch is a local or remote-tracking branch reference.
@@ -30,13 +33,19 @@ func (s *Service) ListBranches(ctx context.Context, dir string) ([]Branch, error
 // contains ticket (HU-002: "Buscar ramas remotas y locales que contengan
 // el ticket"), via `git branch --list '*<ticket>*'` for each of local and
 // remote-tracking refs — the same underlying listing ListBranches uses,
-// scoped with a glob pattern. A pushed branch present both locally and as
-// its origin/ counterpart is collapsed into a SINGLE candidate
-// (dedupeByLocalName) so a logical branch is never counted twice — scoped to
-// CandidateBranches ONLY; ListBranches/branchesByPattern stay unmodified,
-// since the standalone-delta base picker requires local+remote as separate
-// rows.
-func (s *Service) CandidateBranches(ctx context.Context, dir, ticket string) ([]Branch, error) {
+// scoped with a glob pattern. Branches matching the tool's own
+// promotion-branch shape (design D1 — cfg-derived via
+// PromotionBranchMatcher's FULL-SHAPE anchored regex, e.g.
+// "deploy/PROJ-1-to-UAT" and "origin/deploy/PROJ-1-to-UAT", never merely a
+// prefix) are excluded first, so a leftover branch from a prior promotion
+// never surfaces as a spurious second source candidate, while a legitimate
+// branch that only shares the same literal prefix (e.g. "deploy/PROJ-1")
+// survives. A pushed branch present both locally and as its origin/
+// counterpart is collapsed into a SINGLE candidate (dedupeByLocalName) so a
+// logical branch is never counted twice — scoped to CandidateBranches ONLY;
+// ListBranches/branchesByPattern stay unmodified, since the
+// standalone-delta base picker requires local+remote as separate rows.
+func (s *Service) CandidateBranches(ctx context.Context, dir, ticket string, cfg config.Config) ([]Branch, error) {
 	root, err := s.RepoRoot(ctx, dir)
 	if err != nil {
 		return nil, err
@@ -46,7 +55,32 @@ func (s *Service) CandidateBranches(ctx context.Context, dir, ticket string) ([]
 	if err != nil {
 		return nil, err
 	}
+	branches = excludePromotionBranches(branches, PromotionBranchMatcher(cfg))
 	return dedupeByLocalName(branches), nil
+}
+
+// excludePromotionBranches drops any branch matching the tool's own
+// promotion-branch shape — bare (matcher.MatchString(name)) or
+// origin/-tracked (matcher.MatchString with the leading "origin/"
+// stripped) — applied BEFORE dedupeByLocalName so an origin-only leftover
+// with no local twin is still caught (design D1: "filtering after dedupe"
+// was rejected — an origin-only leftover would otherwise slip through).
+// matcher == nil (PromotionBranchMatcher's guard for an empty or
+// non-anchoring branchFormat) skips filtering entirely rather than dropping
+// every candidate.
+func excludePromotionBranches(branches []Branch, matcher *regexp.Regexp) []Branch {
+	if matcher == nil {
+		return branches
+	}
+	filtered := make([]Branch, 0, len(branches))
+	for _, b := range branches {
+		bare := strings.TrimPrefix(b.Name, "origin/")
+		if matcher.MatchString(b.Name) || matcher.MatchString(bare) {
+			continue
+		}
+		filtered = append(filtered, b)
+	}
+	return filtered
 }
 
 // dedupeByLocalName collapses a local branch and its origin/ remote-tracking

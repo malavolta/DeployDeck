@@ -22,7 +22,8 @@ The system SHALL search commits via `git log --grep <ticket>` and list all commi
 
 ### Requirement: Candidate Branch Search By Name
 
-The system SHALL find local and remote branches whose name contains the ticket. When a local branch and its remote-tracking counterpart (e.g. `X` and `origin/X`) both match the ticket and represent the same logical branch, the system MUST treat them as a single candidate; genuinely distinct branches (different logical names) MUST NOT be collapsed.
+The system SHALL find local and remote branches whose name contains the ticket, EXCLUDING branches that match the tool's own promotion-branch SHAPE — the full `config.BranchFormat` rendered with its template tokens (`{{ticket}}`/`{{target}}`) as branch-segment wildcards, e.g. `deploy/<ticket>-to-<target>` — in both bare and `origin/`-prefixed form. A branch that merely shares the format's prefix but not its full shape (e.g. `deploy/DEMO-2` without the `-to-<target>` segment) is a legitimate source and MUST NOT be excluded. When a local branch and its remote-tracking counterpart (e.g. `X` and `origin/X`) both match the ticket and represent the same logical branch, the system MUST treat them as a single candidate; genuinely distinct branches (different logical names) MUST NOT be collapsed.
+(Previously: candidate search matched any branch containing the ticket with no exclusion, so a leftover `deploy/<ticket>-to-<target>` branch from a prior promotion was returned as a second, spurious source candidate.)
 
 #### Scenario: Ticket found in branch name
 - GIVEN branches exist whose name contains the ticket
@@ -39,6 +40,23 @@ The system SHALL find local and remote branches whose name contains the ticket. 
 - GIVEN two different branches (different logical names, e.g. `feature/TICKET-a` and `hotfix/TICKET-b`) both match the ticket
 - WHEN the user searches by ticket
 - THEN both remain separate candidates and single-source selection still applies
+
+#### Scenario: Tool's own promotion branch is excluded, bare and origin/-prefixed
+- GIVEN a leftover promotion branch `deploy/DEMO-2-to-INT` exists locally and/or as `origin/deploy/DEMO-2-to-INT`, alongside the ticket's real feature branch
+- WHEN the user searches by ticket `DEMO-2`
+- THEN both the bare and `origin/`-prefixed forms of `deploy/DEMO-2-to-INT` are excluded from candidates
+- AND only the genuine feature branch remains a candidate
+
+#### Scenario: Prefix-only branch is kept as a legitimate source
+- GIVEN a branch `deploy/DEMO-2` (matches the format prefix but lacks the `-to-<target>` shape) matches ticket `DEMO-2`
+- WHEN the user searches by ticket
+- THEN it is NOT excluded and remains a selectable source candidate
+
+#### Scenario: Leftover promotion branch no longer causes a false multi-candidate dead end
+- GIVEN a leftover branch `deploy/DEMO-2-to-INT` remains from a prior promotion, and ticket `DEMO-2`'s real source branch also matches
+- WHEN the user re-runs discovery for `DEMO-2`
+- THEN the source resolves unambiguously with no spurious multi-candidate confirmation prompt
+- AND the ticket's pending commits are listed (`OrderedCommits` is non-empty)
 
 ### Requirement: Current-Branch Source Confirmation
 

@@ -444,7 +444,10 @@ func (m Model) viewPlanPreview() string {
 	b.WriteString("  git fetch origin\n")
 	b.WriteString(fmt.Sprintf("  git checkout -b %s origin/%s\n", m.branchName, m.plan.TargetBranch))
 	for _, c := range m.plan.SelectedCommits {
-		b.WriteString("  git cherry-pick " + c.ShortSHA + "\n")
+		// "-x" mirrors the executed command (git.cherryPickArgs, design D4's
+		// provenance trailer) so the preview never shows a stale command
+		// shape — "shown == executed".
+		b.WriteString("  git cherry-pick -x " + c.ShortSHA + "\n")
 	}
 	b.WriteString(footer("Enter ejecutar   Esc volver"))
 	return b.String()

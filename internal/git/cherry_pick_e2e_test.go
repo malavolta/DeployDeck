@@ -270,3 +270,48 @@ func TestHU006_CherryPick_E2E(t *testing.T) {
 		}
 	})
 }
+
+// TestHU006_CherryPick_ConflictContinue_XTrailerSurvives is the D4 e2e
+// remediation (verify WARNING): TestService_CherryPick_UsesDashXProvenanceFlag
+// (service_cherrypick_test.go) only proves "-x" is present in the ARGS
+// cherryPickArgs builds; it never proves git's sequencer actually HONORS
+// "-x" across a real CONFLICT + `git cherry-pick --continue` — that's a
+// behavior of the real git binary's sequencer memory, not DeployDeck's own
+// code, so only a real-git e2e can prove it. Mirrors
+// TestHU006_CherryPick_E2E's "text conflict" setup (newTempRepo +
+// seedConflictingFeature), but picks ONLY the conflicting commit (not the
+// 2-commit range) so the commit `--continue` produces is unambiguous:
+// exactly feature1's own resolution, not a later auto-applied commit.
+func TestHU006_CherryPick_ConflictContinue_XTrailerSurvives(t *testing.T) {
+	dir := newTempRepo(t) // skips under -short (shells out to real git)
+	runner := exec.NewOSRunner()
+	svc := git.New(runner)
+
+	feature1, _ := seedConflictingFeature(t, runner, dir)
+
+	outcome, err := svc.CherryPick(context.Background(), dir, []git.DiscoveredCommit{{Commit: git.Commit{SHA: feature1}}}, true)
+	if err != nil {
+		t.Fatalf("CherryPick error: %v", err)
+	}
+	if !outcome.State.InProgress || len(outcome.State.Unmerged) != 1 {
+		t.Fatalf("expected a stopped flow with one conflict, got %+v", outcome.State)
+	}
+
+	// External resolution, same as the "text conflict" subtest above.
+	writeFileHelper(t, dir, "a.cls", "l1\nRESOLVED\nl3\n")
+	runGit(t, runner, dir, "add", "a.cls")
+
+	done, err := svc.ContinueCherryPick(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("ContinueCherryPick error: %v", err)
+	}
+	if done.State.InProgress {
+		t.Fatalf("expected the sequence to complete after continue, got %+v", done.State)
+	}
+
+	body := string(runGit(t, runner, dir, "log", "-1", "--format=%B").Stdout)
+	wantTrailer := "(cherry picked from commit " + feature1 + ")"
+	if !strings.Contains(body, wantTrailer) {
+		t.Errorf("expected git's sequencer to have preserved the -x provenance trailer across the conflict --continue, got commit body:\n%s\nwant substring: %s", body, wantTrailer)
+	}
+}

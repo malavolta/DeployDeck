@@ -175,6 +175,42 @@ func TestIsContiguousSelection_TableDriven(t *testing.T) {
 	}
 }
 
+// TestCherryPickArgs_IncludesDashX is task 4.1 (RED, design D4): the initial
+// cherry-pick invocation must carry `-x` so the resulting commit's message
+// gets a `(cherry picked from commit <sha>)` provenance trailer (spec:
+// "Cherry-Pick Source Provenance Trailer"), positioned AFTER the
+// "cherry-pick" subcommand and before the revs — mirroring the existing
+// `-c commit.gpgsign=false` positioning assertion above. Fails today: `-x`
+// is absent from cherryPickArgs.
+func TestCherryPickArgs_IncludesDashX(t *testing.T) {
+	cap := &capturingRunner{result: exec.CommandResult{ExitCode: 0}}
+	svc := git.New(cap)
+
+	commits := []git.DiscoveredCommit{{Commit: git.Commit{SHA: "aaa"}}, {Commit: git.Commit{SHA: "bbb"}}}
+	if _, err := svc.CherryPick(context.Background(), "/repo", commits, true); err != nil {
+		t.Fatalf("CherryPick error: %v", err)
+	}
+
+	pick, ok := cap.callWithArg("cherry-pick")
+	if !ok {
+		t.Fatalf("no cherry-pick request was issued; calls: %+v", cap.calls)
+	}
+	if !argsContain(pick.Args, "-x") {
+		t.Errorf("cherry-pick Args missing `-x`: %v", pick.Args)
+	}
+	// -x must come immediately AFTER the cherry-pick subcommand, before any
+	// rev (the revs form itself — range vs explicit list — is pinned
+	// separately by TestCherryPickRevisions_TableDriven, not here).
+	pickIdx := idxOf(pick.Args, "cherry-pick")
+	xIdx := idxOf(pick.Args, "-x")
+	if xIdx <= pickIdx {
+		t.Errorf("`-x` must come AFTER the cherry-pick subcommand: %v", pick.Args)
+	}
+	if xIdx != pickIdx+1 {
+		t.Errorf("`-x` must come immediately after cherry-pick, before any rev: %v", pick.Args)
+	}
+}
+
 func idxOf(args []string, token string) int {
 	for i, a := range args {
 		if a == token {

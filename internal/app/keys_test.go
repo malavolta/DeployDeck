@@ -232,3 +232,69 @@ func TestKeyPushPreparation_A_NilDep_Inert(t *testing.T) {
 		t.Fatal("'a' with no GenerateSummary dep must not set aiPending")
 	}
 }
+
+// TestConfirmSelection_EmptyGuardNoticeIsSpanish is task 3.1 (RED, design
+// D3): the empty-selection guard notice on StateCommitSelection must read in
+// Spanish, matching the rest of the TUI's Spanish copy (spec: "Localized
+// Empty-Selection Guard Notice Without Cross-Screen Bleed"). Fails against
+// the current English string.
+func TestConfirmSelection_EmptyGuardNoticeIsSpanish(t *testing.T) {
+	m := New(Deps{})
+	m.state = StateCommitSelection
+	m.ticket = "PROJ-1"
+	m.items = nil // zero selection
+
+	next, _ := m.confirmSelection()
+	nm := next.(Model)
+
+	want := "selecciona al menos un commit para continuar"
+	if nm.notice != want {
+		t.Errorf("notice = %q, want %q", nm.notice, want)
+	}
+	if nm.state != StateCommitSelection {
+		t.Errorf("state = %v, want StateCommitSelection unchanged (guard blocks the transition)", nm.state)
+	}
+}
+
+// TestBackTransitions_ClearStaleNotice is task 3.2 (RED, design D3's "no
+// bleed" rule): every audited back/navigation transition that leaves a
+// notice-bearing screen must clear m.notice, so a guard notice never renders
+// on the destination screen (spec: "Notice does not persist after going
+// back" / "does not bleed onto an unrelated screen"). Fails on all 6 today
+// (none currently clear m.notice).
+func TestBackTransitions_ClearStaleNotice(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     State
+		ticket    string
+		key       string
+		wantState State
+	}{
+		{name: "keySelection esc -> ticket", state: StateCommitSelection, key: "esc", wantState: StateTicketInput},
+		{name: "keyTicket esc -> prereq", state: StateTicketInput, key: "esc", wantState: StatePrereqCheck},
+		{name: "keyTicket empty-q -> prereq", state: StateTicketInput, ticket: "", key: "q", wantState: StatePrereqCheck},
+		{name: "keyTarget esc -> selection", state: StateTargetSelection, key: "esc", wantState: StateCommitSelection},
+		{name: "keyPlanPreview esc -> target", state: StatePlanPreview, key: "esc", wantState: StateTargetSelection},
+		{name: "keySourceConfirm esc -> ticket", state: StateSourceConfirm, key: "esc", wantState: StateTicketInput},
+		{name: "keyQueueReview esc -> packageReview", state: StateQueueReview, key: "esc", wantState: StatePackageReview},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(Deps{})
+			m.state = tt.state
+			m.ticket = tt.ticket
+			m.notice = "stale notice from a prior screen"
+
+			next, _ := m.Update(keyPress(tt.key))
+			nm := next.(Model)
+
+			if nm.state != tt.wantState {
+				t.Fatalf("state = %v, want %v", nm.state, tt.wantState)
+			}
+			if nm.notice != "" {
+				t.Errorf("notice = %q, want cleared (\"\") on this back-transition", nm.notice)
+			}
+		})
+	}
+}

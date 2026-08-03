@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
 )
@@ -63,7 +64,7 @@ func TestService_CandidateBranches_ReturnsLocalAndRemoteMatchesByTicketName(t *t
 
 	svc := git.New(runner)
 
-	branches, err := svc.CandidateBranches(context.Background(), dir, "PROJ-1")
+	branches, err := svc.CandidateBranches(context.Background(), dir, "PROJ-1", config.Config{})
 	if err != nil {
 		t.Fatalf("expected CandidateBranches to succeed, got error: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestService_CandidateBranches_DedupesLocalAndRemoteTrackingOfSameBranch(t *
 
 	svc := git.New(runner)
 
-	candidates, err := svc.CandidateBranches(context.Background(), dir, "PROJ-7")
+	candidates, err := svc.CandidateBranches(context.Background(), dir, "PROJ-7", config.Config{})
 	if err != nil {
 		t.Fatalf("expected CandidateBranches to succeed, got error: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestService_CandidateBranches_DoesNotOverCollapseDistinctNames(t *testing.T
 
 	svc := git.New(runner)
 
-	candidates, err := svc.CandidateBranches(context.Background(), dir, "PROJ-8")
+	candidates, err := svc.CandidateBranches(context.Background(), dir, "PROJ-8", config.Config{})
 	if err != nil {
 		t.Fatalf("expected CandidateBranches to succeed, got error: %v", err)
 	}
@@ -156,3 +157,66 @@ func TestService_CandidateBranches_DoesNotOverCollapseDistinctNames(t *testing.T
 // Task 1.3's guard: TestService_ListBranches_ReturnsLocalAndRemoteBranches
 // (above, unmodified) already proves ListBranches returns local "main" AND
 // remote-tracking "origin/main" as separate rows — dedupe never leaks there.
+
+// TestService_CandidateBranches_ExcludesPromotionBranch is the D1
+// over-exclusion remediation (RED first): proposal D1's repro — a leftover
+// promotion branch from a prior run (deploy/DEMO-2-to-INT, matching the
+// default config.DefaultBranchFormat's FULL shape) must never surface as a
+// spurious second source candidate, in both its bare and origin/-prefixed
+// form, while the ticket's real feature branch survives untouched. It also
+// proves the fix itself: a LEGITIMATE branch that merely starts with the
+// same literal prefix but does NOT match the full "-to-<target>" shape
+// (deploy/DEMO-2, with no "-to-" suffix at all) must be KEPT, not dropped —
+// a prefix-only match wrongly excluded it before this fix.
+func TestService_CandidateBranches_ExcludesPromotionBranch(t *testing.T) {
+	dir := newTempRepo(t)
+	runner := exec.NewOSRunner()
+
+	// The ticket's genuine feature branch.
+	runGit(t, runner, dir, "branch", "feature/DEMO-2")
+	// A legitimate branch that merely starts with the promotion prefix but
+	// does not match the full promotion-branch shape (no "-to-<target>").
+	runGit(t, runner, dir, "branch", "deploy/DEMO-2")
+	// A leftover promotion branch from a prior run of the tool itself,
+	// present both locally and pushed to origin.
+	runGit(t, runner, dir, "branch", "deploy/DEMO-2-to-INT")
+	runGit(t, runner, dir, "push", "origin", "deploy/DEMO-2-to-INT")
+
+	svc := git.New(runner)
+	cfg := config.Config{BranchFormat: config.DefaultBranchFormat}
+
+	candidates, err := svc.CandidateBranches(context.Background(), dir, "DEMO-2", cfg)
+	if err != nil {
+		t.Fatalf("expected CandidateBranches to succeed, got error: %v", err)
+	}
+
+	var hasFeature, hasPrefixOnly, hasBarePromotion, hasOriginPromotion bool
+	for _, b := range candidates {
+		switch {
+		case b.Name == "feature/DEMO-2" && !b.Remote:
+			hasFeature = true
+		case b.Name == "deploy/DEMO-2" && !b.Remote:
+			hasPrefixOnly = true
+		case b.Name == "deploy/DEMO-2-to-INT" && !b.Remote:
+			hasBarePromotion = true
+		case b.Name == "origin/deploy/DEMO-2-to-INT" && b.Remote:
+			hasOriginPromotion = true
+		}
+	}
+
+	if !hasFeature {
+		t.Errorf("expected the real feature branch %q to survive, got %+v", "feature/DEMO-2", candidates)
+	}
+	if !hasPrefixOnly {
+		t.Errorf("expected the prefix-only (non-shape-matching) branch %q to survive, got %+v", "deploy/DEMO-2", candidates)
+	}
+	if hasBarePromotion {
+		t.Errorf("expected local deploy/DEMO-2-to-INT excluded, got %+v", candidates)
+	}
+	if hasOriginPromotion {
+		t.Errorf("expected origin/deploy/DEMO-2-to-INT excluded, got %+v", candidates)
+	}
+	if len(candidates) != 2 {
+		t.Errorf("expected exactly 2 surviving candidates (feature/DEMO-2 + deploy/DEMO-2), got %d: %+v", len(candidates), candidates)
+	}
+}
