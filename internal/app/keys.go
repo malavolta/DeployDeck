@@ -352,9 +352,14 @@ func (m Model) confirmDeleteOrphan() (tea.Model, tea.Cmd) {
 // side effects are each gated behind an explicit confirmation: `p` on
 // pushConfirm runs `git push -u origin <branch>` (spec: "show the push command
 // before running it"); on the authed screen `g` reveals the PR confirm gate
-// and only an explicit `y` there fires `gh pr create` (spec invariant: "no PR
-// is created without explicit confirmation"). The compare-fallback path
-// (gh absent/unauthenticated) never offers PR creation. `q` always quits.
+// and an explicit key there fires `gh pr create` (spec invariant: "no PR is
+// created without explicit confirmation"). On pushPRConfirm, an AI suggestion
+// that is ready but not yet accepted turns the confirm into an explicit
+// choice (never-silently-skip fix): `y` accepts-then-creates with the AI
+// title/description, `d` creates with the default formula title. A
+// still-generating suggestion blocks creation entirely until it lands or the
+// user backs out. The compare-fallback path (gh absent/unauthenticated) never
+// offers PR creation. `q` always quits.
 func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.pushPhase {
 	case pushConfirm:
@@ -402,16 +407,64 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.quitCmd()
 		}
 	case pushPRConfirm:
-		switch msg.String() {
-		case "y":
-			// The single, explicit confirmation that fires gh pr create.
-			m.pushPhase = pushPRCreating
-			return m, m.createPRCmd()
-		case "n", "esc":
-			m.pushPhase = pushReady
+		// Never-silently-skip fix: branch on the AI suggestion's state so PR
+		// creation always makes an explicit choice when a suggestion could
+		// still apply, instead of defaulting to whichever title
+		// effectiveTitle() happens to resolve to.
+		switch {
+		case m.aiPending:
+			// A suggestion is still generating: never create yet — this
+			// closes the timing hole where a fast user creates before the
+			// suggestion lands. Only back-out and quit work; any create key
+			// is inert. If the request fails/times out, aiPending clears and
+			// aiTitle stays "", so the next press falls into the
+			// no-suggestion case below.
+			switch msg.String() {
+			case "n", "N", "esc":
+				m.pushPhase = pushReady
+				return m, nil
+			case "q":
+				return m, m.quitCmd()
+			}
 			return m, nil
-		case "q":
-			return m, m.quitCmd()
+		case m.aiTitle != "" && !m.aiAccepted:
+			// A suggestion is ready but was never explicitly accepted via
+			// pushReady's `a`: ask explicitly instead of silently creating
+			// with the default formula title.
+			switch msg.String() {
+			case "y", "Y":
+				// Accept the AI suggestion, THEN create — createPRCmd reads
+				// effectiveTitle()/effectiveDescription() at call time, so
+				// aiAccepted must be set before it's returned.
+				m.aiAccepted = true
+				m.pushPhase = pushPRCreating
+				return m, m.createPRCmd()
+			case "d", "D":
+				// Explicitly decline the suggestion: create with the default
+				// formula title and empty body (aiAccepted stays false).
+				m.pushPhase = pushPRCreating
+				return m, m.createPRCmd()
+			case "n", "N", "esc":
+				m.pushPhase = pushReady
+				return m, nil
+			case "q":
+				return m, m.quitCmd()
+			}
+			return m, nil
+		default:
+			// No suggestion available, or already accepted via `a` on
+			// pushReady: unchanged single explicit confirm.
+			switch msg.String() {
+			case "y":
+				// The single, explicit confirmation that fires gh pr create.
+				m.pushPhase = pushPRCreating
+				return m, m.createPRCmd()
+			case "n", "esc":
+				m.pushPhase = pushReady
+				return m, nil
+			case "q":
+				return m, m.quitCmd()
+			}
 		}
 	case pushPushing, pushPRCreating:
 		// A side effect is in flight: ignore everything but quit so a second

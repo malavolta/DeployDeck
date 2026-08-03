@@ -776,6 +776,17 @@ func (m Model) viewPRData() string {
 			b.WriteString("\n  [OK] PR creado:\n")
 			b.WriteString("  " + m.prURL + "\n")
 			b.WriteString(footer("q salir"))
+		case m.pushPhase == pushPRConfirm && m.aiPending:
+			// A suggestion is still generating: never-silently-skip fix
+			// blocks creation until it lands or the user backs out.
+			b.WriteString("\n  Esperando sugerencia IA...\n")
+			b.WriteString(footer("n volver   q salir"))
+		case m.pushPhase == pushPRConfirm && m.aiTitle != "" && !m.aiAccepted:
+			// A suggestion is ready but unaccepted: the AI title/description
+			// are already shown by viewAIBlock above — ask explicitly instead
+			// of defaulting to the formula title (never-silently-skip fix).
+			b.WriteString("\n  Crear la PR con la sugerencia IA?\n")
+			b.WriteString(footer("y con IA   d titulo default   n cancelar   q salir"))
 		case m.pushPhase == pushPRConfirm:
 			b.WriteString("\n  Confirmar creacion del PR con gh?\n")
 			b.WriteString(footer("y confirmar crear PR   n cancelar   q salir"))
