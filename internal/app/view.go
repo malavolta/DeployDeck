@@ -51,7 +51,7 @@ func (m Model) viewBody() string {
 	case StateSourceConfirm:
 		return m.viewSourceConfirm()
 	case StateCommitDiscovery:
-		return header("Buscando commits") + fmt.Sprintf("\n  Ticket: %s\n  Buscando...\n", m.ticket)
+		return m.screenHeader("Buscando commits") + fmt.Sprintf("\n  Ticket: %s\n  Buscando...\n", m.ticket) + "  " + spinnerView(m.spinnerFrame) + "\n"
 	case StateCommitSelection:
 		return m.viewSelection()
 	case StateTargetSelection:
@@ -59,13 +59,13 @@ func (m Model) viewBody() string {
 	case StatePlanPreview:
 		return m.viewPlanPreview()
 	case StateBranchCreation:
-		return header("Creando rama de promocion") + fmt.Sprintf("\n  %s\n", m.branchName)
+		return m.screenHeader("Creando rama de promoción") + fmt.Sprintf("\n  %s\n", m.branchName) + "  " + spinnerView(m.spinnerFrame) + "\n"
 	case StateCherryPicking:
 		return m.viewCherryPicking()
 	case StateCherryPickConflict:
 		return m.viewConflict()
 	case StateAborted:
-		return header("Cherry-pick abortado") + "\n  El run fue abortado. No se genera delta ni validacion.\n" + footer("q salir")
+		return m.screenHeader("Cherry-pick abortado") + "\n  El run fue abortado. No se genera delta ni validación.\n" + footer("q salir")
 	case StatePickVerification:
 		return m.viewVerification()
 	case StateDeltaGeneration:
@@ -91,25 +91,61 @@ func (m Model) viewBody() string {
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
-		return header("Error") + fmt.Sprintf("\n  %v\n", m.err) + footer("q salir")
+		return m.screenHeader("Error") + fmt.Sprintf("\n  %v\n", m.err) + footer("q salir")
 	}
 	return ""
 }
 
 func header(title string) string {
-	return "DeployDeck > " + title + "\n"
+	return "DeployDeck > " + styleBold.Render(title) + "\n"
+}
+
+// contextBar renders the persistent "repo · branch [· org]" line every
+// screen shows (design D2, "Persistent Context Bar" requirement): the org
+// segment is appended only once m.plan.SandboxAlias is resolved
+// (omit-until-resolved — never a dangling placeholder for an unresolved
+// org). branch is m.originalBranch, captured asynchronously at startup
+// (originalBranchCmd) — "" until it lands, rendering as a bare trailing
+// separator rather than blocking the bar.
+func (m Model) contextBar() string {
+	line := "  " + filepath.Base(m.deps.Dir) + " · " + m.originalBranch
+	if m.plan.SandboxAlias != "" {
+		line += " · " + m.plan.SandboxAlias
+	}
+	return line + "\n"
+}
+
+// screenHeader composes a screen's title line with the persistent context
+// bar (design's Data Flow: "screenHeader = header(title) + m.contextBar()"),
+// the single seam every screen routes through so the bar is never
+// per-screen-optional.
+func (m Model) screenHeader(title string) string {
+	return header(title) + m.contextBar()
 }
 
 func footer(keys string) string {
 	return "\n[ " + keys + " ]\n"
 }
 
+// spinnerFrames are the animated progress-spinner glyphs (design D5), cycled
+// by spinnerView. Frame 0 ("|") is deterministic so a fresh screen entry
+// always renders the same first frame.
+var spinnerFrames = [4]rune{'|', '/', '-', '\\'}
+
+// spinnerView renders the spinner glyph for frame f, cycling through
+// spinnerFrames. It is always appended AFTER a screen's existing static
+// text — never replacing any asserted substring (design's Open Question:
+// "Spinner char must not be captured by any in-progress-screen Contains").
+func spinnerView(f int) string {
+	return string(spinnerFrames[f%len(spinnerFrames)])
+}
+
 func (m Model) viewPrereq() string {
 	var b strings.Builder
-	b.WriteString(header("Doctor"))
+	b.WriteString(m.screenHeader("Doctor"))
 	b.WriteString(fmt.Sprintf("\n  Repo: %s\n\n  Prerequisitos\n\n", m.deps.Dir))
 	for _, c := range m.checks {
-		b.WriteString(fmt.Sprintf("  [%s] %s  %s\n", statusMark(c.Status), c.Name, c.Detail))
+		b.WriteString(fmt.Sprintf("  %s %s  %s\n", mark(statusMark(c.Status)), c.Name, c.Detail))
 		if c.FixCommand != "" {
 			b.WriteString("      fix: " + c.FixCommand + "\n")
 		}
@@ -141,14 +177,17 @@ func statusMark(s prereq.Status) string {
 // diverge.
 func (m Model) viewMainMenu() string {
 	var b strings.Builder
-	b.WriteString(header("Menu Principal"))
-	b.WriteString("\n  Que quieres hacer?\n\n")
+	b.WriteString(m.screenHeader("Menú Principal"))
+	b.WriteString("\n  ¿Qué quieres hacer?\n\n")
 	for i, e := range visibleMenuEntries(menuEntries) {
 		cursor := " "
 		if i == m.menuCursor {
 			cursor = ">"
 		}
 		b.WriteString(fmt.Sprintf("  %s %s\n", cursor, e.label))
+		if e.description != "" {
+			b.WriteString("      " + e.description + "\n")
+		}
 	}
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
@@ -163,7 +202,7 @@ func (m Model) viewMainMenu() string {
 // cursor marker, over a back/quit footer.
 func (m Model) viewDeltaSourceSelect() string {
 	var b strings.Builder
-	b.WriteString(header("Generar Delta Package"))
+	b.WriteString(m.screenHeader("Generar Delta Package"))
 	b.WriteString("\n  Ref actual: HEAD\n\n  Rama base\n\n")
 	if len(m.branchList) == 0 {
 		b.WriteString("  Cargando ramas...\n")
@@ -189,7 +228,7 @@ func (m Model) viewDeltaSourceSelect() string {
 // never after), over a back footer.
 func (m Model) viewPackageSelect() string {
 	var b strings.Builder
-	b.WriteString(header("Validar Package"))
+	b.WriteString(m.screenHeader("Validar Package"))
 	b.WriteString("\n  Ruta al package.xml\n\n")
 	b.WriteString("  " + m.packagePath + "_\n")
 	if m.notice != "" {
@@ -206,7 +245,7 @@ func (m Model) viewPackageSelect() string {
 // and fires validateCmd (confirmSandboxSelect).
 func (m Model) viewSandboxSelect() string {
 	var b strings.Builder
-	b.WriteString(header("Elegir Sandbox"))
+	b.WriteString(m.screenHeader("Elegir Sandbox"))
 	b.WriteString(fmt.Sprintf("\n  Package: %s\n\n  Sandbox\n\n", m.packagePath))
 	if len(m.sandboxList) == 0 {
 		b.WriteString("  (sin sandboxes configuradas)\n")
@@ -227,7 +266,7 @@ func (m Model) viewSandboxSelect() string {
 
 func (m Model) viewTicket() string {
 	var b strings.Builder
-	b.WriteString(header("Promocionar Commits"))
+	b.WriteString(m.screenHeader("Promocionar Commits"))
 	b.WriteString("\n  Ticket o incidencia\n\n")
 	b.WriteString("  " + m.ticket + "_\n")
 	if m.ticketFromBranch && m.ticket != "" {
@@ -250,7 +289,7 @@ func (m Model) viewTicket() string {
 // viewSourceConfirm renders the pending m.source.Name confirm prompt.
 func (m Model) viewSourceConfirm() string {
 	var b strings.Builder
-	b.WriteString(header("Confirmar Rama Origen"))
+	b.WriteString(m.screenHeader("Confirmar Rama Origen"))
 	b.WriteString(fmt.Sprintf("\n  ¿Usar la rama actual '%s' como origen? [s/N]\n", m.source.Name))
 	b.WriteString(footer("s confirmar   n/N/Enter declinar   Esc volver"))
 	return b.String()
@@ -258,10 +297,14 @@ func (m Model) viewSourceConfirm() string {
 
 func (m Model) viewSelection() string {
 	var b strings.Builder
-	b.WriteString(header("Commits Encontrados"))
+	b.WriteString(m.screenHeader("Commits Encontrados"))
 	b.WriteString(fmt.Sprintf("\n  Ticket: %s\n", m.ticket))
 	if m.source.Name != "" {
-		b.WriteString(fmt.Sprintf("  Rama sugerida: %s\n", m.source.Name))
+		// "Rama origen" is the unified glossary term for the discovered source
+		// branch (spec: "Source-Branch Terminology Is Consistent"), matching
+		// viewSourceConfirm's own "Confirmar Rama Origen" title/prompt — the
+		// reference phrasing (design D4).
+		b.WriteString(fmt.Sprintf("  Rama origen: %s\n", m.source.Name))
 	}
 	if m.prelim != "" {
 		b.WriteString(fmt.Sprintf("  Destino preliminar: %s\n", m.prelim))
@@ -280,8 +323,8 @@ func (m Model) viewSelection() string {
 		if i == m.cursor {
 			cursor = ">"
 		}
-		mark := selectionMark(it)
-		line := fmt.Sprintf("%s [%s] %s  %s  %s  %s", cursor, mark, it.ShortSHA, it.Date.Format("2006-01-02"), it.Author, it.Subject)
+		selMark := selectionMark(it)
+		line := fmt.Sprintf("%s %s %s  %s  %s  %s", cursor, mark(selMark), it.ShortSHA, it.Date.Format("2006-01-02"), it.Author, it.Subject)
 		if it.Disabled {
 			line += "  [" + it.Reason + "]"
 		}
@@ -300,7 +343,14 @@ func (m Model) viewSelection() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Space marcar   Enter continuar   Esc volver"))
+	if len(m.items) == 0 {
+		// Empty state (spec: "Actionable Empty States"): no rows to mark, so
+		// the footer must not advertise "Space marcar" — mirrors
+		// viewRunHistory's empty/populated footer-switch precedent.
+		b.WriteString(footer("Esc volver"))
+	} else {
+		b.WriteString(footer("Space marcar   Enter continuar   Esc volver"))
+	}
 	return b.String()
 }
 
@@ -345,7 +395,7 @@ func (m Model) selectionWarnings() []string {
 	}
 	for _, it := range m.items {
 		if it.MultiTicketNotice {
-			out = append(out, fmt.Sprintf("%s menciona tambien %s", it.ShortSHA, strings.Join(it.OtherTickets, ", ")))
+			out = append(out, fmt.Sprintf("%s menciona también %s", it.ShortSHA, strings.Join(it.OtherTickets, ", ")))
 		}
 	}
 	return out
@@ -353,7 +403,7 @@ func (m Model) selectionWarnings() []string {
 
 func (m Model) viewTarget() string {
 	var b strings.Builder
-	b.WriteString(header("Seleccionar Destino"))
+	b.WriteString(m.screenHeader("Seleccionar Destino"))
 	b.WriteString(fmt.Sprintf("\n  Ticket: %s\n  Commits seleccionados: %d\n\n  Rama destino\n", m.plan.Ticket, len(m.plan.SelectedCommits)))
 	for i, d := range m.destinations {
 		cursor := " "
@@ -378,13 +428,13 @@ func (m Model) viewTarget() string {
 
 func (m Model) viewPlanPreview() string {
 	var b strings.Builder
-	b.WriteString(header("Preview Del Plan"))
+	b.WriteString(m.screenHeader("Preview Del Plan"))
 	b.WriteString(fmt.Sprintf("\n  Ticket:          %s\n", m.plan.Ticket))
 	b.WriteString(fmt.Sprintf("  Target branch:   %s\n", m.plan.TargetBranch))
 	b.WriteString(fmt.Sprintf("  Target org:      %s\n", m.plan.SandboxAlias))
 	b.WriteString(fmt.Sprintf("  Deploy branch:   %s\n", m.branchName))
 	if m.sandboxWarn {
-		b.WriteString(fmt.Sprintf("\n  Warning: la sandbox %s no esta autenticada.\n", m.plan.SandboxAlias))
+		b.WriteString(fmt.Sprintf("\n  Warning: la sandbox %s no está autenticada.\n", m.plan.SandboxAlias))
 	}
 	b.WriteString("\n  Commits a aplicar:\n")
 	for i, c := range m.plan.SelectedCommits {
@@ -402,18 +452,19 @@ func (m Model) viewPlanPreview() string {
 
 func (m Model) viewCherryPicking() string {
 	var b strings.Builder
-	b.WriteString(header("Aplicando Cherry-Picks"))
+	b.WriteString(m.screenHeader("Aplicando Cherry-Picks"))
 	b.WriteString(fmt.Sprintf("\n  Rama: %s\n  Base: origin/%s\n\n", m.branchName, m.plan.TargetBranch))
 	for _, c := range m.plan.SelectedCommits {
 		b.WriteString(fmt.Sprintf("  [..] %s %s\n", c.ShortSHA, c.Subject))
 	}
+	b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
 	b.WriteString(footer("q salir cuando termine"))
 	return b.String()
 }
 
 func (m Model) viewConflict() string {
 	var b strings.Builder
-	b.WriteString(header("Conflicto De Cherry-Pick"))
+	b.WriteString(m.screenHeader("Conflicto De Cherry-Pick"))
 	b.WriteString("\n")
 	// Ticket + "pick N of M" render identically for a fresh sequence and a
 	// resumed one (cherry-pick spec: rehydrated conflict context, HU-013 AC
@@ -430,7 +481,7 @@ func (m Model) viewConflict() string {
 	}
 	b.WriteString("\n  Archivos en conflicto (se actualiza solo al detectar cambios en el repo):\n\n")
 	for _, f := range m.repoState.Unmerged {
-		b.WriteString(fmt.Sprintf("  [%s] %s\n", conflictMark(f.Kind), f.Path))
+		b.WriteString(fmt.Sprintf("  %s %s\n", mark(conflictMark(f.Kind)), f.Path))
 	}
 	if m.continueEnabled {
 		b.WriteString("\n  Continuar: habilitado\n")
@@ -461,22 +512,23 @@ func conflictMark(k git.ConflictKind) string {
 
 func (m Model) viewDeltaGeneration() string {
 	var b strings.Builder
-	b.WriteString(header("Generando Delta"))
+	b.WriteString(m.screenHeader("Generando Delta"))
 	if m.deltaErr != nil {
-		b.WriteString("\n  [XX] sfdx-git-delta fallo. No se ejecuta validacion.\n\n")
+		b.WriteString("\n  " + mark("XX") + " sfdx-git-delta falló. No se ejecuta validación.\n\n")
 		b.WriteString("  Salida:\n")
 		b.WriteString("  " + m.deltaErr.Error() + "\n")
-		b.WriteString(footer("r reintentar   e editar seleccion   q salir"))
+		b.WriteString(footer("r reintentar   e editar selección   q salir"))
 		return b.String()
 	}
 	b.WriteString(fmt.Sprintf("\n  Comparando origin/%s..HEAD\n  Generando package.xml...\n", m.plan.TargetBranch))
+	b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
 	b.WriteString(footer("q salir"))
 	return b.String()
 }
 
 func (m Model) viewPackageReview() string {
 	var b strings.Builder
-	b.WriteString(header("Resumen De Package"))
+	b.WriteString(m.screenHeader("Resumen De Package"))
 	b.WriteString("\n  Cambios aditivos (package.xml):\n")
 	if len(m.summary.Types) == 0 {
 		b.WriteString("  (sin tipos)\n")
@@ -486,14 +538,14 @@ func (m Model) viewPackageReview() string {
 	}
 
 	if m.summary.HasDestructive {
-		b.WriteString("\n  [!!] Destructive changes (destructiveChanges.xml):\n")
+		b.WriteString("\n  " + mark("!!") + " Destructive changes (destructiveChanges.xml):\n")
 		for _, t := range m.summary.DestructiveTypes {
 			b.WriteString(fmt.Sprintf("  - %-16s %d\n", t.Name, t.Count))
 		}
 	}
 
 	if len(m.summary.SensitiveTypes) > 0 {
-		b.WriteString("\n  [!!] Metadata sensible: " + strings.Join(m.summary.SensitiveTypes, ", ") + "\n")
+		b.WriteString("\n  " + mark("!!") + " Metadata sensible: " + strings.Join(m.summary.SensitiveTypes, ", ") + "\n")
 	}
 
 	if len(m.summary.OutsideSourceDirs) > 0 {
@@ -505,9 +557,9 @@ func (m Model) viewPackageReview() string {
 
 	if m.summary.Empty {
 		if m.emptyConfirmed {
-			b.WriteString("\n  [!!] Package vacio: override confirmado.\n")
+			b.WriteString("\n  " + mark("!!") + " Package vacío: override confirmado.\n")
 		} else {
-			b.WriteString("\n  [!!] Package vacio. Validacion bloqueada hasta confirmar override.\n")
+			b.WriteString("\n  " + mark("!!") + " Package vacío. Validación bloqueada hasta confirmar override.\n")
 		}
 	}
 
@@ -521,9 +573,9 @@ func (m Model) viewPackageReview() string {
 		// never advertises "Enter validar" or "e editar seleccion".
 		b.WriteString(footer("q salir"))
 	case m.summary.Empty:
-		b.WriteString(footer("o override   Enter validar   e editar seleccion   q salir"))
+		b.WriteString(footer("o override   Enter validar   e editar selección   q salir"))
 	default:
-		b.WriteString(footer("Enter validar   e editar seleccion   q salir"))
+		b.WriteString(footer("Enter validar   e editar selección   q salir"))
 	}
 	return b.String()
 }
@@ -535,18 +587,23 @@ func (m Model) viewPackageReview() string {
 // CreatedDate-ordered list.
 func (m Model) viewQueueReview() string {
 	var b strings.Builder
-	b.WriteString(header("Cola De Deploys: " + m.plan.SandboxAlias))
+	b.WriteString(m.screenHeader("Cola De Deploys: " + m.plan.SandboxAlias))
 
 	if m.queueErr != nil {
-		b.WriteString("\n  [XX] No se pudo consultar la cola de despliegues (el flujo sigue vivo):\n\n")
+		b.WriteString("\n  " + mark("XX") + " No se pudo consultar la cola de despliegues (el flujo sigue vivo):\n\n")
 		b.WriteString("  " + m.queueErr.Error() + "\n")
-		b.WriteString(footer("r reintentar   Enter continuar validacion   Esc volver"))
+		b.WriteString(footer("r reintentar   Enter continuar validación   Esc volver"))
 		return b.String()
 	}
 
 	b.WriteString("\n  Jobs activos\n\n")
 	if len(m.queue) == 0 {
 		b.WriteString("  (sin jobs en cola)\n")
+	} else {
+		// Column header row (spec: "Labeled Table Column Headers"), aligned to
+		// the SAME width specifiers as the data row directly below.
+		b.WriteString(fmt.Sprintf("  %-3s %-10s %-12s %-8s %-16s %4s  %-11s %s\n",
+			"#", "Job Id", "Estado", "Tipo", "Creado por", "Tiempo", "Componentes", "Tests"))
 	}
 	ownPosition := 0
 	for i, e := range m.queue {
@@ -565,13 +622,13 @@ func (m Model) viewQueueReview() string {
 			e.Tests.Completed, e.Tests.Total, mark))
 	}
 	if ownPosition > 0 {
-		b.WriteString(fmt.Sprintf("\n  Posicion aproximada de tu job: %d\n", ownPosition))
+		b.WriteString(fmt.Sprintf("\n  Posición aproximada de tu job: %d\n", ownPosition))
 	}
 
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("r refrescar   Enter continuar validacion   Esc volver"))
+	b.WriteString(footer("r refrescar   Enter continuar validación   Esc volver"))
 	return b.String()
 }
 
@@ -596,21 +653,22 @@ func (m Model) queueElapsed(e salesforce.DeployQueueEntry) string {
 
 func (m Model) viewValidationStart() string {
 	var b strings.Builder
-	b.WriteString(header("Lanzando Validacion"))
+	b.WriteString(m.screenHeader("Lanzando Validación"))
 	if m.validateErr != nil {
-		b.WriteString("\n  [XX] Salesforce CLI devolvio error (el flujo sigue vivo):\n\n")
+		b.WriteString("\n  " + mark("XX") + " Salesforce CLI devolvió error (el flujo sigue vivo):\n\n")
 		b.WriteString("  " + m.validateErr.Error() + "\n")
 		b.WriteString(footer("r reintentar   q salir"))
 		return b.String()
 	}
 	b.WriteString(fmt.Sprintf("\n  Target org: %s\n  Test level: %s\n  Validando (async)...\n", m.plan.SandboxAlias, m.plan.TestLevel))
+	b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
 	b.WriteString(footer("q salir"))
 	return b.String()
 }
 
 func (m Model) viewValidationPolling() string {
 	var b strings.Builder
-	b.WriteString(header("Validacion En Vivo"))
+	b.WriteString(m.screenHeader("Validación En Vivo"))
 	b.WriteString(m.validationBody())
 	if m.reportErr != nil {
 		b.WriteString("\n  (error transitorio, reintentando: " + m.reportErr.Error() + ")\n")
@@ -627,16 +685,16 @@ func (m Model) viewValidationPolling() string {
 // the run stays unmarked) so the user can retry or back out.
 func (m Model) viewCancelConfirm() string {
 	var b strings.Builder
-	b.WriteString(header("Cancelar Validacion"))
+	b.WriteString(m.screenHeader("Cancelar Validación"))
 	b.WriteString("\n  Vas a cancelar tu job:\n\n")
 	b.WriteString(fmt.Sprintf("  Job Id: %s\n", m.jobID))
 	b.WriteString(fmt.Sprintf("  Org:    %s\n", m.plan.SandboxAlias))
 	b.WriteString(fmt.Sprintf("  Estado: %s\n", m.report.Status))
-	b.WriteString("\n  Esta accion no afecta jobs de otros usuarios.\n")
+	b.WriteString("\n  Esta acción no afecta jobs de otros usuarios.\n")
 	b.WriteString("\n  Escribe CANCELAR para confirmar:\n")
 	b.WriteString("  " + m.cancelInput + "_\n")
 	if m.cancelErr != nil {
-		b.WriteString("\n  [XX] La cancelacion fallo (el run NO se marca como cancelado):\n")
+		b.WriteString("\n  " + mark("XX") + " La cancelación falló (el run NO se marca como cancelado):\n")
 		b.WriteString("  " + m.cancelErr.Error() + "\n")
 	}
 	if m.notice != "" {
@@ -658,7 +716,7 @@ func (m Model) viewCancelConfirm() string {
 // unmarked, mirroring viewCancelConfirm's cancelErr display).
 func (m Model) viewQuickDeploy() string {
 	var b strings.Builder
-	b.WriteString(header("Quick Deploy"))
+	b.WriteString(m.screenHeader("Quick Deploy"))
 
 	if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
 		b.WriteString("\n  (sin run seleccionado)\n")
@@ -675,14 +733,14 @@ func (m Model) viewQuickDeploy() string {
 	b.WriteString(fmt.Sprintf("  sf project deploy quick --job-id %s --target-org %s\n", rec.JobID, rec.Alias))
 
 	if !allowed {
-		b.WriteString("\n  [i] Modo solo sugerido: la ejecucion esta deshabilitada (allowExecution/allowProduction). El comando anterior NO se ejecuta.\n")
+		b.WriteString("\n  " + mark("i") + " Modo solo sugerido: la ejecución está deshabilitada (allowExecution/allowProduction). El comando anterior NO se ejecuta.\n")
 	} else {
-		b.WriteString(fmt.Sprintf("\n  Escribe %s para confirmar la ejecucion:\n", quickDeployConfirmWord))
+		b.WriteString(fmt.Sprintf("\n  Escribe %s para confirmar la ejecución:\n", quickDeployConfirmWord))
 		b.WriteString("  " + m.quickConfirm + "_\n")
 	}
 
 	if m.quickErr != nil {
-		b.WriteString("\n  [XX] El quick deploy fallo (el run NO se marca como desplegado):\n")
+		b.WriteString("\n  " + mark("XX") + " El quick deploy falló (el run NO se marca como desplegado):\n")
 		b.WriteString("  " + m.quickErr.Error() + "\n")
 	}
 	if m.notice != "" {
@@ -694,10 +752,10 @@ func (m Model) viewQuickDeploy() string {
 
 func (m Model) viewValidationResult() string {
 	var b strings.Builder
-	b.WriteString(header("Resultado De Validacion"))
+	b.WriteString(m.screenHeader("Resultado De Validación"))
 	b.WriteString(m.validationBody())
 	if m.timedOut {
-		b.WriteString("\n  [XX] Timeout: la validacion no alcanzo un estado terminal a tiempo (timed out).\n")
+		b.WriteString("\n  " + mark("XX") + " Timeout: la validación no alcanzó un estado terminal a tiempo (timed out).\n")
 	}
 	// Only a successful validation with a real promotion branch offers push
 	// (HU-014 AC1/AC2): Failed and Canceled stay quit-only, and a standalone
@@ -718,8 +776,8 @@ func (m Model) viewValidationResult() string {
 // always shown before they run.
 func (m Model) viewPushPreparation() string {
 	var b strings.Builder
-	b.WriteString(header("Push Y PR"))
-	b.WriteString("\n  Validacion exitosa\n\n")
+	b.WriteString(m.screenHeader("Push Y PR"))
+	b.WriteString("\n  Validación exitosa\n\n")
 	b.WriteString(fmt.Sprintf("  Branch local:  %s\n", m.plan.PromotionBranch))
 	b.WriteString(fmt.Sprintf("  Target branch: %s\n", m.plan.TargetBranch))
 	if m.jobID != "" {
@@ -731,7 +789,7 @@ func (m Model) viewPushPreparation() string {
 	switch m.pushPhase {
 	case pushConfirm:
 		if m.pushErr != nil {
-			b.WriteString("\n  [XX] El push fallo (el flujo sigue vivo):\n")
+			b.WriteString("\n  " + mark("XX") + " El push falló (el flujo sigue vivo):\n")
 			b.WriteString("  " + m.pushErr.Error() + "\n")
 		}
 		b.WriteString(footer("p ejecutar push   q salir"))
@@ -773,7 +831,7 @@ func (m Model) viewPRData() string {
 		b.WriteString("  " + ghCmd + "\n")
 		switch {
 		case m.prURL != "":
-			b.WriteString("\n  [OK] PR creado:\n")
+			b.WriteString("\n  " + mark("OK") + " PR creado:\n")
 			b.WriteString("  " + m.prURL + "\n")
 			b.WriteString(footer("q salir"))
 		case m.pushPhase == pushPRConfirm && m.aiPending:
@@ -785,17 +843,17 @@ func (m Model) viewPRData() string {
 			// A suggestion is ready but unaccepted: the AI title/description
 			// are already shown by viewAIBlock above — ask explicitly instead
 			// of defaulting to the formula title (never-silently-skip fix).
-			b.WriteString("\n  Crear la PR con la sugerencia IA?\n")
-			b.WriteString(footer("y con IA   d titulo default   n cancelar   q salir"))
+			b.WriteString("\n  ¿Crear la PR con la sugerencia IA?\n")
+			b.WriteString(footer("y con IA   d título default   n cancelar   q salir"))
 		case m.pushPhase == pushPRConfirm:
-			b.WriteString("\n  Confirmar creacion del PR con gh?\n")
+			b.WriteString("\n  ¿Confirmar creación del PR con gh?\n")
 			b.WriteString(footer("y confirmar crear PR   n cancelar   q salir"))
 		case m.pushPhase == pushPRCreating:
 			b.WriteString("\n  Creando PR...\n")
 			b.WriteString(footer("q salir"))
 		default: // pushReady
 			if m.prErr != nil {
-				b.WriteString("\n  [XX] La creacion del PR fallo (crea el PR manualmente con los datos de arriba):\n")
+				b.WriteString("\n  " + mark("XX") + " La creación del PR falló (crea el PR manualmente con los datos de arriba):\n")
 				b.WriteString("  " + m.prErr.Error() + "\n")
 			}
 			b.WriteString(footer("g crear PR con gh   q salir"))
@@ -842,7 +900,7 @@ func (m Model) viewAIBlock() string {
 	b.WriteString("\n  Sugerencia IA:\n")
 	switch {
 	case m.aiAccepted:
-		b.WriteString("  [OK] sugerencia aceptada (title de arriba)\n")
+		b.WriteString("  " + mark("OK") + " sugerencia aceptada (title de arriba)\n")
 	case m.aiPending:
 		b.WriteString("  Generando sugerencia...\n")
 	case m.aiTitle != "":
@@ -850,9 +908,9 @@ func (m Model) viewAIBlock() string {
 		if m.aiDescription != "" {
 			b.WriteString("  " + m.aiDescription + "\n")
 		}
-		b.WriteString("  a aceptar esta sugerencia (el title de arriba no cambia hasta aceptar)\n")
+		b.WriteString("  a aceptar esta sugerencia (el título de arriba no cambia hasta aceptar)\n")
 	default:
-		b.WriteString("  a solicitar una sugerencia de titulo/descripcion\n")
+		b.WriteString("  a solicitar una sugerencia de título/descripción\n")
 	}
 	return b.String()
 }
@@ -885,7 +943,7 @@ func (m Model) validationBody() string {
 	// a Failed status caused by insufficient test coverage (bug fix). An
 	// empty Name means the warning is org-wide, not tied to one class.
 	if len(r.CodeCoverageWarnings) > 0 {
-		b.WriteString("\n  Cobertura de codigo:\n")
+		b.WriteString("\n  Cobertura de código:\n")
 		for _, w := range r.CodeCoverageWarnings {
 			label := w.Name
 			if label == "" {
@@ -899,9 +957,9 @@ func (m Model) validationBody() string {
 	// condition.
 	if r.ErrorMessage != "" {
 		if r.ErrorStatusCode != "" {
-			b.WriteString(fmt.Sprintf("\n  [XX] Error (%s): %s\n", r.ErrorStatusCode, r.ErrorMessage))
+			b.WriteString(fmt.Sprintf("\n  %s Error (%s): %s\n", mark("XX"), r.ErrorStatusCode, r.ErrorMessage))
 		} else {
-			b.WriteString(fmt.Sprintf("\n  [XX] Error: %s\n", r.ErrorMessage))
+			b.WriteString(fmt.Sprintf("\n  %s Error: %s\n", mark("XX"), r.ErrorMessage))
 		}
 	}
 	if r.Status == "Canceled" && r.CanceledByName != "" {
@@ -913,7 +971,7 @@ func (m Model) validationBody() string {
 	if r.Status == "Failed" &&
 		len(r.ComponentFailures) == 0 && len(r.TestFailures) == 0 &&
 		len(r.CodeCoverageWarnings) == 0 && r.ErrorMessage == "" {
-		b.WriteString("\n  [XX] La validacion fallo sin detalle estructurado; revisa el JSON crudo.\n")
+		b.WriteString("\n  " + mark("XX") + " La validación falló sin detalle estructurado; revisa el JSON crudo.\n")
 	}
 	return b.String()
 }
@@ -926,7 +984,7 @@ func (m Model) validationBody() string {
 // block (status/jobId/phase/pick).
 func (m Model) viewRunHistory() string {
 	var b strings.Builder
-	b.WriteString(header("Historial"))
+	b.WriteString(m.screenHeader("Historial"))
 	b.WriteString("\n\n")
 
 	if len(m.runs) == 0 {
@@ -934,6 +992,10 @@ func (m Model) viewRunHistory() string {
 		b.WriteString(footer("q salir"))
 		return b.String()
 	}
+
+	// Column header row (spec: "Labeled Table Column Headers"), aligned to
+	// the SAME width specifiers as the data row directly below.
+	b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-6s %-12s %s\n", " ", "Fecha", "Ticket", "Destino", "Estado", "Job Id"))
 
 	for i, rec := range m.runs {
 		cursor := " "
@@ -1032,7 +1094,7 @@ func runPackagePath(cfg config.Config, rec runs.Record) string {
 // typed-buffer echo) or the loading/empty/error state.
 func (m Model) viewBranchCleanup() string {
 	var b strings.Builder
-	b.WriteString(header("Limpieza De Ramas"))
+	b.WriteString(m.screenHeader("Limpieza De Ramas"))
 
 	if m.cleanupPhase == cleanupLoading {
 		b.WriteString("\n  Cargando ramas deploy/*...\n")
@@ -1048,11 +1110,14 @@ func (m Model) viewBranchCleanup() string {
 		if m.cleanupNotice == "" {
 			b.WriteString("\n  (sin ramas huerfanas)\n")
 		}
-		b.WriteString(footer("p retencion de runs   q salir"))
+		b.WriteString(footer("p retención de runs   q salir"))
 		return b.String()
 	}
 
 	b.WriteString("\n")
+	// Column header row (spec: "Labeled Table Column Headers"), aligned to
+	// the SAME width specifiers as the data row directly below.
+	b.WriteString(fmt.Sprintf("  %s %-30s %-6s %-7s %s\n", " ", "Rama", "Antigüedad", "Estado", "Merge"))
 	for i, row := range m.cleanupBranches {
 		cursor := " "
 		if i == m.cleanupCursor {
@@ -1073,18 +1138,18 @@ func (m Model) viewBranchCleanup() string {
 		b.WriteString(fmt.Sprintf("\n  Comprobando commits sin pushear en %s...\n", m.cleanupDeleteTarget))
 		b.WriteString(footer("Esc cancelar"))
 	case cleanupConfirm:
-		b.WriteString(fmt.Sprintf("\n  Borrar la rama %s?\n", m.cleanupDeleteTarget))
-		b.WriteString(footer("y confirmar   n cancelar"))
+		b.WriteString(fmt.Sprintf("\n  ¿Borrar la rama %s?\n", m.cleanupDeleteTarget))
+		b.WriteString(footer("y confirmar   n/Esc cancelar"))
 	case cleanupStrongConfirm:
 		b.WriteString("\n  Esta rama tiene commits sin pushear. Escribe BORRAR para confirmar:\n")
 		b.WriteString("  " + m.deleteConfirm + "_\n")
 		b.WriteString(footer("Enter confirmar   Esc cancelar"))
 	case cleanupPruneConfirm:
-		b.WriteString(fmt.Sprintf("\n  Aplicar retencion de runs (keepLast=%d, keepDays=%d)?\n",
+		b.WriteString(fmt.Sprintf("\n  ¿Aplicar retención de runs (keepLast=%d, keepDays=%d)?\n",
 			m.deps.Config.Runs.KeepLast, m.deps.Config.Runs.KeepDays))
-		b.WriteString(footer("y confirmar   n cancelar"))
+		b.WriteString(footer("y confirmar   n/Esc cancelar"))
 	default:
-		b.WriteString(footer("d borrar   p retencion de runs   ↑/↓ navegar   q salir"))
+		b.WriteString(footer("d borrar   p retención de runs   ↑/↓ navegar   q salir"))
 	}
 	return b.String()
 }
@@ -1105,16 +1170,16 @@ func branchAge(now, last time.Time) string {
 
 func (m Model) viewVerification() string {
 	var b strings.Builder
-	b.WriteString(header("Verificacion De Promocion"))
+	b.WriteString(m.screenHeader("Verificación De Promoción"))
 	b.WriteString(fmt.Sprintf("\n  Comparando estado final contra origin/%s\n\n", m.plan.TargetBranch))
 	if m.verification.OK() {
-		b.WriteString("  [OK] Todos los ficheros coinciden con la seleccion.\n")
+		b.WriteString("  " + mark("OK") + " Todos los ficheros coinciden con la selección.\n")
 	} else {
 		for _, w := range m.verification.Warnings() {
-			b.WriteString("  [!!] " + w + "\n")
+			b.WriteString("  " + mark("!!") + " " + w + "\n")
 		}
 		b.WriteString("\n  El estado resultante de los ficheros marcados no existe en ninguna\n  rama y no ha sido probado. Revisa antes de generar el delta.\n")
 	}
-	b.WriteString(footer("Enter continuar igualmente   e editar seleccion   Esc volver"))
+	b.WriteString(footer("Enter continuar igualmente   e editar selección   Esc volver"))
 	return b.String()
 }

@@ -616,7 +616,8 @@ func (m Model) confirmDeltaSourceSelect() (tea.Model, tea.Cmd) {
 	m.notice = ""
 	m.deltaErr = nil
 	m.state = StateDeltaGeneration
-	return m, m.deltaCmd()
+	m, spin := m.startSpinner()
+	return m, tea.Batch(m.deltaCmd(), spin)
 }
 
 // keyPackageSelect handles HU-018's standalone-validation package-path input
@@ -790,7 +791,8 @@ func (m Model) confirmSandboxSelect() (tea.Model, tea.Cmd) {
 	}
 
 	m.state = StateValidationStart
-	return m, m.validateCmd()
+	m, spin := m.startSpinner()
+	return m, tea.Batch(m.validateCmd(), spin)
 }
 
 func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -856,7 +858,20 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rePromoteMissing = nil
 		m.prelim = preliminaryTarget(m.deps.Config)
 		m.state = StateCommitDiscovery
-		return m, m.discoverCmd()
+		m, spin := m.startSpinner()
+		return m, tea.Batch(m.discoverCmd(), spin)
+	case "q":
+		// Guarded-q (design D3, mirrors keyPackageSelect:638): a non-empty
+		// buffer keeps "q" typeable (a ticket like "Q-123" must never be
+		// swallowed as a shortcut); an EMPTY buffer backs out exactly like
+		// "esc" instead of silently appending "q" into nothing (bug fix).
+		if m.ticket != "" {
+			m.ticket += "q"
+			m.ticketFromBranch = false
+			return m, nil
+		}
+		m.state = StatePrereqCheck
+		return m, nil
 	case "esc":
 		m.state = StatePrereqCheck
 		return m, nil
@@ -991,7 +1006,8 @@ func (m Model) keyPlanPreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
 		m.state = StateBranchCreation
-		return m, m.branchCreateCmd()
+		m, spin := m.startSpinner()
+		return m, tea.Batch(m.branchCreateCmd(), spin)
 	case "esc":
 		m.state = StateTargetSelection
 		return m, nil
@@ -1045,7 +1061,8 @@ func (m Model) keyVerification(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.deltaErr = nil
 		m.state = StateDeltaGeneration
-		return m, m.deltaCmd()
+		m, spin := m.startSpinner()
+		return m, tea.Batch(m.deltaCmd(), spin)
 	case "q":
 		return m, m.quitCmd()
 	case "e":
@@ -1140,7 +1157,8 @@ func (m Model) keyQueueReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.validateErr = nil
 		m.state = StateValidationStart
-		return m, m.validateCmd()
+		m, spin := m.startSpinner()
+		return m, tea.Batch(m.validateCmd(), spin)
 	case "r":
 		m.queueErr = nil
 		return m, m.queueCmd()
@@ -1315,11 +1333,24 @@ func (m Model) keyCancelConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
 		if m.cancelInput != cancelConfirmWord {
-			m.notice = "escribe CANCELAR exactamente para confirmar la cancelacion"
+			m.notice = "escribe CANCELAR exactamente para confirmar la cancelación"
 			return m, nil
 		}
 		m.notice = ""
 		return m, m.cancelCmd()
+	case "q":
+		// Guarded-q (design D3): a non-empty buffer keeps "q" typeable (the
+		// CANCELAR literal contains no "q", but the guard is uniform across
+		// every free-text screen); an EMPTY buffer mirrors "esc" exactly
+		// instead of silently appending "q" into nothing (bug fix).
+		if m.cancelInput != "" {
+			m.cancelInput += "q"
+			return m, nil
+		}
+		m.cancelInput = ""
+		m.notice = ""
+		m.state = StateValidationPolling
+		return m, pollTickCmd(m.pollIntervalSeconds())
 	case "esc":
 		m.cancelInput = ""
 		m.notice = ""
@@ -1388,7 +1419,7 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		isProd := git.IsProductionTarget(m.deps.Config, rec.Target)
 		if !quickDeployExecAllowed(m.deps.Config, isProd) {
-			m.notice = "quick deploy no autorizado: revisa la configuracion allowExecution/allowProduction"
+			m.notice = "quick deploy no autorizado: revisa la configuración allowExecution/allowProduction"
 			return m, nil
 		}
 		if m.quickConfirm != quickDeployConfirmWord {
@@ -1405,7 +1436,23 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quickConfirm = ""
 		m.quickDeployingRunID = rec.RunID
 		return m, m.quickDeployCmd()
-	case "q", "esc":
+	case "q":
+		// Guarded-q (design D3): a non-empty buffer keeps "q" typeable — the
+		// DESPLEGAR literal contains no "q", but a stray "q" mid-typing must
+		// never silently discard the whole confirmation (bug fix: this case
+		// was previously folded into the unconditional "q", "esc" branch
+		// below, which backed out even mid-DESPLEGAR). An EMPTY buffer still
+		// backs out to StateRunHistory exactly like "esc".
+		if m.quickConfirm != "" {
+			m.quickConfirm += "q"
+			return m, nil
+		}
+		m.quickConfirm = ""
+		m.quickErr = nil
+		m.notice = ""
+		m.state = StateRunHistory
+		return m, nil
+	case "esc":
 		m.quickConfirm = ""
 		m.quickErr = nil
 		m.notice = ""

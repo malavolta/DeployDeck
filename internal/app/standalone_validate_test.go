@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/malavolta/DeployDeck/internal/config"
 	execpkg "github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
@@ -271,11 +273,22 @@ func TestModel_SandboxSelect_Confirm_ResetsStalePlanBeforeValidate(t *testing.T)
 	}
 
 	// The actual sf validate invocation must carry NO post-destructive arg and
-	// no stale path.
+	// no stale path. confirmSandboxSelect now batches validateCmd with the
+	// progress spinnerCmd (task 5.8, design D5), so the returned command is a
+	// tea.BatchMsg — unwrap it and run every sub-command (mirrors
+	// original_branch_test.go's established unwrap pattern) so validateCmd's
+	// side effect (the sf runner invocation) actually fires.
 	if cmd == nil {
 		t.Fatal("confirming the sandbox should fire validateCmd")
 	}
-	run(t, cmd)
+	msg := run(t, cmd)
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected tea.BatchMsg (validateCmd + spinnerCmd), got %T", msg)
+	}
+	for _, c := range batch {
+		c()
+	}
 	if len(fr.Calls) == 0 {
 		t.Fatal("expected validateCmd to invoke the sf runner")
 	}

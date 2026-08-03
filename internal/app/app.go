@@ -551,6 +551,24 @@ type Model struct {
 	packagePath    string
 	sandboxList    []string
 	sandboxCursor  int
+
+	// spinnerFrame (design D5) drives the animated progress spinner shown
+	// during CommitDiscovery/BranchCreation/CherryPicking/DeltaGeneration/
+	// ValidationStart — the 5 long-running states with no other live
+	// feedback. Bumped by onSpinnerTick while m.state is one of those 5;
+	// rendered by spinnerView (view.go), appended strictly AFTER each
+	// screen's existing static text.
+	spinnerFrame int
+	// spinning is the single-flight guard for the spinnerCmd tick loop
+	// (reliability fix): true while a tea.Tick spinner loop is already
+	// scheduled. Every entry point into a spinner state routes its
+	// spinnerCmd() through startSpinner, which seeds a new tick loop only
+	// when spinning is false — so a spinner-state -> spinner-state
+	// transition (e.g. StateBranchCreation -> StateCherryPicking) never
+	// seeds a SECOND concurrent tick loop on top of the one already
+	// running. onSpinnerTick resets it to false the instant the flow
+	// leaves the spinner-state set, letting the next entry reseed.
+	spinning bool
 }
 
 // menuEntry is one row of HU-018's StateMainMenu (design ADR-1): its display
@@ -560,6 +578,7 @@ type Model struct {
 // future not-yet-built mode declared here is never shown until it flips true.
 type menuEntry struct {
 	label       string
+	description string
 	target      State
 	implemented bool
 }
@@ -569,9 +588,24 @@ type menuEntry struct {
 // implemented in this change; the mechanism still hides any future entry
 // added with implemented:false.
 var menuEntries = []menuEntry{
-	{label: "Promocionar ticket", target: StateTicketInput, implemented: true},
-	{label: "Generar delta package", target: StateDeltaSourceSelect, implemented: true},
-	{label: "Validar package contra sandbox", target: StatePackageSelect, implemented: true},
+	{
+		label:       "Promocionar ticket",
+		description: "Busca commits por ticket y los promociona a una rama destino",
+		target:      StateTicketInput,
+		implemented: true,
+	},
+	{
+		label:       "Generar delta package",
+		description: "Genera un package.xml de delta contra una rama base, sin validar",
+		target:      StateDeltaSourceSelect,
+		implemented: true,
+	},
+	{
+		label:       "Validar package contra sandbox",
+		description: "Valida un package.xml existente contra una sandbox configurada",
+		target:      StatePackageSelect,
+		implemented: true,
+	},
 }
 
 // visibleMenuEntries returns only the implemented entries, preserving their

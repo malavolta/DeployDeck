@@ -136,6 +136,24 @@ func TestViewMainMenu_RendersEntriesAndCursor(t *testing.T) {
 	}
 }
 
+// TestViewMainMenu_EntriesShowDescriptions is task 3.7 (RED): each main-menu
+// entry SHALL show a one-line description alongside its label (spec: "Menu
+// Descriptions And Unified Terminology" — "Main menu entries show
+// descriptions").
+func TestViewMainMenu_EntriesShowDescriptions(t *testing.T) {
+	m := mainMenuModel(0)
+	v := m.viewMainMenu()
+
+	for i, e := range visibleMenuEntries(menuEntries) {
+		if e.description == "" {
+			t.Fatalf("menuEntries[%d] (%q) has no description populated", i, e.label)
+		}
+		if !strings.Contains(v, e.description) {
+			t.Errorf("main menu view missing description %q for entry %q:\n%s", e.description, e.label, v)
+		}
+	}
+}
+
 // TestOnResumeDetect_GuardUsesMainMenu is task 2.13's loud guard regression
 // (BLOCKER-2 batch A): after the HU-018 landing moved onPrereqDone to
 // StateMainMenu, the async resumeDetectMsg now lands while the model sits on

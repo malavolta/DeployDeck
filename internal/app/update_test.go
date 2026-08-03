@@ -5,8 +5,100 @@ import (
 	"errors"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/malavolta/DeployDeck/internal/git"
 )
+
+// TestOnSpinnerTick_BumpsFrameWhileInSpinnerState is task 5.2 (RED):
+// onSpinnerTick bumps m.spinnerFrame and reschedules (non-nil tea.Cmd) while
+// m.state is one of the 5 long-running states; outside those states it is a
+// strict no-op (nil cmd, frame unchanged) — mirrors onTick's own
+// state-scoped guard (update.go).
+func TestOnSpinnerTick_BumpsFrameWhileInSpinnerState(t *testing.T) {
+	t.Run("bumps frame and reschedules in a spinner state", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateDeltaGeneration
+		m.spinnerFrame = 0
+
+		next, cmd := m.onSpinnerTick()
+		nm := next.(Model)
+		if nm.spinnerFrame != 1 {
+			t.Fatalf("spinnerFrame = %d, want 1", nm.spinnerFrame)
+		}
+		if cmd == nil {
+			t.Fatal("onSpinnerTick should reschedule (non-nil cmd) while still in a spinner state")
+		}
+	})
+
+	t.Run("no-op outside a spinner state", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateMainMenu
+		m.spinnerFrame = 0
+
+		next, cmd := m.onSpinnerTick()
+		nm := next.(Model)
+		if nm.spinnerFrame != 0 {
+			t.Fatalf("spinnerFrame = %d, want unchanged 0 outside a spinner state", nm.spinnerFrame)
+		}
+		if cmd != nil {
+			t.Fatal("onSpinnerTick should return nil cmd outside a spinner state")
+		}
+	})
+
+	// Reliability fix: onSpinnerTick is the ONLY place the tick loop dies,
+	// so it must clear m.spinning the instant the flow leaves the
+	// spinner-state set — otherwise a stale spinning=true would wrongly
+	// block the NEXT spinner-state entry from ever seeding a fresh loop.
+	t.Run("leaving a spinner state clears the spinning single-flight guard", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateMainMenu
+		m.spinning = true
+
+		next, _ := m.onSpinnerTick()
+		nm := next.(Model)
+		if nm.spinning {
+			t.Fatal("onSpinnerTick outside a spinner state should reset m.spinning to false")
+		}
+	})
+}
+
+// TestOnBranchCreated_SpinnerSingleFlight_SkipsSecondSeed is the RED test for
+// the spinner double-tick-loop reliability fix: keyPlanPreview already seeds
+// a spinnerCmd loop entering StateBranchCreation, and onBranchCreated used to
+// seed ANOTHER one unconditionally entering StateCherryPicking — two
+// concurrent tea.Tick loops (~2x frame speed). With the single-flight guard,
+// onBranchCreated must NOT seed a second spinner while one is already
+// running (m.spinning == true): the returned command batches only
+// cherryPickCmd + tickCmd, not a third spinnerCmd.
+func TestOnBranchCreated_SpinnerSingleFlight_SkipsSecondSeed(t *testing.T) {
+	m := New(Deps{Dir: "/repo", Config: validationConfig()})
+	m.state = StateBranchCreation
+	m.branchName = "deploy/PROJ-1-to-UAT"
+	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT"}
+	m.spinning = true // a spinner loop is already ticking (seeded on BranchCreation entry)
+
+	next, cmd := m.onBranchCreated(branchCreatedMsg{})
+	nm := next.(Model)
+	if nm.State() != StateCherryPicking {
+		t.Fatalf("expected CherryPicking, got %v (err=%v)", nm.State(), nm.Err())
+	}
+	if !nm.spinning {
+		t.Fatal("spinning should stay true — the already-running loop keeps ticking")
+	}
+	if cmd == nil {
+		t.Fatal("onBranchCreated should still fire cherryPickCmd + tickCmd")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected tea.BatchMsg (cherryPickCmd + tickCmd), got %T", msg)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("tea.BatchMsg has %d cmds, want 2 (cherryPickCmd + tickCmd) — "+
+			"a second spinnerCmd must NOT be seeded while m.spinning is already true", len(batch))
+	}
+}
 
 // TestOnAISuggestDone_Success_SetsTitleAndDescription_NotAccepted is task
 // 4.6 (RED): a successful generation sets aiTitle/aiDescription and clears

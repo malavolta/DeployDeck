@@ -480,34 +480,34 @@ func TestKeyQuickDeploy_Enter_GatePermittedAndConfirmed_FiresQuickDeployAndMarks
 	}
 }
 
-// TestKeyQuickDeploy_QOrEsc_ReturnsToRunHistoryAndClearsBuffer proves q/esc
-// back out of StateQuickDeploy to StateRunHistory, clearing the typed
-// confirm buffer and any surfaced error, and firing no command.
-func TestKeyQuickDeploy_QOrEsc_ReturnsToRunHistoryAndClearsBuffer(t *testing.T) {
-	for _, key := range []string{"q", "esc"} {
-		t.Run(key, func(t *testing.T) {
-			m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfQUICK5")
-			m = typeString(m, "DESP")
-			m.quickErr = errStub
+// TestKeyQuickDeploy_Esc_ReturnsToRunHistoryAndClearsBuffer proves esc
+// UNCONDITIONALLY backs out of StateQuickDeploy to StateRunHistory,
+// clearing the typed confirm buffer and any surfaced error, and firing no
+// command — even with typed text in the buffer. "q" no longer shares this
+// unconditional behavior (task 2.7/2.8 bug fix, design D3 guarded-q): on a
+// NON-EMPTY buffer "q" now appends instead of backing out, covered by
+// TestKeyQuickDeploy_GuardedQ; only an EMPTY buffer's "q" still mirrors esc.
+func TestKeyQuickDeploy_Esc_ReturnsToRunHistoryAndClearsBuffer(t *testing.T) {
+	m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfQUICK5")
+	m = typeString(m, "DESP")
+	m.quickErr = errStub
 
-			next, cmd := m.Update(keyPress(key))
-			nm := next.(Model)
-			if nm.State() != StateRunHistory {
-				t.Fatalf("%q should return to StateRunHistory, got %v", key, nm.State())
-			}
-			if nm.quickConfirm != "" {
-				t.Errorf("%q should clear the typed confirm buffer, got %q", key, nm.quickConfirm)
-			}
-			if nm.quickErr != nil {
-				t.Errorf("%q should clear any surfaced quick-deploy error, got %v", key, nm.quickErr)
-			}
-			if cmd != nil {
-				t.Errorf("%q must not fire a command", key)
-			}
-			if len(fr.Calls) != 0 {
-				t.Errorf("%q must NOT invoke any quick deploy, got %v", key, fr.Calls)
-			}
-		})
+	next, cmd := m.Update(keyPress("esc"))
+	nm := next.(Model)
+	if nm.State() != StateRunHistory {
+		t.Fatalf("esc should return to StateRunHistory, got %v", nm.State())
+	}
+	if nm.quickConfirm != "" {
+		t.Errorf("esc should clear the typed confirm buffer, got %q", nm.quickConfirm)
+	}
+	if nm.quickErr != nil {
+		t.Errorf("esc should clear any surfaced quick-deploy error, got %v", nm.quickErr)
+	}
+	if cmd != nil {
+		t.Error("esc must not fire a command")
+	}
+	if len(fr.Calls) != 0 {
+		t.Errorf("esc must NOT invoke any quick deploy, got %v", fr.Calls)
 	}
 }
 

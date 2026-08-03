@@ -33,6 +33,11 @@ const queueCallTimeout = 30 * time.Second
 // AC4/AC6). The model is never the source of truth — the repo is.
 const pollInterval = 750 * time.Millisecond
 
+// spinnerInterval is the animated-progress-spinner frame cadence (design D5),
+// a much faster in-process timer than pollInterval/pollTickCmd — it drives
+// no service call, only a visual frame bump.
+const spinnerInterval = 120 * time.Millisecond
+
 // resumeDetectTimeout bounds the startup HU-013 resume-detection: RepoState
 // spawns git subprocesses, so an unbounded context.Background() could let a
 // slow/hung git stall detection indefinitely. A few seconds is ample for a
@@ -728,6 +733,35 @@ func (m Model) verifyCmd() tea.Cmd {
 // tickCmd schedules the next re-poll tick.
 func tickCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// spinnerTickMsg drives the progress-spinner frame cadence (design D5),
+// mirroring tickMsg's own tea.Tick idiom but at spinnerInterval instead of
+// pollInterval, and carrying no service-call payload.
+type spinnerTickMsg struct{}
+
+// spinnerCmd schedules the next spinner-frame tick (mirrors tickCmd).
+func spinnerCmd() tea.Cmd {
+	return tea.Tick(spinnerInterval, func(time.Time) tea.Msg { return spinnerTickMsg{} })
+}
+
+// startSpinner is the single-flight guard around spinnerCmd (reliability
+// fix): every entry point into one of the 5 spinner states (design D5) must
+// route its spinnerCmd() seed through here instead of calling it directly.
+// While m.spinning is already true — an earlier entry's tea.Tick loop is
+// still running, e.g. across the StateBranchCreation -> StateCherryPicking
+// transition — it returns a nil cmd so a SECOND concurrent tick loop is
+// never seeded (which used to double the animation's effective frame rate
+// and leave a redundant timer running). Otherwise it arms m.spinning and
+// returns the spinnerCmd seed. onSpinnerTick is the sole place that clears
+// m.spinning back to false, the instant the flow leaves the spinner-state
+// set, so the next fresh entry can reseed.
+func (m Model) startSpinner() (Model, tea.Cmd) {
+	if m.spinning {
+		return m, nil
+	}
+	m.spinning = true
+	return m, spinnerCmd()
 }
 
 // deltaCmd runs HU-007 delta generation through the delta service and builds

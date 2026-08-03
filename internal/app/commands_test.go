@@ -9,6 +9,20 @@ import (
 	"github.com/malavolta/DeployDeck/internal/git"
 )
 
+// TestSpinnerCmd_SchedulesTick is task 5.1 (RED): spinnerCmd() mirrors the
+// existing tickCmd/tickMsg idiom (commands.go tickCmd) — it returns a
+// non-nil tea.Cmd whose invocation yields a spinnerTickMsg.
+func TestSpinnerCmd_SchedulesTick(t *testing.T) {
+	cmd := spinnerCmd()
+	if cmd == nil {
+		t.Fatal("spinnerCmd() should return a non-nil tea.Cmd")
+	}
+	msg := cmd()
+	if _, ok := msg.(spinnerTickMsg); !ok {
+		t.Fatalf("spinnerCmd()() = %T, want spinnerTickMsg", msg)
+	}
+}
+
 // TestAISuggestCmd_NilDeps_ReturnsNil is task 4.4 (RED)'s nil-degrades
 // guard, mirroring checkUpdateCmd's TestCheckUpdateCmd_NilDeps_ReturnsNil:
 // with no Deps.GenerateSummary injected, aiSuggestCmd is a no-op.

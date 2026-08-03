@@ -339,7 +339,7 @@ func TestModel_StandaloneDelta_EmptyDelta_ReusesWarning(t *testing.T) {
 	m.standaloneMode = "delta"
 
 	v := m.View()
-	if !strings.Contains(v, "Package vacio") {
+	if !strings.Contains(v, "Package vacío") {
 		t.Errorf("standalone delta should reuse the existing empty-delta warning verbatim, got:\n%s", v)
 	}
 }

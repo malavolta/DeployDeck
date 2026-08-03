@@ -450,7 +450,7 @@ func TestModel_PushPreparation_PRConfirm_ViewMatchesAIState(t *testing.T) {
 		if !strings.Contains(v, "n volver") || !strings.Contains(v, "q salir") {
 			t.Errorf("pending pushPRConfirm footer should offer n/q only\n%s", v)
 		}
-		if strings.Contains(v, "Confirmar creacion del PR con gh?") {
+		if strings.Contains(v, "Confirmar creación del PR con gh?") {
 			t.Errorf("pending pushPRConfirm must not show the plain confirm prompt\n%s", v)
 		}
 	})
@@ -463,10 +463,10 @@ func TestModel_PushPreparation_PRConfirm_ViewMatchesAIState(t *testing.T) {
 		if !strings.Contains(v, "Crear la PR con la sugerencia IA?") {
 			t.Errorf("ready+unaccepted pushPRConfirm should ask the explicit AI question\n%s", v)
 		}
-		if !strings.Contains(v, "y con IA") || !strings.Contains(v, "d titulo default") {
+		if !strings.Contains(v, "y con IA") || !strings.Contains(v, "d título default") {
 			t.Errorf("ready+unaccepted pushPRConfirm footer should offer y/d\n%s", v)
 		}
-		if strings.Contains(v, "Confirmar creacion del PR con gh?") {
+		if strings.Contains(v, "Confirmar creación del PR con gh?") {
 			t.Errorf("ready+unaccepted pushPRConfirm must not show the plain confirm prompt\n%s", v)
 		}
 	})
@@ -474,7 +474,7 @@ func TestModel_PushPreparation_PRConfirm_ViewMatchesAIState(t *testing.T) {
 	t.Run("no suggestion renders the plain confirm", func(t *testing.T) {
 		m := base()
 		v := m.View()
-		if !strings.Contains(v, "Confirmar creacion del PR con gh?") {
+		if !strings.Contains(v, "Confirmar creación del PR con gh?") {
 			t.Errorf("no-AI pushPRConfirm should show the plain confirm prompt\n%s", v)
 		}
 		if strings.Contains(v, "Crear la PR con la sugerencia IA?") {
@@ -488,7 +488,7 @@ func TestModel_PushPreparation_PRConfirm_ViewMatchesAIState(t *testing.T) {
 		m.aiDescription = "AI drafted description"
 		m.aiAccepted = true
 		v := m.View()
-		if !strings.Contains(v, "Confirmar creacion del PR con gh?") {
+		if !strings.Contains(v, "Confirmar creación del PR con gh?") {
 			t.Errorf("already-accepted pushPRConfirm should show the plain confirm prompt\n%s", v)
 		}
 		if strings.Contains(v, "Crear la PR con la sugerencia IA?") {

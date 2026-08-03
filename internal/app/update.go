@@ -70,6 +70,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onVerifyDone(msg)
 	case tickMsg:
 		return m.onTick()
+	case spinnerTickMsg:
+		return m.onSpinnerTick()
 	case deltaDoneMsg:
 		return m.onDeltaDone(msg)
 	case queueDoneMsg:
@@ -298,10 +300,10 @@ func (m Model) onDeleteDone(msg deleteDoneMsg) (tea.Model, tea.Cmd) {
 // count via cleanupNotice. A failure surfaces its own error the same way.
 func (m Model) onPruneDone(msg pruneDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.cleanupNotice = "no se pudo aplicar la retencion: " + msg.err.Error()
+		m.cleanupNotice = "no se pudo aplicar la retención: " + msg.err.Error()
 		return m, nil
 	}
-	m.cleanupNotice = fmt.Sprintf("%d run(s) eliminados por retencion", len(msg.removed))
+	m.cleanupNotice = fmt.Sprintf("%d run(s) eliminados por retención", len(msg.removed))
 	return m, nil
 }
 
@@ -595,7 +597,8 @@ func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 		})
 	}
 
-	return m, tea.Batch(m.cherryPickCmd(), tickCmd())
+	m, spin := m.startSpinner()
+	return m, tea.Batch(m.cherryPickCmd(), tickCmd(), spin)
 }
 
 // derivePickIndex computes the 1-based ordinal of the pick CURRENTLY applying
@@ -747,6 +750,35 @@ func (m Model) onTick() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// isSpinnerState reports whether state is one of the 5 long-running states
+// the progress spinner animates during (design D5's Data Flow / Testing
+// Strategy): CommitDiscovery, BranchCreation, CherryPicking, DeltaGeneration,
+// ValidationStart.
+func isSpinnerState(state State) bool {
+	switch state {
+	case StateCommitDiscovery, StateBranchCreation, StateCherryPicking, StateDeltaGeneration, StateValidationStart:
+		return true
+	default:
+		return false
+	}
+}
+
+// onSpinnerTick bumps m.spinnerFrame and reschedules the next tick ONLY
+// while still in one of the 5 spinner states (mirrors onTick's own
+// state-scoped guard exactly) — so the animation stops the instant the flow
+// leaves those screens, never leaking a background tick past them.
+func (m Model) onSpinnerTick() (tea.Model, tea.Cmd) {
+	if !isSpinnerState(m.state) {
+		// The single continuing loop dies here: clear the single-flight guard
+		// so the NEXT spinner-state entry (startSpinner) is free to reseed a
+		// fresh tick loop instead of being wrongly blocked by a stale true.
+		m.spinning = false
+		return m, nil
+	}
+	m.spinnerFrame++
+	return m, spinnerCmd()
+}
+
 // onDeltaDone lands the HU-007 delta result. An sgd/parse failure keeps the
 // user on DeltaGeneration with the raw output shown and launches NO validation
 // (delta-generation spec: "sgd failure surfaces output without running
@@ -800,7 +832,8 @@ func (m Model) onQueueDone(msg queueDoneMsg) (tea.Model, tea.Cmd) {
 			m.notice = "no Tooling API permission to view the deploy queue; continuing without it"
 			m.validateErr = nil
 			m.state = StateValidationStart
-			return m, m.validateCmd()
+			m, spin := m.startSpinner()
+			return m, tea.Batch(m.validateCmd(), spin)
 		}
 		m.queueErr = msg.err
 		m.state = StateQueueReview

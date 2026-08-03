@@ -7,6 +7,116 @@ import (
 	"github.com/malavolta/DeployDeck/internal/git"
 )
 
+// TestKeyTicket_GuardedQ is task 2.5 (RED): keyTicket has no dedicated "q"
+// case today, so "q" always falls into the default rune-append branch — even
+// on an EMPTY buffer, where it should instead back out like "esc" (bug fix,
+// design D3 "guarded-q"). The non-empty case already passes (documents the
+// unchanged append behavior); the empty case is the RED assertion.
+func TestKeyTicket_GuardedQ(t *testing.T) {
+	t.Run("non-empty buffer appends q", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateTicketInput
+		m.ticket = "WEB-1"
+		next, _ := m.Update(keyPress("q"))
+		nm := next.(Model)
+		if nm.ticket != "WEB-1q" {
+			t.Fatalf("ticket = %q, want %q", nm.ticket, "WEB-1q")
+		}
+		if nm.state != StateTicketInput {
+			t.Fatalf("state = %v, want StateTicketInput unchanged", nm.state)
+		}
+	})
+
+	t.Run("empty buffer transitions back like esc", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateTicketInput
+		m.ticket = ""
+		next, _ := m.Update(keyPress("q"))
+		nm := next.(Model)
+		if nm.state != StatePrereqCheck {
+			t.Fatalf("state = %v, want StatePrereqCheck (mirrors esc)", nm.state)
+		}
+		if nm.ticket != "" {
+			t.Fatalf("ticket = %q, want unchanged empty buffer", nm.ticket)
+		}
+	})
+}
+
+// TestKeyCancelConfirm_GuardedQ is task 2.6 (RED): keyCancelConfirm has no
+// dedicated "q" case today, so "q" always falls into the default rune-append
+// branch — even on an EMPTY buffer, where it should instead mirror "esc"
+// (clear the buffer, back to StateValidationPolling, re-arm the poll loop).
+func TestKeyCancelConfirm_GuardedQ(t *testing.T) {
+	t.Run("non-empty buffer appends q", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateCancelConfirm
+		m.cancelInput = "CANCEL"
+		next, _ := m.Update(keyPress("q"))
+		nm := next.(Model)
+		if nm.cancelInput != "CANCELq" {
+			t.Fatalf("cancelInput = %q, want %q", nm.cancelInput, "CANCELq")
+		}
+		if nm.state != StateCancelConfirm {
+			t.Fatalf("state = %v, want StateCancelConfirm unchanged", nm.state)
+		}
+	})
+
+	t.Run("empty buffer mirrors esc", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateCancelConfirm
+		m.cancelInput = ""
+		m.notice = "stale"
+		next, cmd := m.Update(keyPress("q"))
+		nm := next.(Model)
+		if nm.state != StateValidationPolling {
+			t.Fatalf("state = %v, want StateValidationPolling (mirrors esc)", nm.state)
+		}
+		if nm.cancelInput != "" {
+			t.Fatalf("cancelInput = %q, want cleared", nm.cancelInput)
+		}
+		if nm.notice != "" {
+			t.Fatalf("notice = %q, want cleared", nm.notice)
+		}
+		// Assert only non-nil (mirrors TestModel_CancelConfirm_EscReturnsToPolling):
+		// invoking a tea.Tick-backed cmd() blocks for the real poll interval.
+		if cmd == nil {
+			t.Fatal("expected the re-arming pollTickCmd, got nil")
+		}
+	})
+}
+
+// TestKeyQuickDeploy_GuardedQ is task 2.7 (RED): keyQuickDeploy's
+// `case "q", "esc":` is unconditional today, so "q" ALWAYS backs out — even
+// with typed DESPLEGAR text in the buffer, where "q" should instead append
+// like every other guarded free-text screen (bug fix). The empty-buffer case
+// already passes (documents the unchanged back-out behavior).
+func TestKeyQuickDeploy_GuardedQ(t *testing.T) {
+	t.Run("non-empty buffer appends q and stays", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateQuickDeploy
+		m.quickConfirm = "DESPLEGA"
+		next, _ := m.Update(keyPress("q"))
+		nm := next.(Model)
+		if nm.quickConfirm != "DESPLEGAq" {
+			t.Fatalf("quickConfirm = %q, want %q", nm.quickConfirm, "DESPLEGAq")
+		}
+		if nm.state != StateQuickDeploy {
+			t.Fatalf("state = %v, want StateQuickDeploy unchanged", nm.state)
+		}
+	})
+
+	t.Run("empty buffer still backs out", func(t *testing.T) {
+		m := New(Deps{})
+		m.state = StateQuickDeploy
+		m.quickConfirm = ""
+		next, _ := m.Update(keyPress("q"))
+		nm := next.(Model)
+		if nm.state != StateRunHistory {
+			t.Fatalf("state = %v, want StateRunHistory", nm.state)
+		}
+	})
+}
+
 // TestKeyPushPreparation_A_NoSuggestion_RequestsWhenDepPresent is task 4.8
 // (RED): the FIRST 'a' press at pushReady, with no suggestion yet and a
 // non-nil GenerateSummary dep, sets aiPending and fires aiSuggestCmd (spec:

@@ -314,7 +314,7 @@ func TestE2E_StandaloneDelta_EmptyDelta_WarningVariant(t *testing.T) {
 	if !m.summary.Empty {
 		t.Fatalf("a zero-diff base should summarize as empty, got %+v", m.summary)
 	}
-	if !strings.Contains(m.View(), "Package vacio") {
+	if !strings.Contains(m.View(), "Package vacío") {
 		t.Errorf("standalone delta should reuse the existing empty-delta warning verbatim, got:\n%s", m.View())
 	}
 
