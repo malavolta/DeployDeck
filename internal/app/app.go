@@ -528,11 +528,20 @@ type Model struct {
 	quickDeployingRunID string
 
 	// Validation (HU-010/011)
-	jobID        string
-	runID        string
-	runDir       string
-	report       salesforce.DeployReport
-	validateErr  error     // CLI validate error, surfaced on ValidationStart
+	jobID       string
+	runID       string
+	runDir      string
+	report      salesforce.DeployReport
+	validateErr error // CLI validate error, surfaced on ValidationStart
+	// validateRawPath (deploy-error-detail D7) is the persisted validate.json
+	// companion's path when validateCmd fails at launch (before any jobId is
+	// obtained), surfaced on viewValidationStart alongside the error message.
+	validateRawPath string
+	// reportPath (deploy-error-detail D5) is the latest persisted
+	// report-NNN.json path, captured from AppendReport's return value —
+	// surfaced on failure/result screens in place of the dead-end "revisa el
+	// JSON crudo" hint.
+	reportPath   string
 	reportErr    error     // last transient report error, surfaced while polling
 	pollDeadline time.Time // hard poll timeout, from injected Now + PollTimeout
 	timedOut     bool      // true when StateFailed was reached via the deadline

@@ -98,6 +98,30 @@ func TestClient_QuickDeploy_CLIErrorSurfacesDecodedMessageAndRaw(t *testing.T) {
 	}
 }
 
+// TestClient_QuickDeploy_ParsesStatus is the deploy-error-detail RED (task
+// 1.11): a successful quick deploy decodes Status from the envelope; Raw
+// stays byte-identical to stdout (MarkQuickDeployed's asserted bytes).
+func TestClient_QuickDeploy_ParsesStatus(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	stdout := `{"status":0,"result":{"id":"0Af123","status":"Succeeded"}}`
+	fr.When("sf", quickArgs("0Af123", "UAT_SANDBOX"), exec.CommandResult{
+		ExitCode: 0,
+		Stdout:   []byte(stdout),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.QuickDeploy(context.Background(), "0Af123", "UAT_SANDBOX")
+	if err != nil {
+		t.Fatalf("unexpected error on a successful quick deploy: %v", err)
+	}
+	if got.Status != "Succeeded" {
+		t.Fatalf("expected Status %q, got %q", "Succeeded", got.Status)
+	}
+	if got.Raw != stdout {
+		t.Fatalf("expected Raw to stay byte-identical to stdout, got %q", got.Raw)
+	}
+}
+
 // TestClient_QuickDeploy_RunnerErrorDoesNotPanic mirrors CancelDeploy's
 // runner-start failure: no canned response means Run errors — QuickDeploy
 // must return an error, never panic.

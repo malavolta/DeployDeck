@@ -2,6 +2,7 @@ package salesforce_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -117,6 +118,99 @@ func TestClient_CancelDeploy_CLIErrorSurfacesRawWhenUnparseable(t *testing.T) {
 	}
 	if !strings.Contains(got.Raw, "network unreachable") {
 		t.Fatalf("expected Raw to preserve the raw output on error, got %q", got.Raw)
+	}
+}
+
+// TestClient_CancelDeploy_ParsesStatusAndCanceledByName is the
+// deploy-error-detail RED (task 1.9): a successful cancel decodes
+// Status/CanceledByName from the envelope, and Raw stays byte-identical to
+// stdout (D6, design.md Interfaces/Contracts).
+func TestClient_CancelDeploy_ParsesStatusAndCanceledByName(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	stdout := `{"status":0,"result":{"id":"0Af123","status":"Canceled","canceledByName":"Jane Doe"}}`
+	fr.When("sf", cancelArgs("0Af123", "UAT_SANDBOX"), exec.CommandResult{
+		ExitCode: 0,
+		Stdout:   []byte(stdout),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.CancelDeploy(context.Background(), "0Af123", "UAT_SANDBOX")
+	if err != nil {
+		t.Fatalf("unexpected error on a successful cancel: %v", err)
+	}
+	if got.Status != "Canceled" {
+		t.Fatalf("expected Status %q, got %q", "Canceled", got.Status)
+	}
+	if got.CanceledByName != "Jane Doe" {
+		t.Fatalf("expected CanceledByName %q, got %q", "Jane Doe", got.CanceledByName)
+	}
+	if got.Raw != stdout {
+		t.Fatalf("expected Raw to stay byte-identical to stdout, got %q", got.Raw)
+	}
+}
+
+// TestClient_CancelDeploy_AlreadyTerminalPreClassifiedAsSentinel is the
+// deploy-error-detail RED (task 1.9, D6): an error envelope named
+// CannotCancelDeployPre classifies via errors.Is(ErrCancelAlreadyTerminal).
+func TestClient_CancelDeploy_AlreadyTerminalPreClassifiedAsSentinel(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	fr.When("sf", cancelArgs("0AfPRE", "UAT_SANDBOX"), exec.CommandResult{
+		ExitCode: 1,
+		Stdout:   []byte(`{"status":1,"name":"CannotCancelDeployPre","message":"Cannot cancel: job already completed","exitCode":1}`),
+	})
+	client := salesforce.New(fr)
+
+	_, err := client.CancelDeploy(context.Background(), "0AfPRE", "UAT_SANDBOX")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, salesforce.ErrCancelAlreadyTerminal) {
+		t.Fatalf("expected ErrCancelAlreadyTerminal, got: %v", err)
+	}
+}
+
+// TestClient_CancelDeploy_AlreadyTerminalRacedClassifiedAsSentinel is the
+// deploy-error-detail RED (task 1.9, D6): an error envelope named
+// CannotCancelDeploy (the raced/in-flight variant) also classifies via the
+// same sentinel — both mean "job already terminal, nothing to cancel".
+func TestClient_CancelDeploy_AlreadyTerminalRacedClassifiedAsSentinel(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	fr.When("sf", cancelArgs("0AfRACE", "UAT_SANDBOX"), exec.CommandResult{
+		ExitCode: 1,
+		Stdout:   []byte(`{"status":1,"name":"CannotCancelDeploy","message":"Cannot cancel: job already completed","exitCode":1}`),
+	})
+	client := salesforce.New(fr)
+
+	_, err := client.CancelDeploy(context.Background(), "0AfRACE", "UAT_SANDBOX")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, salesforce.ErrCancelAlreadyTerminal) {
+		t.Fatalf("expected ErrCancelAlreadyTerminal, got: %v", err)
+	}
+}
+
+// TestClient_CancelDeploy_OtherNameStaysGenericError is the
+// deploy-error-detail RED (task 1.9, D6): an error envelope name OTHER than
+// the two already-terminal names must stay a generic error, never
+// misclassified as ErrCancelAlreadyTerminal.
+func TestClient_CancelDeploy_OtherNameStaysGenericError(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	fr.When("sf", cancelArgs("0AfGEN", "UAT_SANDBOX"), exec.CommandResult{
+		ExitCode: 1,
+		Stdout:   []byte(`{"status":1,"name":"UNKNOWN_EXCEPTION","message":"An unexpected error occurred","exitCode":1}`),
+	})
+	client := salesforce.New(fr)
+
+	_, err := client.CancelDeploy(context.Background(), "0AfGEN", "UAT_SANDBOX")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, salesforce.ErrCancelAlreadyTerminal) {
+		t.Fatal("a non-already-terminal failure must not be classified as ErrCancelAlreadyTerminal")
+	}
+	if !strings.Contains(err.Error(), "An unexpected error occurred") {
+		t.Fatalf("expected the generic error message to be surfaced, got: %v", err)
 	}
 }
 

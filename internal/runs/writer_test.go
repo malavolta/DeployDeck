@@ -142,11 +142,11 @@ func TestWriter_AppendReport_PersistsEachPollAsNumberedReport(t *testing.T) {
 	}
 
 	report1 := []byte(`{"status":"InProgress","numberComponentsDeployed":1}`)
-	if err := w.AppendReport(rec.RunID, "InProgress", report1); err != nil {
+	if _, err := w.AppendReport(rec.RunID, "InProgress", report1); err != nil {
 		t.Fatalf("unexpected error on first AppendReport: %v", err)
 	}
 	report2 := []byte(`{"status":"Succeeded","numberComponentsDeployed":10}`)
-	if err := w.AppendReport(rec.RunID, "Succeeded", report2); err != nil {
+	if _, err := w.AppendReport(rec.RunID, "Succeeded", report2); err != nil {
 		t.Fatalf("unexpected error on second AppendReport: %v", err)
 	}
 
@@ -195,11 +195,44 @@ func TestWriter_AppendReport_PersistsEachPollAsNumberedReport(t *testing.T) {
 	}
 }
 
+// TestWriter_AppendReport_ReturnsExactReportPath is the deploy-error-detail
+// RED (task 2.1): AppendReport returns the exact report-NNN.json path it
+// wrote, so callers (D5) can surface it without recomputing the numbering
+// scheme.
+func TestWriter_AppendReport_ReturnsExactReportPath(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{RunID: "TICKET-20-to-UAT-20260727120000", Status: "Queued"}
+	dir, err := w.Create(rec, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error creating run: %v", err)
+	}
+
+	gotPath1, err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":1}`))
+	if err != nil {
+		t.Fatalf("unexpected error on first AppendReport: %v", err)
+	}
+	wantPath1 := filepath.Join(dir, "report-001.json")
+	if gotPath1 != wantPath1 {
+		t.Fatalf("expected first AppendReport path %q, got %q", wantPath1, gotPath1)
+	}
+
+	gotPath2, err := w.AppendReport(rec.RunID, "Succeeded", []byte(`{"n":2}`))
+	if err != nil {
+		t.Fatalf("unexpected error on second AppendReport: %v", err)
+	}
+	wantPath2 := filepath.Join(dir, "report-002.json")
+	if gotPath2 != wantPath2 {
+		t.Fatalf("expected second AppendReport path %q, got %q", wantPath2, gotPath2)
+	}
+}
+
 func TestWriter_AppendReport_UnknownRunIDErrors(t *testing.T) {
 	base := t.TempDir()
 	w := runs.NewWriter(base)
 
-	err := w.AppendReport("does-not-exist", "InProgress", []byte(`{}`))
+	_, err := w.AppendReport("does-not-exist", "InProgress", []byte(`{}`))
 	if err == nil {
 		t.Fatal("expected an error for an unknown runID, got nil")
 	}
@@ -274,10 +307,10 @@ func TestWriter_MarkCanceled_DoesNotConsumeReportNumbering(t *testing.T) {
 	}
 
 	// Two prior polls exist as report-001/002.json.
-	if err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":1}`)); err != nil {
+	if _, err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":1}`)); err != nil {
 		t.Fatalf("seeding report 1: %v", err)
 	}
-	if err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":2}`)); err != nil {
+	if _, err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":2}`)); err != nil {
 		t.Fatalf("seeding report 2: %v", err)
 	}
 
@@ -295,7 +328,7 @@ func TestWriter_MarkCanceled_DoesNotConsumeReportNumbering(t *testing.T) {
 
 	// A subsequent poll still numbers as report-003.json (cancel did not
 	// perturb the sequence).
-	if err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":3}`)); err != nil {
+	if _, err := w.AppendReport(rec.RunID, "InProgress", []byte(`{"n":3}`)); err != nil {
 		t.Fatalf("appending report 3: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "report-003.json")); err != nil {
@@ -310,6 +343,102 @@ func TestWriter_MarkCanceled_UnknownRunIDErrors(t *testing.T) {
 	err := w.MarkCanceled("does-not-exist", []byte(`{}`))
 	if err == nil {
 		t.Fatal("expected an error for an unknown runID, got nil")
+	}
+}
+
+// --- deploy-error-detail: SaveRawCompanion + additive companion growth -----
+
+// TestWriter_SaveRawCompanion_WritesVerbatimBytesAndReturnsPath is the
+// deploy-error-detail RED (task 2.2): SaveRawCompanion writes raw bytes
+// verbatim to the given const filename under the run dir and returns its
+// path (design.md Interfaces/Contracts, gap7/D7 companion pattern).
+func TestWriter_SaveRawCompanion_WritesVerbatimBytesAndReturnsPath(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	rec := runs.Record{RunID: "TICKET-21-to-UAT-20260727120000", Status: "InProgress"}
+	dir, err := w.Create(rec, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error creating run: %v", err)
+	}
+
+	raw := []byte(`{"status":1,"name":"UnexpectedError","message":"cancel failed"}`)
+	gotPath, err := w.SaveRawCompanion(rec.RunID, "cancel-error.json", raw)
+	if err != nil {
+		t.Fatalf("unexpected error on SaveRawCompanion: %v", err)
+	}
+	wantPath := filepath.Join(dir, "cancel-error.json")
+	if gotPath != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, gotPath)
+	}
+
+	got, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", wantPath, err)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("expected companion bytes to be verbatim, got %q want %q", got, raw)
+	}
+}
+
+// TestWriter_SaveRawCompanion_UnknownRunIDErrors is the deploy-error-detail
+// RED (task 2.2): SaveRawCompanion errors on an unknown runID rather than a
+// silent no-op, mirroring MarkCanceled's and MarkPRCreated's behavior.
+func TestWriter_SaveRawCompanion_UnknownRunIDErrors(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	_, err := w.SaveRawCompanion("does-not-exist", "quick-error.json", []byte(`{}`))
+	if err == nil {
+		t.Fatal("expected an error for an unknown runID, got nil")
+	}
+}
+
+// TestWriter_List_UnaffectedByNewCompanionTypes is the deploy-error-detail
+// RED (task 2.3): a run directory persisted before the failed-cancel/quick/
+// validate-launch companions existed still List/Load()s unchanged — adding a
+// new SaveRawCompanion-written file must not perturb Record decoding, and no
+// SchemaVersion bump accompanies this growth (run-persistence spec:
+// "Companion Growth Stays Additive And Backward Compatible").
+func TestWriter_List_UnaffectedByNewCompanionTypes(t *testing.T) {
+	base := t.TempDir()
+	w := runs.NewWriter(base)
+
+	runID := "TICKET-22-to-UAT-20260101000000"
+	dir := filepath.Join(base, ".deploydeck", "runs", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("seeding run dir: %v", err)
+	}
+	// Old-shape run.json, written before any of the new companion types
+	// existed — no cancel-error.json/quick-error.json/validate.json present.
+	oldShape := `{"schemaVersion":1,"runId":"TICKET-22-to-UAT-20260101000000","ticket":"TICKET-22","target":"UAT","status":"Succeeded"}`
+	if err := os.WriteFile(filepath.Join(dir, "run.json"), []byte(oldShape), 0o644); err != nil {
+		t.Fatalf("seeding old-shape run.json: %v", err)
+	}
+
+	// Now a new failure companion is appended, mirroring a run that predates
+	// the feature getting its first failed-cancel/quick/validate-launch event.
+	if _, err := w.SaveRawCompanion(runID, "cancel-error.json", []byte(`{"failed":true}`)); err != nil {
+		t.Fatalf("unexpected error on SaveRawCompanion: %v", err)
+	}
+
+	rec, err := w.Load(runID)
+	if err != nil {
+		t.Fatalf("an old-shape run.json with a new companion should still Load cleanly: %v", err)
+	}
+	if rec.SchemaVersion != runs.SchemaVersion1 {
+		t.Fatalf("expected SchemaVersion unchanged at %d, got %d", runs.SchemaVersion1, rec.SchemaVersion)
+	}
+	if rec.RunID != runID || rec.Ticket != "TICKET-22" || rec.Status != "Succeeded" {
+		t.Fatalf("expected existing fields preserved, got %+v", rec)
+	}
+
+	list, err := w.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 1 || list[0].RunID != runID {
+		t.Fatalf("expected the run unaffected in List, got %+v", list)
 	}
 }
 

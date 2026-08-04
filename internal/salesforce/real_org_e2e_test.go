@@ -233,7 +233,7 @@ func TestE2ERealOrg_ValidateAndReport(t *testing.T) {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		if err := writer.AppendReport(runID, report.Status, []byte(report.Raw)); err != nil {
+		if _, err := writer.AppendReport(runID, report.Status, []byte(report.Raw)); err != nil {
 			t.Fatalf("AppendReport: %v", err)
 		}
 		t.Logf("poll status=%q components=%d/%d(err %d) tests=%d/%d(err %d)",

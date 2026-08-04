@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -288,5 +289,312 @@ func TestView_AI_Accepted_TitleReplacesFormulaEverywhere(t *testing.T) {
 	}
 	if !strings.Contains(v, "title:   PROJ-1 - AI drafted title") {
 		t.Errorf("accepted AI title should appear on the title line, got:\n%s", v)
+	}
+}
+
+// --- deploy-error-detail: validationBody rendering growth -------------------
+
+// TestValidationBody_ComponentFailure_ShowsFileLineColumnAndProblemTypeLabel
+// is the deploy-error-detail RED (task 4.1, validation-progress spec
+// "Metadata Errors Shown With Component Detail" + "Warning-Typed Component
+// Failure Is Labeled Distinctly"): componentFailures render
+// fileName:lineNumber[:columnNumber], and problemType=Warning entries are
+// labeled distinctly (mark "!!") from Error entries (mark "XX").
+func TestValidationBody_ComponentFailure_ShowsFileLineColumnAndProblemTypeLabel(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status: "Failed",
+		ComponentFailures: []salesforce.ComponentFailure{
+			{Component: "MyClass", Type: "ApexClass", Message: "Compile error", FileName: "classes/MyClass.cls", LineNumber: 12, ColumnNumber: 5, ProblemType: "Error"},
+			{Component: "MyTrigger", Type: "ApexTrigger", Message: "Unused variable", FileName: "triggers/MyTrigger.trigger", LineNumber: 3, ProblemType: "Warning"},
+		},
+	}
+
+	body := m.validationBody()
+	if !strings.Contains(body, "classes/MyClass.cls:12:5") {
+		t.Errorf("expected file:line:col for the Error entry, got:\n%s", body)
+	}
+	if !strings.Contains(body, "triggers/MyTrigger.trigger:3") {
+		t.Errorf("expected file:line (no column) for the Warning entry, got:\n%s", body)
+	}
+	if !strings.Contains(body, mark("XX")) {
+		t.Errorf("expected the Error entry labeled via mark(XX), got:\n%s", body)
+	}
+	if !strings.Contains(body, mark("!!")) {
+		t.Errorf("expected the Warning entry labeled distinctly via mark(!!), got:\n%s", body)
+	}
+}
+
+// TestValidationBody_TestFailure_ShowsFirstStackTraceFrameMuted is the
+// deploy-error-detail RED (task 4.2, validation-progress spec "Failed Tests
+// Shown With Class And Method Detail" + "Failed Test Shows A Compact
+// Stack-Trace Excerpt"): a failed test with a multi-frame StackTrace renders
+// ONLY its first frame, muted (styleDim, D2).
+func TestValidationBody_TestFailure_ShowsFirstStackTraceFrameMuted(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status: "Failed",
+		TestFailures: []salesforce.TestFailure{
+			{Class: "MyClassTest", Method: "testSomething", Message: "System.AssertException: Assertion Failed",
+				StackTrace: "Class.MyClassTest.testSomething: line 10, column 1\nClass.Helper.doWork: line 3, column 1"},
+		},
+	}
+
+	body := m.validationBody()
+	if !strings.Contains(body, styleDim.Render("Class.MyClassTest.testSomething: line 10, column 1")) {
+		t.Errorf("expected the first stack frame rendered muted, got:\n%s", body)
+	}
+	if strings.Contains(body, "Class.Helper.doWork") {
+		t.Errorf("expected ONLY the first stack frame (bounded, D2), got second frame in:\n%s", body)
+	}
+}
+
+// TestValidationBody_TestFailure_NoStackTrace_RendersNoFrameLine proves a
+// test failure without a StackTrace renders no frame line at all (backward
+// compatible with pre-existing reports).
+func TestValidationBody_TestFailure_NoStackTrace_RendersNoFrameLine(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status:       "Failed",
+		TestFailures: []salesforce.TestFailure{{Class: "MyClassTest", Method: "testSomething", Message: "boom"}},
+	}
+
+	body := m.validationBody()
+	if !strings.Contains(body, "MyClassTest.testSomething: boom") {
+		t.Errorf("expected the class/method/message line, got:\n%s", body)
+	}
+}
+
+// TestValidationBody_CoverageBelowGate_ShowsPercentWorstFirstCappedWithOverflow
+// is the deploy-error-detail RED (task 4.3, D3, validation-progress spec
+// "Coverage Failures Show Per-Class Percentage Below Gate"): classes below
+// the 75% gate render their percentage, worst-first, capped at 10 rows with
+// a "+K más" overflow line.
+func TestValidationBody_CoverageBelowGate_ShowsPercentWorstFirstCappedWithOverflow(t *testing.T) {
+	m := Model{}
+	var coverage []salesforce.CodeCoverageResult
+	// 12 classes below gate (60%..71%) plus 1 class at/above gate (80%, must
+	// be excluded entirely).
+	for i := 0; i < 12; i++ {
+		coverage = append(coverage, salesforce.CodeCoverageResult{
+			Name: fmt.Sprintf("Class%02d", i), NumLocations: 100, NumLocationsNotCovered: 40 - i, // 60%..71%
+		})
+	}
+	coverage = append(coverage, salesforce.CodeCoverageResult{Name: "WellCovered", NumLocations: 100, NumLocationsNotCovered: 20}) // 80%, excluded
+	m.report = salesforce.DeployReport{Status: "Failed", CodeCoverage: coverage}
+
+	body := m.validationBody()
+	if !strings.Contains(body, "Class00: 60%") {
+		t.Errorf("expected the worst class (60%%) shown FIRST, got:\n%s", body)
+	}
+	if strings.Contains(body, "WellCovered") {
+		t.Errorf("a class at/above the 75%% gate must NOT be rendered, got:\n%s", body)
+	}
+	if !strings.Contains(body, "+2 más") {
+		t.Errorf("expected a '+2 más' overflow line (12 below-gate, capped at 10), got:\n%s", body)
+	}
+	// Row 11 (index 10, 11th worst = 70%) must be capped OUT.
+	if strings.Contains(body, "Class10: 70%") || strings.Contains(body, "Class11: 71%") {
+		t.Errorf("expected only the 10 worst rows shown (capped), got:\n%s", body)
+	}
+	// Remediation RED (readability WARNING+SUGGESTION): a Failed report whose
+	// ONLY detail is below-gate coverage must not ALSO render the
+	// contradictory "sin detalle estructurado" fallback — the fallback guard
+	// used to check only the legacy CodeCoverageWarnings field, missing
+	// belowGate entirely.
+	if strings.Contains(body, "sin detalle estructurado") {
+		t.Errorf("below-gate coverage IS structured detail; must not also render the no-detail fallback, got:\n%s", body)
+	}
+}
+
+// TestValidationBody_FlowCoverageWarnings_RenderInlineUnderCoverageHeading is
+// the deploy-error-detail RED (task 4.3): flowCoverageWarnings render inline
+// under the "Cobertura de código" heading, prefixed "flujo:".
+func TestValidationBody_FlowCoverageWarnings_RenderInlineUnderCoverageHeading(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status:               "Failed",
+		FlowCoverageWarnings: []salesforce.FlowCoverageWarning{{FlowName: "My_Flow", Message: "Flow coverage below threshold"}},
+	}
+
+	body := m.validationBody()
+	if !strings.Contains(body, "Cobertura de código") {
+		t.Errorf("expected the coverage heading present even with only a flow warning, got:\n%s", body)
+	}
+	if !strings.Contains(body, "flujo: My_Flow: Flow coverage below threshold") {
+		t.Errorf("expected the flow warning rendered inline prefixed 'flujo:', got:\n%s", body)
+	}
+	// Remediation RED (readability WARNING+SUGGESTION): a Failed report whose
+	// ONLY detail is a Flow coverage warning must not ALSO render the
+	// contradictory "sin detalle estructurado" fallback (same divergence bug
+	// as the below-gate-only case above).
+	if strings.Contains(body, "sin detalle estructurado") {
+		t.Errorf("a flow coverage warning IS structured detail; must not also render the no-detail fallback, got:\n%s", body)
+	}
+}
+
+// TestValidationBody_OrgWideCoverageWarning_StaysDistinctFromPerClassLines is
+// the deploy-error-detail RED (task 4.3): when both a per-class % line and
+// an existing org-wide (empty-Name) CodeCoverageWarning are present, the
+// org-wide entry keeps its own "cobertura global" label, distinct from the
+// new per-class lines.
+func TestValidationBody_OrgWideCoverageWarning_StaysDistinctFromPerClassLines(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status:               "Failed",
+		CodeCoverageWarnings: []salesforce.CodeCoverageWarning{{Name: "", Message: "Average test coverage across all Apex Classes and Triggers is 40%"}},
+		CodeCoverage:         []salesforce.CodeCoverageResult{{Name: "MyClass", NumLocations: 100, NumLocationsNotCovered: 40}},
+	}
+
+	body := m.validationBody()
+	if !strings.Contains(body, "[cobertura global] Average test coverage") {
+		t.Errorf("expected the org-wide warning to keep its distinct 'cobertura global' label, got:\n%s", body)
+	}
+	if !strings.Contains(body, "MyClass: 60%") {
+		t.Errorf("expected the per-class line shown too, got:\n%s", body)
+	}
+}
+
+// TestValidationBody_ReportPath_ShownOnTerminalScreensOnly is the
+// deploy-error-detail RED (task 4.4, D5, validation-progress spec "Latest
+// Persisted Report Path Shown On Failure Screens"): m.reportPath renders
+// muted on a terminal screen (state != StateValidationPolling), replacing
+// the "revisa el JSON crudo" dead-end, but is OMITTED while still live
+// polling.
+func TestValidationBody_ReportPath_ShownOnTerminalScreensOnly(t *testing.T) {
+	m := Model{}
+	m.reportPath = "/repo/.deploydeck/runs/PROJ-1-to-UAT/report-003.json"
+	m.report = salesforce.DeployReport{Status: "Failed"}
+
+	m.state = StateFailed
+	terminalBody := m.validationBody()
+	if !strings.Contains(terminalBody, styleDim.Render("Reporte completo: "+m.reportPath)) {
+		t.Errorf("expected the muted report path line on a terminal screen, got:\n%s", terminalBody)
+	}
+	if strings.Contains(terminalBody, "revisa el JSON crudo") {
+		t.Errorf("the dead-end 'revisa el JSON crudo' hint must be gone, got:\n%s", terminalBody)
+	}
+
+	m.state = StateValidationPolling
+	livePollBody := m.validationBody()
+	if strings.Contains(livePollBody, m.reportPath) {
+		t.Errorf("the report path must NOT render while still live-polling, got:\n%s", livePollBody)
+	}
+}
+
+// TestViewValidationResult_SucceededPartial_ShowsDistinctHeaderAndCallout is
+// the deploy-error-detail RED (task 4.5, D4, validation-progress spec
+// "SucceededPartial Renders An Explicit Partial-Success Callout"):
+// StateSucceeded with report.Status=="SucceededPartial" renders a distinct
+// header + amber callout, never the plain-success header text.
+func TestViewValidationResult_SucceededPartial_ShowsDistinctHeaderAndCallout(t *testing.T) {
+	m := Model{}
+	m.state = StateSucceeded
+	m.report = salesforce.DeployReport{Status: "SucceededPartial"}
+
+	view := m.View()
+	if strings.Contains(view, "Resultado De Validación") {
+		t.Errorf("SucceededPartial must NOT render the plain-success header, got:\n%s", view)
+	}
+	if !strings.Contains(view, mark("!!")) {
+		t.Errorf("expected an amber (mark !!) partial-success callout, got:\n%s", view)
+	}
+}
+
+// TestViewValidationStart_LaunchFailure_ShowsMessageAndPersistedPath is the
+// deploy-error-detail RED (task 4.9, D7, deploy-validation spec "Launch
+// Error Shows An Actionable Message And The Persisted-Raw Path"):
+// viewValidationStart on a launch failure shows the error message together
+// with the persisted validate.json path (Phase 3.7/3.8's rawPath).
+func TestViewValidationStart_LaunchFailure_ShowsMessageAndPersistedPath(t *testing.T) {
+	m := Model{}
+	m.state = StateValidationStart
+	m.validateErr = errStub
+	m.validateRawPath = "/repo/.deploydeck/runs/PROJ-1-to-UAT/validate.json"
+
+	view := m.View()
+	if !strings.Contains(view, "stub error") {
+		t.Errorf("expected the launch error message shown, got:\n%s", view)
+	}
+	if !strings.Contains(view, m.validateRawPath) {
+		t.Errorf("expected the persisted validate.json path shown, got:\n%s", view)
+	}
+}
+
+// TestViewValidationResult_PlainSucceeded_KeepsExistingHeader proves a plain
+// Succeeded result is UNCHANGED by the SucceededPartial callout addition.
+func TestViewValidationResult_PlainSucceeded_KeepsExistingHeader(t *testing.T) {
+	m := Model{}
+	m.state = StateSucceeded
+	m.report = salesforce.DeployReport{Status: "Succeeded"}
+
+	view := m.View()
+	if !strings.Contains(view, "Resultado De Validación") {
+		t.Errorf("a plain Succeeded result should keep the existing header, got:\n%s", view)
+	}
+}
+
+// --- deploy-error-detail remediation: org-sourced string sanitization -----
+
+// TestValidationBody_ComponentFailure_SanitizesControlCharsInMessage is the
+// remediation RED (review finding risk WARNING: "Sanitize org-sourced
+// strings at render"): a component failure's org-sourced Message reaches
+// the operator's terminal verbatim today — a co-org user's crafted deploy
+// error must not be able to inject control characters/ANSI escapes there.
+func TestValidationBody_ComponentFailure_SanitizesControlCharsInMessage(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status: "Failed",
+		ComponentFailures: []salesforce.ComponentFailure{
+			{Component: "MyClass", Type: "ApexClass", Message: "Compile error\x07\x1b[31m injected", ProblemType: "Error"},
+		},
+	}
+
+	body := m.validationBody()
+	if strings.ContainsRune(body, 0x1b) || strings.ContainsRune(body, 0x07) {
+		t.Errorf("expected control chars stripped from the component failure message, got:\n%q", body)
+	}
+}
+
+// TestValidationBody_TestFailure_StackFrame_SanitizesEscapes is the
+// remediation RED (same finding): the first-stack-trace-frame excerpt is
+// org-sourced text too, and must have escape sequences stripped before
+// rendering (styling is applied AFTER sanitization).
+func TestValidationBody_TestFailure_StackFrame_SanitizesEscapes(t *testing.T) {
+	m := Model{}
+	m.report = salesforce.DeployReport{
+		Status: "Failed",
+		TestFailures: []salesforce.TestFailure{
+			{Class: "MyClassTest", Method: "testSomething", Message: "boom",
+				StackTrace: "Class.MyClassTest.testSomething: line 10\x1b[31m, column 1"},
+		},
+	}
+
+	body := m.validationBody()
+	if strings.ContainsRune(body, 0x1b) {
+		t.Errorf("expected the ESC byte stripped from the stack-frame excerpt, got:\n%q", body)
+	}
+}
+
+// TestBelowGateCoverage_SkipsZeroLocationClasses is the remediation RED
+// (review finding reliability WARNING: "NumLocations==0 classes are N/A,
+// not 0% culprits"): a class with no executable locations is vacuously
+// covered, not a 0% culprit — Percent()'s divide-by-zero guard would
+// otherwise sort it FIRST (worst) and displace a genuine low-coverage class
+// out of the capped rows into "+K más".
+func TestBelowGateCoverage_SkipsZeroLocationClasses(t *testing.T) {
+	coverage := []salesforce.CodeCoverageResult{
+		{Name: "NoLocations", NumLocations: 0, NumLocationsNotCovered: 0},
+		{Name: "LowCoverage", NumLocations: 100, NumLocationsNotCovered: 50}, // 50%, genuine culprit
+	}
+
+	below := belowGateCoverage(coverage)
+	for _, c := range below {
+		if c.Name == "NoLocations" {
+			t.Fatalf("expected the NumLocations==0 class excluded entirely (vacuously covered), got:\n%+v", below)
+		}
+	}
+	if len(below) != 1 || below[0].Name != "LowCoverage" {
+		t.Errorf("expected only the genuine low-coverage class, got:\n%+v", below)
 	}
 }

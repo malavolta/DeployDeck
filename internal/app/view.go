@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -612,9 +613,9 @@ func (m Model) viewQueueReview() string {
 	}
 	ownPosition := 0
 	for i, e := range m.queue {
-		mark := ""
+		ownMark := ""
 		if m.identity != "" && e.Username == m.identity {
-			mark = "  [propio]"
+			ownMark = "  [propio]"
 			ownPosition = i + 1
 		}
 		kind := "Deploy"
@@ -622,9 +623,29 @@ func (m Model) viewQueueReview() string {
 			kind = "Validate"
 		}
 		b.WriteString(fmt.Sprintf("  %d. %-10s %-12s %-8s %-16s %4s  Components %d/%d  Tests %d/%d%s\n",
-			i+1, e.JobID, e.Status, kind, e.CreatedBy, m.queueElapsed(e),
+			i+1, e.JobID, e.Status, kind, sanitizeTermLine(e.CreatedBy), m.queueElapsed(e),
 			e.Components.Deployed, e.Components.Total,
-			e.Tests.Completed, e.Tests.Total, mark))
+			e.Tests.Completed, e.Tests.Total, ownMark))
+		// D8 (deploy-error-detail): an errored entry (ErrorMessage or
+		// ErrorStatusCode non-empty) shows that detail in red, with a
+		// non-empty StateDetail rendered as context. A non-errored entry
+		// renders NO extra line — progress-only StateDetail display stays
+		// out of scope (design.md Open Questions).
+		if e.ErrorMessage != "" || e.ErrorStatusCode != "" {
+			// Remediation (risk WARNING): sanitize the org-sourced fields
+			// FIRST — another org member's ErrorMessage/ErrorStatusCode/
+			// StateDetail must not be able to inject ANSI escapes or a fake
+			// queue row via an embedded newline — THEN compose the detail
+			// string (composes with the reliability fix below: format after
+			// sanitizing, never before).
+			code := sanitizeTermLine(e.ErrorStatusCode)
+			message := sanitizeTermLine(e.ErrorMessage)
+			line := "     " + mark("XX") + " " + queueErrorDetail(code, message)
+			if e.StateDetail != "" {
+				line += fmt.Sprintf(" [%s]", sanitizeTermLine(e.StateDetail))
+			}
+			b.WriteString(line + "\n")
+		}
 	}
 	if ownPosition > 0 {
 		b.WriteString(fmt.Sprintf("\n  Posición aproximada de tu job: %d\n", ownPosition))
@@ -656,12 +677,33 @@ func (m Model) queueElapsed(e salesforce.DeployQueueEntry) string {
 	return fmt.Sprintf("%dm", int(elapsed.Minutes()))
 }
 
+// queueErrorDetail composes a queue entry's error line from its (already
+// sanitized) status code and message without a dangling separator
+// (reliability bug fix): both present join as "(CODE) message"; either
+// alone renders bare — never "(CODE) " with a trailing space when the
+// message is empty.
+func queueErrorDetail(code, message string) string {
+	switch {
+	case code != "" && message != "":
+		return fmt.Sprintf("(%s) %s", code, message)
+	case code != "":
+		return fmt.Sprintf("(%s)", code)
+	default:
+		return message
+	}
+}
+
 func (m Model) viewValidationStart() string {
 	var b strings.Builder
 	b.WriteString(m.screenHeader("Lanzando Validación"))
 	if m.validateErr != nil {
 		b.WriteString("\n  " + mark("XX") + " Salesforce CLI devolvió error (el flujo sigue vivo):\n\n")
 		b.WriteString("  " + m.validateErr.Error() + "\n")
+		// D7: surface the persisted validate.json companion's path (when
+		// persistence succeeded), so the raw envelope stays reachable.
+		if m.validateRawPath != "" {
+			b.WriteString("\n  " + styleDim.Render("Detalle completo: "+m.validateRawPath) + "\n")
+		}
 		b.WriteString(footer("r reintentar   q salir"))
 		return b.String()
 	}
@@ -757,7 +799,17 @@ func (m Model) viewQuickDeploy() string {
 
 func (m Model) viewValidationResult() string {
 	var b strings.Builder
-	b.WriteString(m.screenHeader("Resultado De Validación"))
+	// D4 (deploy-error-detail): SucceededPartial gets a DISTINCT header +
+	// amber callout — never the plain-success rendering. terminalState
+	// (app.go) still folds SucceededPartial into StateSucceeded (no new
+	// app State); this is a byte-local callout on the existing screen.
+	partial := m.state == StateSucceeded && m.report.Status == "SucceededPartial"
+	if partial {
+		b.WriteString(m.screenHeader("Validación Parcialmente Exitosa"))
+		b.WriteString("\n  " + mark("!!") + " Resultado PARCIAL: algunos componentes o tests no pasaron. Revisa el detalle abajo.\n")
+	} else {
+		b.WriteString(m.screenHeader("Resultado De Validación"))
+	}
 	b.WriteString(m.validationBody())
 	if m.timedOut {
 		b.WriteString("\n  " + mark("XX") + " Timeout: la validación no alcanzó un estado terminal a tiempo (timed out).\n")
@@ -927,6 +979,96 @@ func (m Model) viewAIBlock() string {
 	return b.String()
 }
 
+// coverageGatePercent/coverageMaxRows are D3's bounded per-class coverage
+// render limits (deploy-error-detail): only classes below the gate render,
+// worst-first, capped so the TUI never floods on a large codeCoverage[].
+const (
+	coverageGatePercent = 75
+	coverageMaxRows     = 10
+)
+
+// belowGateCoverage filters coverage to entries below coverageGatePercent,
+// sorted worst-first (lowest Percent() first) — a pure function (D3) so the
+// selection/ordering logic is directly unit-testable without rendering.
+func belowGateCoverage(coverage []salesforce.CodeCoverageResult) []salesforce.CodeCoverageResult {
+	var below []salesforce.CodeCoverageResult
+	for _, c := range coverage {
+		// A class with NumLocations==0 has no executable locations at all —
+		// it is vacuously covered, not a genuine 0% culprit (reliability bug
+		// fix). Percent()'s divide-by-zero guard returns 0 for it, which
+		// would otherwise sort it FIRST (worst) and displace a real
+		// low-coverage class out of the capped rows into "+K más".
+		if c.NumLocations == 0 {
+			continue
+		}
+		if c.Percent() < coverageGatePercent {
+			below = append(below, c)
+		}
+	}
+	sort.SliceStable(below, func(i, j int) bool {
+		return below[i].Percent() < below[j].Percent()
+	})
+	return below
+}
+
+// hasCoverageDetail reports whether r carries any coverage-specific detail
+// validationBody's "Cobertura de código" section renders: a legacy
+// CodeCoverageWarnings entry, a class below the coverage gate (belowGate —
+// pass belowGateCoverage(r.CodeCoverage), already computed by the caller so
+// it is derived only once), or a Flow coverage warning. It is the single
+// source of truth for "coverage section renders", shared with
+// hasStructuredFailureDetail below (readability remediation) so the two can
+// never diverge.
+func hasCoverageDetail(r salesforce.DeployReport, belowGate []salesforce.CodeCoverageResult) bool {
+	return len(r.CodeCoverageWarnings) > 0 || len(belowGate) > 0 || len(r.FlowCoverageWarnings) > 0
+}
+
+// hasStructuredFailureDetail reports whether r carries ANY structured
+// failure detail validationBody can render — component/test failures, an
+// org-level error message, or coverage detail (hasCoverageDetail) — and
+// gates the "sin detalle estructurado" fallback (readability remediation,
+// finding WARNING+SUGGESTION: the fallback guard used to enumerate its own
+// condition separately from the coverage section's, and the two diverged —
+// a Failed report whose ONLY detail was a below-gate class or a Flow
+// warning rendered BOTH the coverage detail AND the contradictory no-detail
+// fallback). Deriving the fallback from the SAME hasCoverageDetail call the
+// section-render decision uses makes that divergence structurally
+// impossible: the fallback can never contradict a section that actually
+// rendered.
+func hasStructuredFailureDetail(r salesforce.DeployReport, belowGate []salesforce.CodeCoverageResult) bool {
+	return len(r.ComponentFailures) > 0 ||
+		len(r.TestFailures) > 0 ||
+		hasCoverageDetail(r, belowGate) ||
+		r.ErrorMessage != ""
+}
+
+// componentFailureLocation formats a ComponentFailure's file location as
+// fileName[:lineNumber[:columnNumber]] (deploy-error-detail gap 1), empty
+// when FileName is absent (legacy/backward-compatible report).
+func componentFailureLocation(f salesforce.ComponentFailure) string {
+	if f.FileName == "" {
+		return ""
+	}
+	loc := f.FileName
+	if f.LineNumber > 0 {
+		loc += fmt.Sprintf(":%d", f.LineNumber)
+		if f.ColumnNumber > 0 {
+			loc += fmt.Sprintf(":%d", f.ColumnNumber)
+		}
+	}
+	return loc
+}
+
+// firstStackFrame returns the first line of a (possibly multi-line) stack
+// trace (D2, deploy-error-detail): the throw site is the actionable datum,
+// the full trace is reachable via the persisted report path.
+func firstStackFrame(stackTrace string) string {
+	if nl := strings.IndexByte(stackTrace, '\n'); nl >= 0 {
+		return stackTrace[:nl]
+	}
+	return stackTrace
+}
+
 // validationBody renders the shared live/terminal progress body: job id,
 // status, component/test counters, metadata errors and failed tests (HU-011).
 func (m Model) validationBody() string {
@@ -942,36 +1084,82 @@ func (m Model) validationBody() string {
 	if len(r.ComponentFailures) > 0 {
 		b.WriteString("\n  Errores de metadata:\n")
 		for _, f := range r.ComponentFailures {
-			b.WriteString(fmt.Sprintf("  - %s (%s): %s\n", f.Component, f.Type, f.Message))
+			// problemType=Warning is labeled distinctly (mark !!) from every
+			// other value, including the historical "" (treated as Error) —
+			// deploy-error-detail gap 1.
+			tok := "XX"
+			if f.ProblemType == "Warning" {
+				tok = "!!"
+			}
+			// Remediation (risk WARNING): sanitize f.Message before it reaches
+			// the terminal — it is org-sourced text (a co-org user's deploy
+			// error), not DeployDeck's own copy.
+			line := fmt.Sprintf("  %s %s (%s): %s", mark(tok), f.Component, f.Type, sanitizeTermLine(f.Message))
+			if loc := componentFailureLocation(f); loc != "" {
+				line += " " + loc
+			}
+			b.WriteString(line + "\n")
 		}
 	}
 	if len(r.TestFailures) > 0 {
 		b.WriteString("\n  Tests fallidos:\n")
 		for _, f := range r.TestFailures {
-			b.WriteString(fmt.Sprintf("  - %s.%s: %s\n", f.Class, f.Method, f.Message))
+			// Remediation (risk WARNING): f.Message is org-sourced (an Apex
+			// assertion/exception message from someone else's run).
+			b.WriteString(fmt.Sprintf("  - %s.%s: %s\n", f.Class, f.Method, sanitizeTermLine(f.Message)))
+			// First stack-trace frame only, muted (D2) — bounded so N tests
+			// never flood the TUI; the full trace lives in the report path.
+			// Sanitized (risk WARNING) BEFORE styling, same as every other
+			// org-sourced field: a crafted StackTrace must not carry escape
+			// sequences onto the operator's terminal.
+			if f.StackTrace != "" {
+				b.WriteString("    " + styleDim.Render(sanitizeTermLine(firstStackFrame(f.StackTrace))) + "\n")
+			}
 		}
 	}
 	// Coverage warnings: THIS is the field that carries the real reason for
 	// a Failed status caused by insufficient test coverage (bug fix). An
-	// empty Name means the warning is org-wide, not tied to one class.
-	if len(r.CodeCoverageWarnings) > 0 {
+	// empty Name means the warning is org-wide, not tied to one class — it
+	// stays visually distinguished from the new per-class % lines below (D3).
+	belowGate := belowGateCoverage(r.CodeCoverage)
+	if hasCoverageDetail(r, belowGate) {
 		b.WriteString("\n  Cobertura de código:\n")
 		for _, w := range r.CodeCoverageWarnings {
 			label := w.Name
 			if label == "" {
 				label = "cobertura global"
 			}
-			b.WriteString(fmt.Sprintf("  - [%s] %s\n", label, w.Message))
+			// Remediation (risk WARNING): w.Message is org-sourced.
+			b.WriteString(fmt.Sprintf("  - [%s] %s\n", label, sanitizeTermLine(w.Message)))
+		}
+		shown := belowGate
+		overflow := 0
+		if len(shown) > coverageMaxRows {
+			overflow = len(shown) - coverageMaxRows
+			shown = shown[:coverageMaxRows]
+		}
+		for _, c := range shown {
+			b.WriteString(fmt.Sprintf("  - %s: %d%%\n", c.Name, c.Percent()))
+		}
+		if overflow > 0 {
+			b.WriteString(fmt.Sprintf("  - +%d más\n", overflow))
+		}
+		// flowCoverageWarnings render inline under this SAME heading
+		// (design.md Open Questions: "inline ... prefixed flujo:").
+		// Remediation (risk WARNING): w.Message is org-sourced.
+		for _, w := range r.FlowCoverageWarnings {
+			b.WriteString(fmt.Sprintf("  - flujo: %s: %s\n", w.FlowName, sanitizeTermLine(w.Message)))
 		}
 	}
 	// Org-level error (bug fix): surfaces when the failure has no
 	// per-component/per-test detail at all, e.g. an errorStatusCode
-	// condition.
+	// condition. Remediation (risk WARNING): both fields are org-sourced.
 	if r.ErrorMessage != "" {
+		errMessage := sanitizeTermLine(r.ErrorMessage)
 		if r.ErrorStatusCode != "" {
-			b.WriteString(fmt.Sprintf("\n  %s Error (%s): %s\n", mark("XX"), r.ErrorStatusCode, r.ErrorMessage))
+			b.WriteString(fmt.Sprintf("\n  %s Error (%s): %s\n", mark("XX"), sanitizeTermLine(r.ErrorStatusCode), errMessage))
 		} else {
-			b.WriteString(fmt.Sprintf("\n  %s Error: %s\n", mark("XX"), r.ErrorMessage))
+			b.WriteString(fmt.Sprintf("\n  %s Error: %s\n", mark("XX"), errMessage))
 		}
 	}
 	if r.Status == "Canceled" && r.CanceledByName != "" {
@@ -980,10 +1168,22 @@ func (m Model) validationBody() string {
 	// Invariant (bug fix): a Failed report must never render without a
 	// reason. If none of the structured reasons above fired, say so
 	// explicitly rather than silently showing "Failed" with nothing else.
-	if r.Status == "Failed" &&
-		len(r.ComponentFailures) == 0 && len(r.TestFailures) == 0 &&
-		len(r.CodeCoverageWarnings) == 0 && r.ErrorMessage == "" {
-		b.WriteString("\n  " + mark("XX") + " La validación falló sin detalle estructurado; revisa el JSON crudo.\n")
+	// (D5: no more "revisa el JSON crudo" dead-end — the report-path line
+	// below is the real, reachable escape hatch.) Remediation (readability
+	// WARNING+SUGGESTION): gated by hasStructuredFailureDetail, the SAME
+	// predicate the coverage section above derives from (via
+	// hasCoverageDetail) — this fallback can never contradict a section that
+	// actually rendered, which the old hand-enumerated condition (missing
+	// belowGate/FlowCoverageWarnings) could.
+	if r.Status == "Failed" && !hasStructuredFailureDetail(r, belowGate) {
+		b.WriteString("\n  " + mark("XX") + " La validación falló sin detalle estructurado.\n")
+	}
+	// D5: the latest persisted report path, muted — shown on any terminal
+	// screen (Succeeded/SucceededPartial/Failed/Canceled, including a
+	// timeout, which also lands on StateFailed) but NOT while still live
+	// polling, replacing the prior dead-end hint above.
+	if m.state != StateValidationPolling && m.reportPath != "" {
+		b.WriteString("\n  " + styleDim.Render("Reporte completo: "+m.reportPath) + "\n")
 	}
 	return b.String()
 }

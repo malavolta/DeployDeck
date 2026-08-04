@@ -8,14 +8,23 @@ import (
 )
 
 // QuickDeployResult is a `sf project deploy quick --json` call's outcome.
-// Only the raw stdout+stderr is preserved (Raw): the caller persists it
-// verbatim as quick.json (run-persistence spec) and shows it for
-// diagnostics — no field is decoded out of the response body, so a shape
-// change in the CLI's quick-deploy output never breaks this call.
+// Status is decoded from a successful response (deploy-error-detail gap 7);
+// Raw always preserves the verbatim stdout+stderr — the caller persists it
+// as quick.json (run-persistence spec) and shows it for diagnostics on both
+// success and failure.
 type QuickDeployResult struct {
+	// Status is the job's status after the quick deploy (e.g. "Succeeded").
+	Status string
 	// Raw is the command's captured stdout+stderr, kept for persistence and
 	// display on both success and failure.
 	Raw string
+}
+
+// quickDeployResultEnvelope mirrors the sf CLI's `deploy quick --json`
+// success result object shape; only status is consumed, the rest is
+// preserved verbatim in Raw.
+type quickDeployResultEnvelope struct {
+	Status string `json:"status"`
 }
 
 // QuickDeploy runs `sf project deploy quick --job-id <jobID> --target-org
@@ -51,5 +60,10 @@ func (c *client) QuickDeploy(ctx context.Context, jobID, targetOrg string) (Quic
 		)
 	}
 
-	return QuickDeployResult{Raw: raw}, nil
+	var decoded quickDeployResultEnvelope
+	if err := decodeEnvelope(result.Stdout, &decoded); err != nil {
+		return QuickDeployResult{Raw: raw}, err
+	}
+
+	return QuickDeployResult{Status: decoded.Status, Raw: raw}, nil
 }

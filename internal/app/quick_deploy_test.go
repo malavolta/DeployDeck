@@ -720,7 +720,7 @@ func TestOnQuickDeployDone_Error_AfterNavigatingAway_LeavesRunUnmarked(t *testin
 	next2, _ := m1.Update(keyPress("esc"))
 	m2 := next2.(Model)
 
-	m2.Update(quickDeployDoneMsg{err: errStub})
+	m2.Update(quickDeployDoneMsg{err: errStub, result: salesforce.QuickDeployResult{Raw: `{"status":1,"name":"QuickDeployFailed","message":"window expired"}`}})
 
 	rec, err := runs.NewWriter(dir).Load(runID)
 	if err != nil {
@@ -728,6 +728,18 @@ func TestOnQuickDeployDone_Error_AfterNavigatingAway_LeavesRunUnmarked(t *testin
 	}
 	if !rec.QuickDeployedAt.IsZero() {
 		t.Fatal("a failed quick deploy must never mark the run as quick-deployed")
+	}
+
+	// deploy-error-detail (task 3.5, run-persistence spec "Failed Cancel/
+	// Quick-Deploy Raw Response Persisted As A Companion File"): a failed
+	// quick deploy persists its raw response as quick-error.json via
+	// SaveRawCompanion.
+	companionData, err := os.ReadFile(filepath.Join(dir, ".deploydeck", "runs", runID, "quick-error.json"))
+	if err != nil {
+		t.Fatalf("a failed quick deploy should persist quick-error.json: %v", err)
+	}
+	if !strings.Contains(string(companionData), "QuickDeployFailed") {
+		t.Errorf("expected quick-error.json to hold the raw failure response verbatim, got %q", companionData)
 	}
 }
 

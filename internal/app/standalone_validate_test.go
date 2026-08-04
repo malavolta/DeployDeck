@@ -379,3 +379,133 @@ func TestValidateCmd_StandaloneValidate_MergesJobIdOntoPreCreatedRecord(t *testi
 		t.Errorf("expected exactly 1 run dir (reused, not duplicated), got %d", len(entries))
 	}
 }
+
+// TestValidateCmd_LaunchFailureWithPreCreatedRunID_PersistsValidateJSONCompanion
+// is the deploy-error-detail RED (task 3.7, D7, deploy-validation spec
+// "Launch Error Shows An Actionable Message And The Persisted-Raw Path"): a
+// launch failure with a pre-created runID (e.g. the standalone-validate
+// Mode="validate" record) persists the raw failure envelope via
+// SaveRawCompanion("validate.json") and returns its path on validateDoneMsg.
+func TestValidateCmd_LaunchFailureWithPreCreatedRunID_PersistsValidateJSONCompanion(t *testing.T) {
+	dir := t.TempDir()
+	writer := runs.NewWriter(dir)
+	clk := &fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+
+	runID := "validate-UAT_SBX-20260102030405"
+	if err := writer.Save(runs.Record{
+		RunID:        runID,
+		Mode:         "validate",
+		ManifestPath: "pkg/package.xml",
+		Alias:        "UAT_SBX",
+		TestLevel:    "RunLocalTests",
+		CreatedAt:    clk.t,
+		UpdatedAt:    clk.t,
+	}); err != nil {
+		t.Fatalf("seeding the pre-created run: %v", err)
+	}
+
+	fr := execpkg.NewFakeRunner()
+	fr.When("sf", []string{
+		"project", "deploy", "validate",
+		"--manifest", "pkg/package.xml",
+		"--target-org", "UAT_SBX",
+		"--test-level", "RunLocalTests",
+		"--async", "--json",
+	}, execpkg.CommandResult{
+		ExitCode: 1,
+		Stdout:   []byte(`{"status":1,"name":"InvalidManifest","message":"package.xml is invalid","exitCode":1}`),
+	})
+
+	m := New(Deps{Dir: dir, Config: standaloneValidateConfig(), SF: salesforce.New(fr), Runs: writer, Now: clk.now})
+	m.plan.PackageXMLPath = "pkg/package.xml"
+	m.plan.SandboxAlias = "UAT_SBX"
+	m.plan.TestLevel = "RunLocalTests"
+	m.runID = runID
+
+	msg := run(t, m.validateCmd())
+	vmsg, ok := msg.(validateDoneMsg)
+	if !ok {
+		t.Fatalf("expected validateDoneMsg, got %T", msg)
+	}
+	if vmsg.err == nil {
+		t.Fatal("expected a launch error")
+	}
+	wantPath := filepath.Join(dir, ".deploydeck", "runs", runID, "validate.json")
+	if vmsg.rawPath != wantPath {
+		t.Fatalf("expected rawPath %q, got %q", wantPath, vmsg.rawPath)
+	}
+
+	got, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected validate.json companion to exist: %v", err)
+	}
+	if !strings.Contains(string(got), "InvalidManifest") {
+		t.Errorf("expected the persisted companion to hold the raw failure envelope, got %q", got)
+	}
+}
+
+// TestValidateCmd_LaunchFailureWithNoRunID_CreatesFailedRunFallback is the
+// deploy-error-detail RED (task 3.7, D7): a launch failure with NO
+// pre-created runID falls back to Create(rec{Status:"Failed"}, raw) —
+// mirroring the success no-runID fallback — and returns the persisted
+// validate.json path.
+func TestValidateCmd_LaunchFailureWithNoRunID_CreatesFailedRunFallback(t *testing.T) {
+	dir := t.TempDir()
+	writer := runs.NewWriter(dir)
+	clk := &fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+
+	fr := execpkg.NewFakeRunner()
+	fr.When("sf", []string{
+		"project", "deploy", "validate",
+		"--manifest", "pkg/package.xml",
+		"--post-destructive-changes", "pkg/destructiveChanges.xml",
+		"--target-org", "UAT_SBX",
+		"--test-level", "RunLocalTests",
+		"--async", "--json",
+	}, execpkg.CommandResult{
+		ExitCode: 1,
+		Stdout:   []byte(`{"status":1,"name":"AuthError","message":"session expired","exitCode":1}`),
+	})
+
+	m := New(Deps{Dir: dir, Config: validationConfig(), SF: salesforce.New(fr), Runs: writer, Now: clk.now})
+	m.plan = git.DeploymentPlan{
+		Ticket:                 "PROJ-9",
+		TargetBranch:           "UAT",
+		SandboxAlias:           "UAT_SBX",
+		PackageXMLPath:         "pkg/package.xml",
+		DestructiveChangesPath: "pkg/destructiveChanges.xml",
+		TestLevel:              "RunLocalTests",
+	}
+
+	msg := run(t, m.validateCmd())
+	vmsg, ok := msg.(validateDoneMsg)
+	if !ok {
+		t.Fatalf("expected validateDoneMsg, got %T", msg)
+	}
+	if vmsg.err == nil {
+		t.Fatal("expected a launch error")
+	}
+	if vmsg.runID == "" {
+		t.Fatal("expected a fallback runID to be created")
+	}
+
+	rec, err := writer.Load(vmsg.runID)
+	if err != nil {
+		t.Fatalf("expected the fallback run to be persisted: %v", err)
+	}
+	if rec.Status != "Failed" {
+		t.Errorf("expected fallback run Status %q, got %q", "Failed", rec.Status)
+	}
+
+	wantPath := filepath.Join(dir, ".deploydeck", "runs", vmsg.runID, "validate.json")
+	if vmsg.rawPath != wantPath {
+		t.Fatalf("expected rawPath %q, got %q", wantPath, vmsg.rawPath)
+	}
+	got, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected validate.json to exist: %v", err)
+	}
+	if !strings.Contains(string(got), "AuthError") {
+		t.Errorf("expected validate.json to hold the raw failure envelope, got %q", got)
+	}
+}

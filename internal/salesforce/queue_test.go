@@ -13,7 +13,10 @@ import (
 // deployQueueSOQL mirrors the exact query internal/salesforce's
 // ListDeployQueue composes (HU-009 command, EPICA.md:371-375 /
 // HISTORIAS.md:606-614), so FakeRunner.When matches the real args.
-const deployQueueSOQL = "SELECT Id,Status,CheckOnly,CreatedDate,StartDate,CompletedDate,CreatedBy.Name,CreatedBy.Username,NumberComponentsTotal,NumberComponentsDeployed,NumberComponentErrors,NumberTestsTotal,NumberTestsCompleted,NumberTestErrors FROM DeployRequest WHERE Status IN ('Pending','InProgress') ORDER BY CreatedDate ASC"
+// StateDetail/ErrorMessage/ErrorStatusCode are additive columns
+// (deploy-error-detail D8): the WHERE clause stays Status IN
+// ('Pending','InProgress') unchanged (design.md Open Questions).
+const deployQueueSOQL = "SELECT Id,Status,CheckOnly,CreatedDate,StartDate,CompletedDate,CreatedBy.Name,CreatedBy.Username,StateDetail,ErrorMessage,ErrorStatusCode,NumberComponentsTotal,NumberComponentsDeployed,NumberComponentErrors,NumberTestsTotal,NumberTestsCompleted,NumberTestErrors FROM DeployRequest WHERE Status IN ('Pending','InProgress') ORDER BY CreatedDate ASC"
 
 func deployQueueArgs(alias string) []string {
 	return []string{
@@ -191,6 +194,38 @@ func TestClient_ListDeployQueue_GenericErrorIsNotSwallowed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "An unexpected error occurred") {
 		t.Fatalf("expected the generic error message to be surfaced, got: %v", err)
+	}
+}
+
+// TestClient_ListDeployQueue_ParsesStateDetailErrorMessageErrorStatusCode is
+// the deploy-error-detail RED (task 1.7): DeployQueueEntry maps
+// StateDetail/ErrorMessage/ErrorStatusCode from the record, and a record
+// without them stays zero-valued (D8, backward-compatible).
+func TestClient_ListDeployQueue_ParsesStateDetailErrorMessageErrorStatusCode(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	fr.When("sf", deployQueueArgs("UAT_SANDBOX"), exec.CommandResult{
+		ExitCode: 0,
+		Stdout: []byte(`{"status":0,"result":{"totalSize":2,"done":true,"records":[
+			{"Id":"0AfERR","Status":"InProgress","CheckOnly":false,"CreatedDate":"2026-07-27T10:00:00.000+0000","CreatedBy":{"Name":"A","Username":"a@example.com"},"StateDetail":"Deploying Metadata","ErrorMessage":"Component failed to deploy","ErrorStatusCode":"COMPONENT_FAILURE"},
+			{"Id":"0AfOK","Status":"Pending","CheckOnly":false,"CreatedDate":"2026-07-27T10:01:00.000+0000","CreatedBy":{"Name":"B","Username":"b@example.com"}}
+		]}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ListDeployQueue(context.Background(), "UAT_SANDBOX")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got))
+	}
+	errored := got[0]
+	if errored.StateDetail != "Deploying Metadata" || errored.ErrorMessage != "Component failed to deploy" || errored.ErrorStatusCode != "COMPONENT_FAILURE" {
+		t.Fatalf("expected errored entry {StateDetail:Deploying Metadata ErrorMessage:Component failed to deploy ErrorStatusCode:COMPONENT_FAILURE}, got %+v", errored)
+	}
+	clean := got[1]
+	if clean.StateDetail != "" || clean.ErrorMessage != "" || clean.ErrorStatusCode != "" {
+		t.Fatalf("expected a record without these fields to stay zero-valued, got %+v", clean)
 	}
 }
 

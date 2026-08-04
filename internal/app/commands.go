@@ -179,12 +179,16 @@ type deltaDoneMsg struct {
 
 // validateDoneMsg carries the HU-010 validate outcome: the jobId-bearing
 // result, the persisted run id/dir, or an error (CLI error or persistence
-// failure — the flow stays alive either way).
+// failure — the flow stays alive either way). rawPath (D7,
+// deploy-error-detail) is the persisted validate.json companion's path when
+// the launch itself failed (before any jobId is obtained), surfaced on
+// viewValidationStart alongside the error message.
 type validateDoneMsg struct {
-	result salesforce.ValidateResult
-	runID  string
-	runDir string
-	err    error
+	result  salesforce.ValidateResult
+	runID   string
+	runDir  string
+	rawPath string
+	err     error
 }
 
 // reportDoneMsg carries one HU-011 poll's DeployReport, or a transient error
@@ -986,7 +990,39 @@ func (m Model) validateCmd() tea.Cmd {
 			TestLevel:           plan.TestLevel,
 		})
 		if err != nil {
-			return validateDoneMsg{result: result, err: err}
+			// D7: persist the raw launch-failure envelope so its path can be
+			// surfaced alongside the message (deploy-validation spec "Launch
+			// Error Shows An Actionable Message And The Persisted-Raw Path").
+			// A pre-created run (runID already known, e.g. standalone-validate's
+			// Mode="validate" record) reuses it via SaveRawCompanion, mirroring
+			// the established writer-companion pattern; with no prior run this
+			// falls back to Create(rec{Status:"Failed"}, raw) — the SAME
+			// fallback-id derivation the success no-runID branch below uses —
+			// since Create already writes validate.json itself. Best-effort:
+			// a persistence hiccup never replaces the original launch error.
+			if writer == nil {
+				return validateDoneMsg{result: result, err: err}
+			}
+			if runID != "" {
+				if path, serr := writer.SaveRawCompanion(runID, "validate.json", []byte(result.Raw)); serr == nil {
+					return validateDoneMsg{result: result, err: err, rawPath: path}
+				}
+				return validateDoneMsg{result: result, err: err}
+			}
+			fallbackID := plan.Ticket + "-to-" + plan.TargetBranch + "-" + now.Format("20060102150405")
+			failedRunDir, cerr := writer.Create(runs.Record{
+				RunID:     fallbackID,
+				Ticket:    plan.Ticket,
+				Target:    plan.TargetBranch,
+				Alias:     plan.SandboxAlias,
+				Status:    "Failed",
+				CreatedAt: now,
+				UpdatedAt: now,
+			}, []byte(result.Raw))
+			if cerr != nil {
+				return validateDoneMsg{result: result, err: err}
+			}
+			return validateDoneMsg{result: result, err: err, runID: fallbackID, rawPath: filepath.Join(failedRunDir, "validate.json")}
 		}
 
 		if runID != "" {

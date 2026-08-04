@@ -303,6 +303,231 @@ func TestClient_ReportDeploy_NonZeroExitUnparseableStillErrors(t *testing.T) {
 	}
 }
 
+// TestClient_ReportDeploy_ParsesComponentFailureFileLineColumnAndProblemType
+// is the deploy-error-detail RED (task 1.1): componentFailures entries carry
+// fileName/lineNumber/columnNumber/problemType (Error AND Warning), single-
+// and multi-entry, and a legacy entry missing these fields decodes with them
+// zero-valued rather than erroring.
+func TestClient_ReportDeploy_ParsesComponentFailureFileLineColumnAndProblemType(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000010EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 1,
+		Stdout: []byte(`{"status":1,"result":{
+			"status":"Failed",
+			"numberComponentsTotal":3,
+			"numberComponentsDeployed":0,
+			"numberComponentErrors":3,
+			"numberTestsTotal":0,
+			"numberTestsCompleted":0,
+			"numberTestErrors":0,
+			"details":{
+				"componentFailures":[
+					{"fullName":"MyClass","componentType":"ApexClass","problem":"Compile error: unexpected token","fileName":"classes/MyClass.cls","lineNumber":12,"columnNumber":5,"problemType":"Error"},
+					{"fullName":"MyTrigger","componentType":"ApexTrigger","problem":"Unused variable","fileName":"triggers/MyTrigger.trigger","lineNumber":3,"problemType":"Warning"},
+					{"fullName":"LegacyComponent","componentType":"ApexClass","problem":"legacy entry, no location fields"}
+				],
+				"runTestResult":{"failures":[]}
+			}
+		}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000010EAA", "UAT_SANDBOX", "/repo")
+	if err != nil {
+		t.Fatalf("a parseable terminal report must not error: %v", err)
+	}
+	if len(got.ComponentFailures) != 3 {
+		t.Fatalf("expected 3 component failures, got %d: %+v", len(got.ComponentFailures), got.ComponentFailures)
+	}
+
+	errEntry := got.ComponentFailures[0]
+	if errEntry.FileName != "classes/MyClass.cls" || errEntry.LineNumber != 12 || errEntry.ColumnNumber != 5 || errEntry.ProblemType != "Error" {
+		t.Fatalf("expected Error entry {FileName:classes/MyClass.cls LineNumber:12 ColumnNumber:5 ProblemType:Error}, got %+v", errEntry)
+	}
+
+	warnEntry := got.ComponentFailures[1]
+	if warnEntry.FileName != "triggers/MyTrigger.trigger" || warnEntry.LineNumber != 3 || warnEntry.ColumnNumber != 0 || warnEntry.ProblemType != "Warning" {
+		t.Fatalf("expected Warning entry {FileName:triggers/MyTrigger.trigger LineNumber:3 ColumnNumber:0 ProblemType:Warning}, got %+v", warnEntry)
+	}
+
+	legacyEntry := got.ComponentFailures[2]
+	if legacyEntry.FileName != "" || legacyEntry.LineNumber != 0 || legacyEntry.ColumnNumber != 0 || legacyEntry.ProblemType != "" {
+		t.Fatalf("expected legacy entry to stay zero-valued for absent location fields, got %+v", legacyEntry)
+	}
+}
+
+// TestClient_ReportDeploy_ParsesTestFailureStackTrace is the deploy-error-detail
+// RED (task 1.2): TestFailure.StackTrace is captured when the report provides
+// it and stays empty when absent.
+func TestClient_ReportDeploy_ParsesTestFailureStackTrace(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000011EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 1,
+		Stdout: []byte(`{"status":1,"result":{
+			"status":"Failed",
+			"numberComponentsTotal":0,
+			"numberComponentsDeployed":0,
+			"numberComponentErrors":0,
+			"numberTestsTotal":5,
+			"numberTestsCompleted":5,
+			"numberTestErrors":2,
+			"details":{
+				"componentFailures":[],
+				"runTestResult":{
+					"failures":[
+						{"name":"MyClassTest","methodName":"testSomething","message":"System.AssertException: Assertion Failed","stackTrace":"Class.MyClassTest.testSomething: line 10, column 1"},
+						{"name":"OtherClassTest","methodName":"testOther","message":"System.NullPointerException"}
+					]
+				}
+			}
+		}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000011EAA", "UAT_SANDBOX", "/repo")
+	if err != nil {
+		t.Fatalf("a parseable terminal report must not error: %v", err)
+	}
+	if len(got.TestFailures) != 2 {
+		t.Fatalf("expected 2 test failures, got %d: %+v", len(got.TestFailures), got.TestFailures)
+	}
+	if got.TestFailures[0].StackTrace != "Class.MyClassTest.testSomething: line 10, column 1" {
+		t.Fatalf("expected StackTrace captured, got %q", got.TestFailures[0].StackTrace)
+	}
+	if got.TestFailures[1].StackTrace != "" {
+		t.Fatalf("expected StackTrace to stay empty when absent, got %q", got.TestFailures[1].StackTrace)
+	}
+}
+
+// TestCodeCoverageResult_Percent is the deploy-error-detail RED (task 1.3,
+// pure-function half): Percent() computes the covered-locations percentage,
+// with num==0 degrading to 0 rather than dividing by zero.
+func TestCodeCoverageResult_Percent(t *testing.T) {
+	tests := []struct {
+		name string
+		c    salesforce.CodeCoverageResult
+		want int
+	}{
+		{"zero locations does not divide by zero", salesforce.CodeCoverageResult{NumLocations: 0, NumLocationsNotCovered: 0}, 0},
+		{"normal division", salesforce.CodeCoverageResult{NumLocations: 100, NumLocationsNotCovered: 30}, 70},
+		{"fully covered", salesforce.CodeCoverageResult{NumLocations: 50, NumLocationsNotCovered: 0}, 100},
+		{"fully uncovered", salesforce.CodeCoverageResult{NumLocations: 20, NumLocationsNotCovered: 20}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.c.Percent(); got != tt.want {
+				t.Errorf("Percent() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestClient_ReportDeploy_ParsesCodeCoverageResults is the deploy-error-detail
+// RED (task 1.3, envelope half): codeCoverage[] entries decode into
+// CodeCoverageResult{Name,Namespace,NumLocations,NumLocationsNotCovered}.
+func TestClient_ReportDeploy_ParsesCodeCoverageResults(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000012EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 1,
+		Stdout: []byte(`{"status":1,"result":{
+			"status":"Failed",
+			"details":{
+				"componentFailures":[],
+				"runTestResult":{
+					"failures":[],
+					"codeCoverage":[
+						{"name":"MyClass","namespace":"","numLocations":100,"numLocationsNotCovered":40},
+						{"name":"OtherClass","namespace":"ns","numLocations":10,"numLocationsNotCovered":0}
+					]
+				}
+			}
+		}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000012EAA", "UAT_SANDBOX", "/repo")
+	if err != nil {
+		t.Fatalf("a parseable terminal report must not error: %v", err)
+	}
+	if len(got.CodeCoverage) != 2 {
+		t.Fatalf("expected 2 code coverage results, got %d: %+v", len(got.CodeCoverage), got.CodeCoverage)
+	}
+	c := got.CodeCoverage[0]
+	if c.Name != "MyClass" || c.NumLocations != 100 || c.NumLocationsNotCovered != 40 {
+		t.Fatalf("expected {Name:MyClass NumLocations:100 NumLocationsNotCovered:40}, got %+v", c)
+	}
+	if c.Percent() != 60 {
+		t.Fatalf("expected Percent() 60, got %d", c.Percent())
+	}
+	if got.CodeCoverage[1].Namespace != "ns" {
+		t.Fatalf("expected Namespace ns, got %+v", got.CodeCoverage[1])
+	}
+}
+
+// TestClient_ReportDeploy_ParsesFlowCoverageWarningsAndStateDetail is the
+// deploy-error-detail RED (task 1.4): flowCoverageWarnings[] decode into
+// FlowCoverageWarning{FlowName,Message} and top-level stateDetail decodes
+// into DeployReport.StateDetail.
+func TestClient_ReportDeploy_ParsesFlowCoverageWarningsAndStateDetail(t *testing.T) {
+	fr := exec.NewFakeRunner()
+	args := []string{
+		"project", "deploy", "report",
+		"--job-id", "0Af000000000013EAA",
+		"--target-org", "UAT_SANDBOX",
+		"--json",
+	}
+	fr.When("sf", args, exec.CommandResult{
+		ExitCode: 0,
+		Stdout: []byte(`{"status":0,"result":{
+			"status":"InProgress",
+			"stateDetail":"Deploying Metadata",
+			"details":{
+				"componentFailures":[],
+				"runTestResult":{
+					"failures":[],
+					"flowCoverageWarnings":[
+						{"flowName":"My_Flow","message":"Flow coverage below threshold"}
+					]
+				}
+			}
+		}}`),
+	})
+	client := salesforce.New(fr)
+
+	got, err := client.ReportDeploy(context.Background(), "0Af000000000013EAA", "UAT_SANDBOX", "/repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.FlowCoverageWarnings) != 1 {
+		t.Fatalf("expected 1 flow coverage warning, got %d: %+v", len(got.FlowCoverageWarnings), got.FlowCoverageWarnings)
+	}
+	w := got.FlowCoverageWarnings[0]
+	if w.FlowName != "My_Flow" || w.Message != "Flow coverage below threshold" {
+		t.Fatalf("expected {FlowName:My_Flow Message:...}, got %+v", w)
+	}
+	if got.StateDetail != "Deploying Metadata" {
+		t.Fatalf("expected StateDetail %q, got %q", "Deploying Metadata", got.StateDetail)
+	}
+}
+
 func TestIsTerminal(t *testing.T) {
 	tests := []struct {
 		status string

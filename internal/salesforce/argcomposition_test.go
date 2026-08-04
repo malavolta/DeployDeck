@@ -86,7 +86,7 @@ func TestThreatMatrix_CancelDeploy_JobIDIsOneDiscreteArg(t *testing.T) {
 		"--job-id", adversarialJobID,
 		"--target-org", "UAT_SANDBOX",
 		"--json",
-	}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0}`)})
+	}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	if _, err := salesforce.New(fr).CancelDeploy(context.Background(), adversarialJobID, "UAT_SANDBOX"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -126,7 +126,7 @@ func TestThreatMatrix_QuickDeploy_JobIDIsOneDiscreteArg(t *testing.T) {
 		"--job-id", adversarialJobID,
 		"--target-org", "UAT_SANDBOX",
 		"--json",
-	}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0}`)})
+	}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	if _, err := salesforce.New(fr).QuickDeploy(context.Background(), adversarialJobID, "UAT_SANDBOX"); err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -10,20 +10,64 @@ import (
 
 // ComponentFailure is one metadata deploy error (HU-011 AC: "se muestran
 // con componente, tipo y mensaje"), decoded from the report's
-// details.componentFailures entries (fullName, componentType, problem).
+// details.componentFailures entries (fullName, componentType, problem,
+// fileName, lineNumber, columnNumber, problemType). FileName/LineNumber/
+// ColumnNumber/ProblemType are additive, backward-compatible fields
+// (deploy-error-detail gap 1): an entry without them still decodes fine,
+// leaving these at their zero value. ProblemType is "Error" or "Warning".
 type ComponentFailure struct {
 	Component string
 	Type      string
 	Message   string
+
+	FileName     string
+	LineNumber   int
+	ColumnNumber int
+	ProblemType  string
 }
 
 // TestFailure is one failed Apex test (HU-011 AC: "se muestran ... con
 // clase, metodo y mensaje"), decoded from the report's
-// details.runTestResult.failures entries (name, methodName, message).
+// details.runTestResult.failures entries (name, methodName, message,
+// stackTrace). StackTrace is additive (deploy-error-detail gap 2): an
+// entry without it still decodes fine, leaving it "".
 type TestFailure struct {
 	Class   string
 	Method  string
 	Message string
+
+	StackTrace string
+}
+
+// CodeCoverageResult is one class/trigger's per-entity coverage, decoded
+// from the report's details.runTestResult.codeCoverage[] entries
+// (deploy-error-detail gap 3): distinct from CodeCoverageWarning (an
+// org/class-level shortfall message), this carries the raw location counts
+// needed to compute a percentage.
+type CodeCoverageResult struct {
+	Name      string
+	Namespace string
+
+	NumLocations           int
+	NumLocationsNotCovered int
+}
+
+// Percent returns the covered-locations percentage, 0 when NumLocations is
+// 0 (never divides by zero).
+func (c CodeCoverageResult) Percent() int {
+	if c.NumLocations == 0 {
+		return 0
+	}
+	covered := c.NumLocations - c.NumLocationsNotCovered
+	return covered * 100 / c.NumLocations
+}
+
+// FlowCoverageWarning is one Flow with insufficient test coverage, decoded
+// from the report's details.runTestResult.flowCoverageWarnings[] entries
+// (deploy-error-detail gap 3).
+type FlowCoverageWarning struct {
+	FlowName string
+	Message  string
 }
 
 // CodeCoverageWarning is one code-coverage shortfall reported by the test
@@ -63,10 +107,20 @@ type DeployReport struct {
 	// CanceledByName is who canceled the job, populated when Status ==
 	// "Canceled".
 	CanceledByName string
+	// StateDetail is the job's current-step description (e.g. "Deploying
+	// Metadata"), additive (deploy-error-detail gap 4): a report without it
+	// still decodes fine, leaving this "".
+	StateDetail string
 
 	ComponentFailures    []ComponentFailure
 	TestFailures         []TestFailure
 	CodeCoverageWarnings []CodeCoverageWarning
+	// CodeCoverage is additive (deploy-error-detail gap 3): per-class
+	// coverage results, distinct from CodeCoverageWarnings (shortfall
+	// messages).
+	CodeCoverage []CodeCoverageResult
+	// FlowCoverageWarnings is additive (deploy-error-detail gap 3).
+	FlowCoverageWarnings []FlowCoverageWarning
 
 	// Raw is the command's captured stdout+stderr, kept for diagnostics
 	// and display even when the call errored (HU-011 AC: "Guardar cada
@@ -103,18 +157,29 @@ type reportResultEnvelope struct {
 	ErrorMessage    string `json:"errorMessage"`
 	ErrorStatusCode string `json:"errorStatusCode"`
 	CanceledByName  string `json:"canceledByName"`
+	// StateDetail is additive (deploy-error-detail gap 4).
+	StateDetail string `json:"stateDetail"`
 
 	Details struct {
 		ComponentFailures []struct {
 			FullName      string `json:"fullName"`
 			ComponentType string `json:"componentType"`
 			Problem       string `json:"problem"`
+			// FileName/LineNumber/ColumnNumber/ProblemType are additive
+			// (deploy-error-detail gap 1): an entry without them still
+			// decodes fine, leaving these at their zero value.
+			FileName     string `json:"fileName"`
+			LineNumber   int    `json:"lineNumber"`
+			ColumnNumber int    `json:"columnNumber"`
+			ProblemType  string `json:"problemType"`
 		} `json:"componentFailures"`
 		RunTestResult struct {
 			Failures []struct {
 				Name       string `json:"name"`
 				MethodName string `json:"methodName"`
 				Message    string `json:"message"`
+				// StackTrace is additive (deploy-error-detail gap 2).
+				StackTrace string `json:"stackTrace"`
 			} `json:"failures"`
 			// CodeCoverageWarnings is additive (bug fix): a report without it
 			// still decodes fine, leaving this nil. Name is nullable in the
@@ -124,6 +189,20 @@ type reportResultEnvelope struct {
 				Namespace string `json:"namespace"`
 				Message   string `json:"message"`
 			} `json:"codeCoverageWarnings"`
+			// CodeCoverage is additive (deploy-error-detail gap 3): per-class
+			// coverage results, a report without it still decodes fine,
+			// leaving this nil.
+			CodeCoverage []struct {
+				Name                   string `json:"name"`
+				Namespace              string `json:"namespace"`
+				NumLocations           int    `json:"numLocations"`
+				NumLocationsNotCovered int    `json:"numLocationsNotCovered"`
+			} `json:"codeCoverage"`
+			// FlowCoverageWarnings is additive (deploy-error-detail gap 3).
+			FlowCoverageWarnings []struct {
+				FlowName string `json:"flowName"`
+				Message  string `json:"message"`
+			} `json:"flowCoverageWarnings"`
 		} `json:"runTestResult"`
 	} `json:"details"`
 }
@@ -211,20 +290,26 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 		ErrorMessage:             decoded.ErrorMessage,
 		ErrorStatusCode:          decoded.ErrorStatusCode,
 		CanceledByName:           decoded.CanceledByName,
+		StateDetail:              decoded.StateDetail,
 		Raw:                      raw,
 	}
 	for _, f := range decoded.Details.ComponentFailures {
 		report.ComponentFailures = append(report.ComponentFailures, ComponentFailure{
-			Component: f.FullName,
-			Type:      f.ComponentType,
-			Message:   f.Problem,
+			Component:    f.FullName,
+			Type:         f.ComponentType,
+			Message:      f.Problem,
+			FileName:     f.FileName,
+			LineNumber:   f.LineNumber,
+			ColumnNumber: f.ColumnNumber,
+			ProblemType:  f.ProblemType,
 		})
 	}
 	for _, f := range decoded.Details.RunTestResult.Failures {
 		report.TestFailures = append(report.TestFailures, TestFailure{
-			Class:   f.Name,
-			Method:  f.MethodName,
-			Message: f.Message,
+			Class:      f.Name,
+			Method:     f.MethodName,
+			Message:    f.Message,
+			StackTrace: f.StackTrace,
 		})
 	}
 	for _, w := range decoded.Details.RunTestResult.CodeCoverageWarnings {
@@ -232,6 +317,20 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 			Name:      w.Name,
 			Namespace: w.Namespace,
 			Message:   w.Message,
+		})
+	}
+	for _, c := range decoded.Details.RunTestResult.CodeCoverage {
+		report.CodeCoverage = append(report.CodeCoverage, CodeCoverageResult{
+			Name:                   c.Name,
+			Namespace:              c.Namespace,
+			NumLocations:           c.NumLocations,
+			NumLocationsNotCovered: c.NumLocationsNotCovered,
+		})
+	}
+	for _, w := range decoded.Details.RunTestResult.FlowCoverageWarnings {
+		report.FlowCoverageWarnings = append(report.FlowCoverageWarnings, FlowCoverageWarning{
+			FlowName: w.FlowName,
+			Message:  w.Message,
 		})
 	}
 

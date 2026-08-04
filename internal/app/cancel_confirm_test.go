@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -313,6 +314,60 @@ func TestModel_OnCancelDone_Failure_StaysAndLeavesRunUnmarked(t *testing.T) {
 	_ = json.Unmarshal(runData, &rec)
 	if rec.Status == "Canceled" {
 		t.Error("a failed cancel must NOT mark the run Canceled")
+	}
+
+	// deploy-error-detail (task 3.3, run-persistence spec "Failed Cancel/
+	// Quick-Deploy Raw Response Persisted As A Companion File"): a GENERIC
+	// (non-already-terminal) cancel failure persists the raw response as
+	// cancel-error.json via SaveRawCompanion.
+	companionData, err := os.ReadFile(filepath.Join(runRoot, "cancel-error.json"))
+	if err != nil {
+		t.Fatalf("a generic cancel failure should persist cancel-error.json: %v", err)
+	}
+	if string(companionData) != "" {
+		t.Errorf("expected cancel-error.json to hold the raw failure response verbatim (empty Raw here), got %q", companionData)
+	}
+}
+
+// TestModel_OnCancelDone_AlreadyTerminal_ShowsFriendlyMessageAndLeavesRunUntouched
+// is the deploy-error-detail RED (task 3.2, D6, validation-cancel spec
+// "Already-Terminal Cancel Classified As A Friendly Outcome"): when the
+// cancel error wraps ErrCancelAlreadyTerminal, onCancelDone shows a friendly
+// notice (never a raw CLI error), leaves the run unmarked, and writes NO
+// cancel-error.json companion.
+func TestModel_OnCancelDone_AlreadyTerminal_ShowsFriendlyMessageAndLeavesRunUntouched(t *testing.T) {
+	m, _, dir, runID := cancelPollingModel(t, cancelSuccess())
+	m.state = StateCancelConfirm
+
+	alreadyTerminalErr := fmt.Errorf("%w: job already completed", salesforce.ErrCancelAlreadyTerminal)
+	next, cmd := m.Update(cancelDoneMsg{err: alreadyTerminalErr})
+	nm := next.(Model)
+
+	if nm.State() != StateCancelConfirm {
+		t.Fatalf("an already-terminal outcome should stay on the confirm screen, got %v", nm.State())
+	}
+	if cmd != nil {
+		t.Error("landing on the already-terminal outcome should not fire another command")
+	}
+	if nm.cancelErr != nil {
+		t.Errorf("an already-terminal outcome must NOT surface as a raw CLI error, got %v", nm.cancelErr)
+	}
+	if nm.notice == "" {
+		t.Error("an already-terminal outcome should show a friendly notice")
+	}
+
+	runRoot := filepath.Join(dir, ".deploydeck", "runs", runID)
+	if _, err := os.Stat(filepath.Join(runRoot, "cancel-error.json")); err == nil {
+		t.Error("an already-terminal outcome must NOT write cancel-error.json (friendly outcome, not a failure)")
+	}
+	if _, err := os.Stat(filepath.Join(runRoot, "cancel.json")); err == nil {
+		t.Error("an already-terminal outcome must NOT write cancel.json either")
+	}
+	runData, _ := os.ReadFile(filepath.Join(runRoot, "run.json"))
+	var rec runs.Record
+	_ = json.Unmarshal(runData, &rec)
+	if rec.Status == "Canceled" {
+		t.Error("an already-terminal outcome must NOT mark the run Canceled")
 	}
 }
 

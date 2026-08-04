@@ -661,6 +661,24 @@ func TestModel_ValidationPolling_PersistsEachReport(t *testing.T) {
 	}
 }
 
+// TestModel_OnReportDone_CapturesReportPath is the deploy-error-detail RED
+// (task 3.1): onReportDone captures the exact report-NNN.json path
+// AppendReport returns into m.reportPath (D5), so failure/result screens can
+// surface it in place of the dead-end "revisa el JSON crudo" hint.
+func TestModel_OnReportDone_CapturesReportPath(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	m := pollingModel(t, dir, clk)
+
+	next, _ := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "InProgress", Raw: `{"status":"InProgress"}`}})
+	nm := next.(Model)
+
+	wantPath := filepath.Join(dir, ".deploydeck", "runs", "PROJ-1-to-UAT-poll", "report-001.json")
+	if nm.reportPath != wantPath {
+		t.Fatalf("expected reportPath %q, got %q", wantPath, nm.reportPath)
+	}
+}
+
 // --- 7.13 terminal mapping -------------------------------------------------
 
 // TestModel_ValidationPolling_TerminalMapping is tasks 7.13/7.14: terminal

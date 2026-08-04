@@ -14,6 +14,17 @@ import (
 	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
+// cancelErrorCompanionFilename/quickErrorCompanionFilename are the
+// deploy-error-detail (gap7) companion filenames SaveRawCompanion writes a
+// GENERIC (non-already-terminal) cancel/quick-deploy failure's raw response
+// under, mirroring the cancel.json/quick.json success-companion naming.
+// Always compile-time consts, never derived from user input (design.md
+// Threat Matrix "Companion file writes").
+const (
+	cancelErrorCompanionFilename = "cancel-error.json"
+	quickErrorCompanionFilename  = "quick-error.json"
+)
+
 // Update is the Bubble Tea reducer. It derives the next state from the
 // incoming message and, where a service call is needed, returns a command
 // that routes through the injected services (never an app-level exec).
@@ -958,6 +969,10 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 	m.runDir = msg.runDir
 	if msg.err != nil {
 		m.validateErr = msg.err
+		// D7: surface the persisted validate.json companion's path, when the
+		// launch failure was persisted (best-effort; empty when persistence
+		// itself failed or Deps.Runs is nil).
+		m.validateRawPath = msg.rawPath
 		m.state = StateValidationStart
 		return m, nil
 	}
@@ -983,9 +998,16 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 // report subprocess (cancelPoll), persists the cancel via MarkCanceled
 // (cancel.json + run.json Status=Canceled — best-effort, mirroring the polling
 // persistence: a write hiccup must not undo an already-succeeded SF cancel), and
-// moves to the terminal StateCanceled. On failure it surfaces the error and
-// stays on StateCancelConfirm with the run NOT marked (validation-cancel spec:
-// "a failed cancel leaves the run untouched").
+// moves to the terminal StateCanceled. On failure, two outcomes are
+// distinguished (D6, deploy-error-detail): an already-terminal outcome
+// (errors.Is ErrCancelAlreadyTerminal — the job reached a terminal state on
+// Salesforce before the cancel landed) is a FRIENDLY informational message,
+// never a raw CLI error, and writes NO companion — the run's persisted state
+// stays untouched, exactly as a success-path no-op would. A GENERIC failure
+// surfaces the error, stays on StateCancelConfirm with the run NOT marked
+// (validation-cancel spec: "a failed cancel leaves the run untouched"), and
+// best-effort persists the raw failure response as cancel-error.json via
+// SaveRawCompanion (gap7).
 func (m Model) onCancelDone(msg cancelDoneMsg) (tea.Model, tea.Cmd) {
 	if m.state != StateCancelConfirm {
 		// A late/duplicate cancel after we already left the confirm screen is
@@ -993,7 +1015,18 @@ func (m Model) onCancelDone(msg cancelDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil {
+		if errors.Is(msg.err, salesforce.ErrCancelAlreadyTerminal) {
+			// D6: a friendly, non-fatal outcome — never a raw CLI error, and the
+			// run's persisted state is left completely untouched (no companion).
+			m.cancelErr = nil
+			m.cancelInput = ""
+			m.notice = "el job ya finalizó en Salesforce; no hay nada que cancelar"
+			return m, nil
+		}
 		m.cancelErr = msg.err
+		if m.deps.Runs != nil && m.runID != "" {
+			_, _ = m.deps.Runs.SaveRawCompanion(m.runID, cancelErrorCompanionFilename, []byte(msg.result.Raw))
+		}
 		m.state = StateCancelConfirm
 		return m, nil
 	}
@@ -1036,6 +1069,11 @@ func (m Model) onQuickDeployDone(msg quickDeployDoneMsg) (tea.Model, tea.Cmd) {
 
 	if msg.err != nil {
 		m.quickErr = msg.err
+		// gap7: a generic quick-deploy failure best-effort persists its raw
+		// response as quick-error.json (mirrors onCancelDone's cancel-error.json).
+		if m.deps.Runs != nil && runID != "" {
+			_, _ = m.deps.Runs.SaveRawCompanion(runID, quickErrorCompanionFilename, []byte(msg.result.Raw))
+		}
 		return m, nil
 	}
 	m.quickErr = nil
@@ -1095,7 +1133,11 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 		if status == "" {
 			status = m.report.Status
 		}
-		_ = m.deps.Runs.AppendReport(m.runID, status, []byte(msg.report.Raw))
+		if path, aerr := m.deps.Runs.AppendReport(m.runID, status, []byte(msg.report.Raw)); aerr == nil {
+			// D5: capture the exact persisted path so failure/result screens
+			// can surface it in place of the "revisa el JSON crudo" dead-end.
+			m.reportPath = path
+		}
 	}
 
 	if msg.err != nil {

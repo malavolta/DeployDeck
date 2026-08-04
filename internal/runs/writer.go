@@ -215,31 +215,58 @@ var reportFilePattern = regexp.MustCompile(`^report-(\d{3})\.json$`)
 // relevante"). UpdatedAt is stamped with time.Now() — AppendReport's
 // signature carries no injected clock, unlike internal/app's polling
 // loop, so the run.json timestamp always reflects the real time the poll
-// was persisted.
-func (w *Writer) AppendReport(runID, status string, reportRaw []byte) error {
+// was persisted. Returns the exact report-<NNN>.json path written
+// (deploy-error-detail D5), so callers can surface it on failure/result
+// screens without recomputing the numbering scheme.
+func (w *Writer) AppendReport(runID, status string, reportRaw []byte) (string, error) {
 	dir := w.runDir(runID)
 
 	rec, err := w.readRecord(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	rec.Status = status
 	rec.UpdatedAt = time.Now()
 	if err := writeJSON(filepath.Join(dir, "run.json"), rec); err != nil {
-		return err
+		return "", err
 	}
 
 	n, err := nextReportNumber(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	reportPath := filepath.Join(dir, fmt.Sprintf("report-%03d.json", n))
 	if err := os.WriteFile(reportPath, reportRaw, 0o644); err != nil {
-		return fmt.Errorf("runs: writing %s: %w", reportPath, err)
+		return "", fmt.Errorf("runs: writing %s: %w", reportPath, err)
 	}
 
-	return nil
+	return reportPath, nil
+}
+
+// SaveRawCompanion persists raw verbatim as a companion file named filename
+// under runID's run directory, returning its path (deploy-error-detail D7/
+// gap7). filename is always a compile-time const supplied by the caller
+// (e.g. "cancel-error.json", "quick-error.json", "validate.json") — never
+// user input — so this never risks path traversal (design.md Threat
+// Matrix "Companion file writes"). Unlike AppendReport/MarkCanceled it does
+// NOT touch run.json at all: it is a pure companion write, so it carries no
+// Status/UpdatedAt semantics and requires no SchemaVersion bump. An unknown
+// runID (no run.json, e.g. a run never created via Create) is an explicit
+// error, never a silent write into a nonexistent run's directory.
+func (w *Writer) SaveRawCompanion(runID, filename string, raw []byte) (string, error) {
+	dir := w.runDir(runID)
+
+	if _, err := w.readRecord(dir); err != nil {
+		return "", err
+	}
+
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		return "", fmt.Errorf("runs: writing %s: %w", path, err)
+	}
+
+	return path, nil
 }
 
 // MarkCanceled records a successful cancellation (HU-012): it writes the raw

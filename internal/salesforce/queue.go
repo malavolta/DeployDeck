@@ -14,8 +14,12 @@ import (
 // EPICA.md:371-375): active DeployRequest jobs ordered by CreatedDate
 // ascending. It is passed as ONE slice element to --query, never
 // shell-joined/interpolated (design.md Threat Matrix "PR / argument
-// composition").
-const deployQueueSOQL = "SELECT Id,Status,CheckOnly,CreatedDate,StartDate,CompletedDate,CreatedBy.Name,CreatedBy.Username,NumberComponentsTotal,NumberComponentsDeployed,NumberComponentErrors,NumberTestsTotal,NumberTestsCompleted,NumberTestErrors FROM DeployRequest WHERE Status IN ('Pending','InProgress') ORDER BY CreatedDate ASC"
+// composition"). StateDetail/ErrorMessage/ErrorStatusCode are additive
+// columns (deploy-error-detail D8); the WHERE clause stays
+// Status IN ('Pending','InProgress') UNCHANGED — the queue view is the
+// ACTIVE queue, terminal Failed jobs are structurally out of scope
+// (design.md Open Questions).
+const deployQueueSOQL = "SELECT Id,Status,CheckOnly,CreatedDate,StartDate,CompletedDate,CreatedBy.Name,CreatedBy.Username,StateDetail,ErrorMessage,ErrorStatusCode,NumberComponentsTotal,NumberComponentsDeployed,NumberComponentErrors,NumberTestsTotal,NumberTestsCompleted,NumberTestErrors FROM DeployRequest WHERE Status IN ('Pending','InProgress') ORDER BY CreatedDate ASC"
 
 // ErrQueuePermission is the typed sentinel ListDeployQueue returns when the
 // sf CLI error matches the Tooling-API-permission heuristic
@@ -65,6 +69,14 @@ type DeployQueueEntry struct {
 	CreatedBy string
 	Username  string
 
+	// StateDetail/ErrorMessage/ErrorStatusCode are additive columns
+	// (deploy-error-detail D8): a record without them stays zero-valued.
+	// ErrorMessage/ErrorStatusCode non-empty marks the entry as errored;
+	// StateDetail renders as context only alongside that error (D8).
+	StateDetail     string
+	ErrorMessage    string
+	ErrorStatusCode string
+
 	CreatedDate   time.Time
 	StartDate     time.Time
 	CompletedDate time.Time
@@ -97,25 +109,34 @@ type deployRequestRecord struct {
 		Name     string `json:"Name"`
 		Username string `json:"Username"`
 	} `json:"CreatedBy"`
-	NumberComponentsTotal    int `json:"NumberComponentsTotal"`
-	NumberComponentsDeployed int `json:"NumberComponentsDeployed"`
-	NumberComponentErrors    int `json:"NumberComponentErrors"`
-	NumberTestsTotal         int `json:"NumberTestsTotal"`
-	NumberTestsCompleted     int `json:"NumberTestsCompleted"`
-	NumberTestErrors         int `json:"NumberTestErrors"`
+	// StateDetail/ErrorMessage/ErrorStatusCode are additive fields
+	// (deploy-error-detail D8): a record without them decodes fine,
+	// leaving these at their zero value ("").
+	StateDetail              string `json:"StateDetail"`
+	ErrorMessage             string `json:"ErrorMessage"`
+	ErrorStatusCode          string `json:"ErrorStatusCode"`
+	NumberComponentsTotal    int    `json:"NumberComponentsTotal"`
+	NumberComponentsDeployed int    `json:"NumberComponentsDeployed"`
+	NumberComponentErrors    int    `json:"NumberComponentErrors"`
+	NumberTestsTotal         int    `json:"NumberTestsTotal"`
+	NumberTestsCompleted     int    `json:"NumberTestsCompleted"`
+	NumberTestErrors         int    `json:"NumberTestErrors"`
 }
 
 // toEntry maps the raw record into the public DeployQueueEntry shape.
 func (r deployRequestRecord) toEntry() DeployQueueEntry {
 	return DeployQueueEntry{
-		JobID:         r.ID,
-		Status:        r.Status,
-		CheckOnly:     r.CheckOnly,
-		CreatedBy:     r.CreatedBy.Name,
-		Username:      r.CreatedBy.Username,
-		CreatedDate:   parseSFDateTime(r.CreatedDate),
-		StartDate:     parseSFDateTime(r.StartDate),
-		CompletedDate: parseSFDateTime(r.CompletedDate),
+		JobID:           r.ID,
+		Status:          r.Status,
+		CheckOnly:       r.CheckOnly,
+		CreatedBy:       r.CreatedBy.Name,
+		Username:        r.CreatedBy.Username,
+		StateDetail:     r.StateDetail,
+		ErrorMessage:    r.ErrorMessage,
+		ErrorStatusCode: r.ErrorStatusCode,
+		CreatedDate:     parseSFDateTime(r.CreatedDate),
+		StartDate:       parseSFDateTime(r.StartDate),
+		CompletedDate:   parseSFDateTime(r.CompletedDate),
 		Components: QueueComponentProgress{
 			Total:    r.NumberComponentsTotal,
 			Deployed: r.NumberComponentsDeployed,

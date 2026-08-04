@@ -1,14 +1,11 @@
-# Deploy Queue Specification
+# Delta for Deploy Queue
 
-## Purpose
-
-Give developers operational visibility of the active `DeployRequest` queue (pending/in-progress validations and deploys) in the shared sandbox before starting their own validation (HU-009).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: List Active Deploy Queue Via Tooling API
 
 The system SHALL query Salesforce `DeployRequest` records via Tooling API using `sf data query --use-tooling-api --json`, filtered to `Status IN ('Pending','InProgress')` ordered by `CreatedDate ASC`, and SHALL parse the envelope's `result.records[]` shape with fields `Id, Status, CheckOnly, CreatedDate, StartDate, CompletedDate, CreatedBy.Name, StateDetail, ErrorMessage, ErrorStatusCode` plus component/test progress counters.
+(Previously: SOQL and parsing omitted `StateDetail`, `ErrorMessage`, and `ErrorStatusCode`.)
 
 #### Scenario: Queue is fetched and ordered by creation date
 - GIVEN active `DeployRequest` jobs exist in the sandbox
@@ -23,6 +20,7 @@ The system SHALL query Salesforce `DeployRequest` records via Tooling API using 
 ### Requirement: QueueReview Is A Real Stop Between Package Confirm And Validation Start
 
 The system SHALL present a `QueueReview` screen after package confirmation and before validation start, showing each queued job's user, status, creation date, progress, and elapsed time. For a queued entry that reports an error — `ErrorMessage` or `ErrorStatusCode` non-empty, e.g. an `InProgress` deploy that is failing while still occupying the active queue — it SHALL additionally show that error detail, with `StateDetail` rendered as context when present. The queue query remains scoped to the ACTIVE queue (`Pending`/`InProgress`): terminal `Failed` jobs are structurally not part of this view, and progress-only `StateDetail` display for non-errored entries is out of scope (live-progress UX, not an error gap).
+(Previously: rendered user, status, date, progress, and elapsed time only; errored entries showed no error detail and `StateDetail` was neither queried nor rendered.)
 
 #### Scenario: QueueReview shows queue details per job
 - GIVEN the queue query succeeds with jobs present
@@ -47,7 +45,7 @@ The system SHALL present a `QueueReview` screen after package confirmation and b
 #### Scenario: Erroring queue entry shows its error detail
 - GIVEN a queue record has `Status` = `InProgress` with `ErrorMessage` (or `ErrorStatusCode`) populated — a deploy failing while still in the active queue
 - WHEN `QueueReview` renders that row
-- THEN the row shows the job's error detail
+- THEN the row shows the job's error detail (D8)
 
 #### Scenario: Erroring entry renders StateDetail as context
 - GIVEN a queue record has `ErrorMessage` populated and a non-empty `StateDetail`
@@ -58,17 +56,3 @@ The system SHALL present a `QueueReview` screen after package confirmation and b
 - GIVEN a queue record has `Status` = `InProgress`, a non-empty `StateDetail`, and empty `ErrorMessage`/`ErrorStatusCode`
 - WHEN `QueueReview` renders that row
 - THEN no error-detail or StateDetail line is rendered (progress-only display is out of scope)
-
-### Requirement: Non-Blocking Degrade On Query Failure
-
-The system SHALL distinguish a Tooling-API-permission failure from a generic query failure. On a permission failure, it SHALL warn the user and continue the flow directly to `ValidationStart` without the queue view. On a generic failure, it SHALL show an actionable error and SHALL NOT necessarily abort the flow.
-
-#### Scenario: Permission failure skips the queue non-blockingly
-- GIVEN the query fails because the profile lacks Tooling API permission
-- WHEN `ListDeployQueue` is called
-- THEN a warning is shown and the flow continues to `ValidationStart` without the queue (HU-009)
-
-#### Scenario: Generic query failure shows an actionable error without aborting
-- GIVEN the query fails for a reason unrelated to permissions
-- WHEN `ListDeployQueue` is called
-- THEN an actionable error is shown and the flow is not necessarily aborted (HU-009)

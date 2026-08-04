@@ -14,8 +14,10 @@ import (
 
 // deployQueueSOQL mirrors internal/salesforce's private deployQueueSOQL
 // constant (HU-009's exact query) so the FakeRunner canned response matches
-// the real args ListDeployQueue composes.
-const deployQueueSOQL = "SELECT Id,Status,CheckOnly,CreatedDate,StartDate,CompletedDate,CreatedBy.Name,CreatedBy.Username,NumberComponentsTotal,NumberComponentsDeployed,NumberComponentErrors,NumberTestsTotal,NumberTestsCompleted,NumberTestErrors FROM DeployRequest WHERE Status IN ('Pending','InProgress') ORDER BY CreatedDate ASC"
+// the real args ListDeployQueue composes. StateDetail/ErrorMessage/
+// ErrorStatusCode are additive columns (deploy-error-detail D8); the WHERE
+// clause stays Status IN ('Pending','InProgress') UNCHANGED.
+const deployQueueSOQL = "SELECT Id,Status,CheckOnly,CreatedDate,StartDate,CompletedDate,CreatedBy.Name,CreatedBy.Username,StateDetail,ErrorMessage,ErrorStatusCode,NumberComponentsTotal,NumberComponentsDeployed,NumberComponentErrors,NumberTestsTotal,NumberTestsCompleted,NumberTestErrors FROM DeployRequest WHERE Status IN ('Pending','InProgress') ORDER BY CreatedDate ASC"
 
 // queueReviewModel parks a Model on QueueReview with the plan's target org
 // set, as confirmPackageReview leaves it before onQueueDone lands.
@@ -297,6 +299,106 @@ func TestModel_KeyQueueReview_RRefiresQueueCmd(t *testing.T) {
 	msg := run(t, cmd)
 	if _, ok := msg.(queueDoneMsg); !ok {
 		t.Fatalf("expected a queueDoneMsg from the re-fired command, got %T", msg)
+	}
+}
+
+// --- deploy-error-detail (D8): errored-entry detail rendering --------------
+
+// TestModel_ViewQueueReview_ErroredEntryShowsDetailAndStateDetailAsContext is
+// the deploy-error-detail RED (task 4.7, deploy-queue spec "Erroring Queue
+// Entry Shows Its Error Detail" + "Erroring Entry Renders StateDetail As
+// Context"): an InProgress entry with ErrorMessage/ErrorStatusCode populated
+// renders that detail, with a non-empty StateDetail shown as context.
+func TestModel_ViewQueueReview_ErroredEntryShowsDetailAndStateDetailAsContext(t *testing.T) {
+	m := queueReviewModel(t, Deps{Dir: "/repo", Config: validationConfig()})
+	entries := []salesforce.DeployQueueEntry{
+		{
+			JobID: "0AfERR", Status: "InProgress", CreatedBy: "Maria Garcia", Username: "maria@example.com",
+			StateDetail: "Deploying Metadata", ErrorMessage: "Component failed to deploy", ErrorStatusCode: "COMPONENT_FAILURE",
+		},
+	}
+	next, _ := m.Update(queueDoneMsg{entries: entries, identity: "own@example.com"})
+	nm := next.(Model)
+
+	view := nm.View()
+	if !strings.Contains(view, "Component failed to deploy") {
+		t.Errorf("expected the errored entry's ErrorMessage shown, view:\n%s", view)
+	}
+	if !strings.Contains(view, "COMPONENT_FAILURE") {
+		t.Errorf("expected the errored entry's ErrorStatusCode shown, view:\n%s", view)
+	}
+	if !strings.Contains(view, "Deploying Metadata") {
+		t.Errorf("expected StateDetail shown as context alongside the error, view:\n%s", view)
+	}
+}
+
+// TestModel_ViewQueueReview_NonErroredEntryWithStateDetailShowsNothingExtra
+// is the deploy-error-detail RED (task 4.7, deploy-queue spec "Non-Errored
+// Entry Shows No StateDetail Line"): an entry with a non-empty StateDetail
+// but empty ErrorMessage/ErrorStatusCode renders NO extra detail line
+// (progress-only display stays out of scope).
+func TestModel_ViewQueueReview_NonErroredEntryWithStateDetailShowsNothingExtra(t *testing.T) {
+	m := queueReviewModel(t, Deps{Dir: "/repo", Config: validationConfig()})
+	entries := []salesforce.DeployQueueEntry{
+		{
+			JobID: "0AfOK", Status: "InProgress", CreatedBy: "Luis Perez", Username: "luis@example.com",
+			StateDetail: "Deploying Metadata",
+		},
+	}
+	next, _ := m.Update(queueDoneMsg{entries: entries, identity: "own@example.com"})
+	nm := next.(Model)
+
+	view := nm.View()
+	if strings.Contains(view, "Deploying Metadata") {
+		t.Errorf("a non-errored entry must not render its StateDetail (progress-only, out of scope), view:\n%s", view)
+	}
+}
+
+// --- deploy-error-detail remediation: sanitization + formatting ------------
+
+// TestModel_ViewQueueReview_ErroredEntry_SanitizesEscapesAndNewlines is the
+// remediation RED (review finding risk WARNING: "Sanitize org-sourced
+// strings at render"): the queue error-detail block renders ANOTHER user's
+// ErrorMessage verbatim today, not even newline-truncated — a co-org user's
+// crafted ErrorMessage must not inject terminal escape sequences or a fake
+// queue row via an embedded newline.
+func TestModel_ViewQueueReview_ErroredEntry_SanitizesEscapesAndNewlines(t *testing.T) {
+	m := queueReviewModel(t, Deps{Dir: "/repo", Config: validationConfig()})
+	entries := []salesforce.DeployQueueEntry{
+		{
+			JobID: "0AfERR", Status: "InProgress", CreatedBy: "Maria Garcia", Username: "maria@example.com",
+			ErrorMessage: "boom \x1b]0;evil\x07\n[propio] fake row", ErrorStatusCode: "CODE",
+		},
+	}
+	next, _ := m.Update(queueDoneMsg{entries: entries, identity: "own@example.com"})
+	nm := next.(Model)
+
+	view := nm.View()
+	if strings.ContainsRune(view, 0x1b) {
+		t.Errorf("expected the ESC byte stripped from ErrorMessage, view:\n%q", view)
+	}
+	if strings.Contains(view, "\n[propio] fake row") {
+		t.Errorf("expected the embedded newline collapsed so no fake row is injected, view:\n%q", view)
+	}
+}
+
+// TestModel_ViewQueueReview_CodeOnlyError_NoDanglingSeparator is the
+// remediation RED (review finding reliability SUGGESTION: "Code-only queue
+// error renders without dangling format"): an entry with ErrorStatusCode set
+// but ErrorMessage empty must render "(CODE)" bare — no trailing space, no
+// dangling separator.
+func TestModel_ViewQueueReview_CodeOnlyError_NoDanglingSeparator(t *testing.T) {
+	m := queueReviewModel(t, Deps{Dir: "/repo", Config: validationConfig()})
+	entries := []salesforce.DeployQueueEntry{
+		{JobID: "0AfCODE", Status: "InProgress", CreatedBy: "Maria Garcia", Username: "maria@example.com", ErrorStatusCode: "COMPONENT_FAILURE"},
+	}
+	next, _ := m.Update(queueDoneMsg{entries: entries, identity: "own@example.com"})
+	nm := next.(Model)
+
+	view := nm.View()
+	wantLine := "     " + mark("XX") + " (COMPONENT_FAILURE)"
+	if !strings.Contains(view, wantLine+"\n") {
+		t.Errorf("expected the code-only detail line %q with no trailing space, got:\n%q", wantLine, view)
 	}
 }
 
