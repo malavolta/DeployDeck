@@ -166,8 +166,19 @@ const (
 	StateSandboxSelect
 	// StateSourceConfirm is the current-branch confirm prompt: reached when
 	// resolveSource yields resolveNeedsConfirm (m.source/m.discovery carry
-	// the pending candidate/base result; no new Model fields). Appended last.
+	// the pending candidate/base result; no new Model fields).
 	StateSourceConfirm
+	// StateBranchCollision is incremental-promotion's dedicated collision
+	// decision (incremental-promotion spec: "Branch Collision Offers Reuse,
+	// Recreate, Or Cancel"), reached ONLY from onBranchCreated's
+	// errors.Is(err, git.ErrPromotionBranchExists) branch — every OTHER
+	// branchCreatedMsg error still lands on the unchanged StateError. It
+	// offers exactly three choices (keyBranchCollision): `r` reuse & append
+	// (reuseBranchCmd), `d` delete & recreate (DeleteLocalBranch + a fresh
+	// branchCreateCmd), `c`/`esc` cancel back to StatePlanPreview — the
+	// branch and any PR history are left untouched on cancel. Appended last
+	// so every prior State's value is never renumbered.
+	StateBranchCollision
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
@@ -444,6 +455,20 @@ type Model struct {
 	remoteErr  error
 	prURL      string
 	prErr      error
+	// prExisting (incremental-promotion) is true only when onPrepDone found
+	// an ALREADY-OPEN PR via github.Client.PRForBranch on the reuse path
+	// (m.reusing) — it exists purely so viewPRData can word that block
+	// distinctly ("PR existente") from one this run just created ("PR
+	// creado"); PR creation itself was already skipped in that case.
+	prExisting bool
+
+	// IncrementalPromotion (reuse-on-collision): reusing is set true by
+	// onReuseReady once a StateBranchCollision "reuse & append" completes
+	// (Checkout -> FastForwardBranch -> FilterNotOnBranch, never before) —
+	// it gates preparePRCmd's extra PRForBranch lookup so an ordinary
+	// first-time promotion (a brand-new branch can never already have a PR)
+	// never pays for it.
+	reusing bool
 
 	// AI suggestion (ai-pr-summary, closing HU-014's deferred "Idea
 	// Futura"): aiTitle/aiDescription hold the last-generated suggestion

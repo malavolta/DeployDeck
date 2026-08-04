@@ -88,6 +88,8 @@ func (m Model) viewBody() string {
 		return m.viewPushPreparation()
 	case StateBranchCleanup:
 		return m.viewBranchCleanup()
+	case StateBranchCollision:
+		return m.viewBranchCollision()
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
@@ -833,6 +835,13 @@ func (m Model) viewPRData() string {
 		b.WriteString("\n  gh detectado y autenticado. Comando de PR:\n")
 		b.WriteString("  " + ghCmd + "\n")
 		switch {
+		case m.prURL != "" && m.prExisting:
+			// incremental-promotion: a PR already OPEN for this reused
+			// branch — creation was skipped entirely; the confirmed push
+			// already updated it (spec: "the existing PR URL is shown").
+			b.WriteString("\n  " + mark("OK") + " PR existente (ya actualizado con el push):\n")
+			b.WriteString("  " + m.prURL + "\n")
+			b.WriteString(footer("q salir"))
 		case m.prURL != "":
 			b.WriteString("\n  " + mark("OK") + " PR creado:\n")
 			b.WriteString("  " + m.prURL + "\n")
@@ -1169,6 +1178,24 @@ func branchAge(now, last time.Time) string {
 		days = 0
 	}
 	return fmt.Sprintf("%dd", days)
+}
+
+// viewBranchCollision renders incremental-promotion's StateBranchCollision
+// decision (spec: "Collision presents all three choices"), following the
+// same screenHeader/mark/footer conventions every other confirm screen uses
+// (mirrors viewCancelConfirm/viewSourceConfirm's shape).
+func (m Model) viewBranchCollision() string {
+	var b strings.Builder
+	b.WriteString(m.screenHeader("Colisión De Rama"))
+	b.WriteString(fmt.Sprintf("\n  %s La rama %s ya existe (local o en origin).\n\n  ¿Qué quieres hacer?\n\n", mark("!!"), m.branchName))
+	b.WriteString("  r  reusar la rama existente y añadir solo los commits nuevos\n")
+	b.WriteString("  d  borrar la rama existente (local Y remota) y recrearla desde cero — cierra su PR y se pierde su historial\n")
+	b.WriteString("  c  cancelar (la rama y su PR quedan intactas)\n")
+	if m.notice != "" {
+		b.WriteString("\n  " + m.notice + "\n")
+	}
+	b.WriteString(footer("r reusar   d borrar y recrear   c/Esc cancelar"))
+	return b.String()
 }
 
 func (m Model) viewVerification() string {

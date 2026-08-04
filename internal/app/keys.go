@@ -63,6 +63,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyAborted(msg)
 	case StateBranchCleanup:
 		return m.keyBranchCleanup(msg)
+	case StateBranchCollision:
+		return m.keyBranchCollision(msg)
 	case StateError, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, m.quitCmd()
@@ -96,6 +98,7 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pushErr = nil
 		m.prErr = nil
 		m.prURL = ""
+		m.prExisting = false
 		m.pushPhase = pushConfirm
 		m.state = StatePushPreparation
 		return m, nil
@@ -345,6 +348,35 @@ func (m Model) confirmDeleteOrphan() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, m.deleteOrphanCmd(target, pushed)
+}
+
+// keyBranchCollision handles incremental-promotion's StateBranchCollision
+// decision (incremental-promotion spec: "Branch Collision Offers Reuse,
+// Recreate, Or Cancel"): `r` fires reuseBranchCmd (the screen itself stays
+// StateBranchCollision until reuseReadyMsg lands — onReuseReady is the sole
+// place that moves off it); `d` deletes the existing branch — LOCAL and
+// REMOTE, each only if actually present (deleteExistingDeployBranch) — and
+// re-fires a fresh create (deleteAndRecreateBranchCmd), entering
+// StateBranchCreation exactly like the original branchCreateCmd entry so
+// the same spinner/screen is reused; `c`/`esc` cancel back to
+// StatePlanPreview, touching neither the branch nor any PR history (spec:
+// "Cancel leaves the existing branch and PR untouched").
+func (m Model) keyBranchCollision(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		m.notice = ""
+		return m, m.reuseBranchCmd()
+	case "d":
+		m.notice = ""
+		m.state = StateBranchCreation
+		m, spin := m.startSpinner()
+		return m, tea.Batch(m.deleteAndRecreateBranchCmd(), spin)
+	case "c", "esc":
+		m.notice = ""
+		m.state = StatePlanPreview
+		return m, nil
+	}
+	return m, nil
 }
 
 // keyPushPreparation handles HU-014's push + PR-preparation sub-flow (mockup

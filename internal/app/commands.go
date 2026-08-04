@@ -112,6 +112,19 @@ type branchCreatedMsg struct {
 	err error
 }
 
+// reuseReadyMsg carries incremental-promotion's StateBranchCollision "reuse &
+// append" outcome (Checkout -> FastForwardBranch -> FilterNotOnBranch): the
+// not-yet-present commit remainder plus the fast-forward classification, or
+// err for a genuine command failure. ffResult == git.FFDiverged is DATA, not
+// an error field — onReuseReady treats it identically to err != nil (a hard,
+// clear error), but it is carried separately so a diverged remote is never
+// confused with a real command failure in logs/telemetry.
+type reuseReadyMsg struct {
+	remaining []git.DiscoveredCommit
+	ffResult  git.FFResult
+	err       error
+}
+
 // rePromoteSeededMsg carries the HU-016 patch-id remap outcome computed by
 // rePromoteRemapCmd: Matched holds the prior run's commits mapped to their
 // new-range equivalents (re-promotion spec: "Patch-ID Remap Of Prior
@@ -305,6 +318,16 @@ type prepDoneMsg struct {
 	compareURL string
 	compareErr error
 	remoteErr  error
+	// prURL/prOpen (incremental-promotion) carry github.Client.PRForBranch's
+	// result — consulted ONLY when m.reusing && auth==AuthAuthenticated
+	// (design: "PR detection ... consulted only on the authenticated path").
+	// prURL is set for BOTH an open and a closed/merged PR (gh still reports
+	// its URL); prOpen distinguishes them so onPrepDone can skip create
+	// (open) vs fall through to a normal create with a notice (closed/
+	// merged). Both stay zero-valued on a non-reuse promotion or when no PR
+	// exists at all.
+	prURL  string
+	prOpen bool
 }
 
 // prCreatedMsg carries the HU-014 `gh pr create` outcome: the created PR's URL
@@ -626,6 +649,101 @@ func (m Model) branchCreateCmd() tea.Cmd {
 	return func() tea.Msg {
 		err := g.CreatePromotionBranch(ctx, dir, target, name)
 		return branchCreatedMsg{err: err}
+	}
+}
+
+// reuseBranchCmd runs incremental-promotion's StateBranchCollision "reuse &
+// append" action, in order: Checkout the existing deploy branch, fast-
+// forward-guard it against the already-fetched origin/<deploy> (never a
+// force-push — FFDiverged is returned as DATA), then filter the CURRENT
+// selection down to the commits not yet present on the reused branch (the
+// git-layer layered classifier). sourceRef mirrors m.source's discovered
+// name (possibly ""), degrading gracefully per FilterNotOnBranch's own
+// contract when no source was ever resolved.
+func (m Model) reuseBranchCmd() tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	branch := m.branchName
+	sourceRef := m.source.Name
+	commits := m.plan.SelectedCommits
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if err := g.Checkout(ctx, dir, branch); err != nil {
+			return reuseReadyMsg{err: err}
+		}
+
+		ffResult, err := g.FastForwardBranch(ctx, dir, branch)
+		if err != nil {
+			return reuseReadyMsg{err: err}
+		}
+		if ffResult == git.FFDiverged {
+			// Hard stop: never filter/plan against a diverged branch (design
+			// "Diverged remote (Q1)" decision) — no push/overwrite attempted.
+			return reuseReadyMsg{ffResult: ffResult}
+		}
+
+		remaining, err := g.FilterNotOnBranch(ctx, dir, branch, sourceRef, commits)
+		if err != nil {
+			return reuseReadyMsg{err: err}
+		}
+		return reuseReadyMsg{remaining: remaining, ffResult: ffResult}
+	}
+}
+
+// deleteExistingDeployBranch tolerantly removes name's LOCAL branch,
+// skipping silently when it does not exist (`LocalBranchExists` exists-guard
+// — DeleteLocalBranch's own `-D` force delete would otherwise error on an
+// absent branch), and its REMOTE (origin) counterpart, skipping silently
+// when it was never pushed (`RemoteBranchExists` exists-guard —
+// DeleteRemoteBranch's own doc comment: "deleting a ref that was never
+// pushed is simply a git error"). deleteAndRecreateBranchCmd uses this to
+// fully clear BOTH sides of a name collision — a pushed branch or a purely
+// origin-only collision — before CreatePromotionBranch's own BranchExists
+// guard (which checks origin too) re-runs and recreates.
+func deleteExistingDeployBranch(ctx context.Context, g *git.Service, dir, name string) error {
+	localExists, err := g.LocalBranchExists(ctx, dir, name)
+	if err != nil {
+		return err
+	}
+	if localExists {
+		if err := g.DeleteLocalBranch(ctx, dir, name); err != nil {
+			return err
+		}
+	}
+
+	remoteExists, err := g.RemoteBranchExists(ctx, dir, name)
+	if err != nil {
+		return err
+	}
+	if remoteExists {
+		if err := g.DeleteRemoteBranch(ctx, dir, name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// deleteAndRecreateBranchCmd runs StateBranchCollision's "delete & recreate"
+// action (incremental-promotion spec: "Delete & recreate replaces the branch
+// fresh"): deletes the existing promotion branch — LOCAL and REMOTE, each
+// only if actually present (deleteExistingDeployBranch) — then re-runs the
+// SAME fetch+create CreatePromotionBranch does: a fresh branch from
+// origin/<target>, discarding the old one's history and PR linkage. Reuses
+// branchCreatedMsg (the same message onBranchCreated already routes) so any
+// still-colliding case re-enters StateBranchCollision instead of silently
+// succeeding.
+func (m Model) deleteAndRecreateBranchCmd() tea.Cmd {
+	g := m.deps.Git
+	dir := m.deps.Dir
+	target := m.plan.TargetBranch
+	name := m.branchName
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if err := deleteExistingDeployBranch(ctx, g, dir, name); err != nil {
+			return branchCreatedMsg{err: err}
+		}
+		return branchCreatedMsg{err: g.CreatePromotionBranch(ctx, dir, target, name)}
 	}
 }
 
@@ -1177,6 +1295,7 @@ func (m Model) preparePRCmd() tea.Cmd {
 	dir := m.deps.Dir
 	base := m.plan.TargetBranch
 	head := m.plan.PromotionBranch
+	reusing := m.reusing
 	ctx := m.ctx()
 	return func() tea.Msg {
 		auth := github.AuthAbsent
@@ -1184,6 +1303,18 @@ func (m Model) preparePRCmd() tea.Cmd {
 			auth = gh.AuthStatus(ctx)
 		}
 		msg := prepDoneMsg{auth: auth}
+
+		// incremental-promotion: only a REUSED branch could already have an
+		// open PR (a brand-new branch never does) — gated on the
+		// authenticated path exactly like every other gh call in this file.
+		// A PRForBranch error degrades silently (msg.prURL/prOpen stay zero)
+		// so a transient gh hiccup never blocks the rest of this prep.
+		if reusing && auth == github.AuthAuthenticated {
+			if url, open, perr := gh.PRForBranch(ctx, head); perr == nil {
+				msg.prURL = url
+				msg.prOpen = open
+			}
+		}
 
 		originURL, rerr := g.RemoteURL(ctx, dir, "origin")
 		if rerr != nil {

@@ -60,6 +60,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case branchCreatedMsg:
 		return m.onBranchCreated(msg)
+	case reuseReadyMsg:
+		return m.onReuseReady(msg)
 	case pickDoneMsg:
 		return m.onPickDone(msg)
 	case repoStateMsg:
@@ -566,6 +568,15 @@ func (m Model) onRePromoteSeeded(msg rePromoteSeededMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
+		if errors.Is(msg.err, git.ErrPromotionBranchExists) {
+			// incremental-promotion: never dead-end on a name collision —
+			// offer reuse/recreate/cancel instead of the generic terminal
+			// error (spec: "SHALL NOT dead-end into an unrecoverable error
+			// state on this collision").
+			m.notice = ""
+			m.state = StateBranchCollision
+			return m, nil
+		}
 		m.err = msg.err
 		m.state = StateError
 		return m, nil
@@ -597,6 +608,90 @@ func (m Model) onBranchCreated(msg branchCreatedMsg) (tea.Model, tea.Cmd) {
 		})
 	}
 
+	m, spin := m.startSpinner()
+	return m, tea.Batch(m.cherryPickCmd(), tickCmd(), spin)
+}
+
+// onReuseReady lands incremental-promotion's reuseBranchCmd outcome
+// (StateBranchCollision's "reuse & append"), following design.md's Data
+// Flow exactly:
+//
+//   - FFDiverged or a genuine command error: a clear, terminal StateError —
+//     NEVER a push/overwrite attempt (spec: "Diverged Remote Deploy Branch
+//     Blocks With A Clear Error").
+//   - an empty remainder (every selected commit already present): an
+//     explicit notice, then StatePushPreparation — never a raw cherry-pick
+//     error (spec: "Empty-After-Filter Shows An Explicit Notice").
+//   - a non-empty remainder: m.reusing is set true, the selection is
+//     narrowed to JUST the remainder (so cherryPickCmd never re-picks an
+//     already-present commit), m.contiguous is forced false (the filtered
+//     remainder is not guaranteed contiguous in the original ordered range;
+//     CherryPick's own range-verification would fall back safely regardless,
+//     but this skips that extra check), and the target run record is
+//     resolved via runs.FindRunForBranch: a match is mutated IN PLACE
+//     (Commits extended, PickTotal/UpdatedAt bumped, CreatedAt/RunID/
+//     SourceRunID left untouched — spec: "Incremental Append Mutates The
+//     Same Run Record In Place"); no match seeds a fresh run exactly like
+//     onBranchCreated's own first-time path (spec: "No prior run found is
+//     treated as a fresh increment target").
+func (m Model) onReuseReady(msg reuseReadyMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.err = msg.err
+		m.state = StateError
+		return m, nil
+	}
+	if msg.ffResult == git.FFDiverged {
+		m.err = fmt.Errorf("la rama de despliegue remota diverge de la copia local; resuélvelo manualmente antes de reusarla")
+		m.state = StateError
+		return m, nil
+	}
+
+	m.reusing = true
+	m.plan = git.RegisterPromotionBranch(m.plan, m.branchName)
+	m.plan.SelectedCommits = msg.remaining
+	m.contiguous = false
+
+	if len(msg.remaining) == 0 {
+		m.notice = "nada nuevo para aplicar: todos los commits seleccionados ya están en la rama"
+		m.pushErr = nil
+		m.prErr = nil
+		m.prURL = ""
+		m.prExisting = false
+		m.pushPhase = pushConfirm
+		m.state = StatePushPreparation
+		return m, nil
+	}
+
+	now := m.now()
+	if rec, ok := runs.FindRunForBranch(m.runs, m.deps.Config.BranchFormat, m.branchName); ok {
+		rec.Commits = append(rec.Commits, commitSHAs(msg.remaining)...)
+		rec.PickTotal = len(rec.Commits)
+		rec.Phase = "cherry-pick"
+		rec.UpdatedAt = now
+		m.runID = rec.RunID
+		if m.deps.Runs != nil {
+			_ = m.deps.Runs.Save(rec)
+		}
+	} else {
+		m.runID = m.plan.Ticket + "-to-" + m.plan.TargetBranch + "-" + now.Format("20060102150405")
+		if m.deps.Runs != nil {
+			_ = m.deps.Runs.Save(runs.Record{
+				RunID:       m.runID,
+				Ticket:      m.plan.Ticket,
+				Target:      m.plan.TargetBranch,
+				Alias:       m.plan.SandboxAlias,
+				Commits:     commitSHAs(m.plan.SelectedCommits),
+				PickTotal:   len(m.plan.SelectedCommits),
+				Phase:       "cherry-pick",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+				SourceRunID: m.sourceRunID,
+				TestLevel:   m.plan.TestLevel,
+			})
+		}
+	}
+
+	m.state = StateCherryPicking
 	m, spin := m.startSpinner()
 	return m, tea.Batch(m.cherryPickCmd(), tickCmd(), spin)
 }
@@ -1081,6 +1176,24 @@ func (m Model) onPrepDone(msg prepDoneMsg) (tea.Model, tea.Cmd) {
 	m.compareErr = msg.compareErr
 	m.remoteErr = msg.remoteErr
 	m.pushPhase = pushReady
+
+	if m.reusing && msg.prOpen {
+		// incremental-promotion: an OPEN PR already exists for the reused
+		// branch — skip gh pr create entirely and show/report the existing
+		// URL directly; the confirmed push has already updated it (spec:
+		// "Open PR already exists for the branch"). No AI suggestion is
+		// requested either: there is nothing left to create.
+		m.prURL = msg.prURL
+		m.prErr = nil
+		m.prExisting = true
+		return m, nil
+	}
+	if m.reusing && msg.prURL != "" {
+		// CLOSED/MERGED: fall through to the normal create path with a
+		// notice, rather than silently reusing a stale, unreusable PR
+		// (design: "closed/merged falls through to normal create").
+		m.notice = "el PR anterior de esta rama ya está cerrado/mergeado; se creará uno nuevo"
+	}
 
 	var cmd tea.Cmd
 	if m.deps.GenerateSummary != nil && m.aiTitle == "" && !m.aiPending {

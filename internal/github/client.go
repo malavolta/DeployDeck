@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -41,6 +42,16 @@ type Client interface {
 	// non-interactive argument shape; the confirm gate itself lives in the
 	// caller (internal/app's StatePushPreparation).
 	CreatePR(ctx context.Context, base, head, title, body string) (url, raw string, err error)
+	// PRForBranch runs `gh pr view <branch> --json url,state` (incremental-
+	// promotion design: "PR detection") to discover whether a PR already
+	// exists for branch, exit-code-as-data: a found PR parses url/open from
+	// its JSON state (OPEN -> open=true; CLOSED/MERGED -> open=false, url
+	// still set — the caller falls through to a normal create + notice); no
+	// PR for the branch (gh's own non-zero exit, e.g. "no pull requests
+	// found") degrades to url="", open=false, err=nil — never an error, so
+	// the caller's normal create path is unaffected. A genuine Runner
+	// failure (gh missing/cannot start) still surfaces as err.
+	PRForBranch(ctx context.Context, branch string) (url string, open bool, err error)
 }
 
 // client is the Runner-backed Client implementation.
@@ -86,6 +97,37 @@ func (c *client) CreatePR(ctx context.Context, base, head, title, body string) (
 	}
 
 	return strings.TrimSpace(string(result.Stdout)), raw, nil
+}
+
+// prView is the shape `gh pr view <branch> --json url,state` prints.
+type prView struct {
+	URL   string `json:"url"`
+	State string `json:"state"`
+}
+
+// PRForBranch implements Client.PRForBranch.
+func (c *client) PRForBranch(ctx context.Context, branch string) (string, bool, error) {
+	req := exec.CommandRequest{
+		Name: "gh",
+		Args: []string{"pr", "view", branch, "--json", "url,state"},
+	}
+
+	result, err := c.runner.Run(ctx, req)
+	if err != nil {
+		return "", false, fmt.Errorf("github: running gh pr view: %w", err)
+	}
+	if result.ExitCode != 0 {
+		// No PR for this branch (or gh itself reported an error) — data, not
+		// a failure: the caller degrades to its own normal create path.
+		return "", false, nil
+	}
+
+	var parsed prView
+	if err := json.Unmarshal(result.Stdout, &parsed); err != nil {
+		return "", false, fmt.Errorf("github: parsing gh pr view output: %w", err)
+	}
+
+	return parsed.URL, parsed.State == "OPEN", nil
 }
 
 // combineOutput joins stdout and stderr the same way internal/delta's own
