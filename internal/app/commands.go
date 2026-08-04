@@ -13,6 +13,7 @@ import (
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
 	"github.com/malavolta/DeployDeck/internal/prereq"
+	"github.com/malavolta/DeployDeck/internal/provenance"
 	"github.com/malavolta/DeployDeck/internal/runs"
 	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
@@ -1459,12 +1460,23 @@ func (m Model) pruneRunsCmd() tea.Cmd {
 // second 'a' accept, else the pre-existing github.SuggestedTitle formula /
 // "" body — the exact same sources viewPRData displays, so the executed
 // command can never drift from the shown one.
+//
+// pr-provenance additive growth: the submitted body always gains the visible
+// footer plus the invisible signed marker via provenance.Compose, on BOTH
+// the AI-accepted and non-AI paths (push-pr-preparation spec: "PR Creation
+// Requires Explicit Confirmation And Records The URL"). ownerRepo is
+// derived from m.originURL (already captured by preparePRCmd before this
+// screen is reachable) via github.OwnerRepo; when it cannot be parsed, the
+// signature payload has no repo to bind to, so Compose degrades to a
+// footer-only body with NO marker — creation itself proceeds normally
+// either way.
 func (m Model) createPRCmd() tea.Cmd {
 	gh := m.deps.GH
 	base := m.plan.TargetBranch
 	head := m.plan.PromotionBranch
 	title := m.effectiveTitle()
-	body := m.effectiveDescription()
+	ownerRepo, _ := github.OwnerRepo(m.originURL)
+	body := provenance.Compose(m.effectiveDescription(), ownerRepo, head, m.runID)
 	ctx := m.ctx()
 	return func() tea.Msg {
 		if gh == nil {

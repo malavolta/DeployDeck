@@ -33,11 +33,21 @@ builds:
     # windows/arm64. Nothing in DeployDeck's dependency set (Bubble Tea,
     # Cobra, stdlib) is platform-restricted, so there is no reason to ignore
     # a cell here.
+    # PROVENANCE_SECRET (pr-provenance) is injected the same envOrDefault way:
+    # a real release run supplies it via the CI secret, while an unset env
+    # var (every snapshot/CI/local build) compiles to the empty default —
+    # `internal/provenance.secret` then stays "" and every PR marker this
+    # binary signs is the explicit dev sentinel (sig:dev), never a forgeable
+    # empty-key HMAC. `.Env.PROVENANCE_SECRET` (a hard fail on unset) is
+    # deliberately avoided here for the same reason it is avoided on
+    # HOMEBREW_TAP_TOKEN/SCOOP_TOKEN below: the snapshot job in ci.yml runs
+    # with no secrets at all and must still compile cleanly.
     ldflags:
       - -s -w
         -X github.com/malavolta/DeployDeck/internal/version.Version={{.Version}}
         -X github.com/malavolta/DeployDeck/internal/version.Commit={{.Commit}}
         -X github.com/malavolta/DeployDeck/internal/version.Date={{.Date}}
+        -X github.com/malavolta/DeployDeck/internal/provenance.secret={{ envOrDefault "PROVENANCE_SECRET" "" }}
 
 archives:
   - id: deploydeck

@@ -71,6 +71,7 @@ func newRootCmd(deps Deps) *cobra.Command {
 
 	root.AddCommand(newDoctorCmd(deps))
 	root.AddCommand(newRunsCmd())
+	root.AddCommand(newPRCmd())
 
 	root.Version = version.String()
 
@@ -332,14 +333,38 @@ func editHandoff(path string) tea.Cmd {
 	return tea.ExecProcess(osexec.Command(editor, path), func(error) tea.Msg { return nil })
 }
 
+// exitCodeFor maps newRootCmd(...).Execute()'s returned error to the
+// process exit code: an exitError (pr-provenance's `pr verify` RunE wrapper)
+// propagates its OWN code verbatim, so runPRVerify's distinct outcomes
+// (0-4) are never collapsed into the generic failure code 1 — every other
+// non-nil error keeps the pre-existing exit 1, and nil keeps exit 0.
+func exitCodeFor(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
+	return 1
+}
+
 func main() {
 	deps := Deps{
 		NewChecker: defaultChecker,
 		RunTUI:     defaultRunTUI,
 	}
 
-	if err := newRootCmd(deps).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	err := newRootCmd(deps).Execute()
+	code := exitCodeFor(err)
+	if code != 0 {
+		// exitError's own message was already written to stdout by
+		// runPRVerify; only the generic failure path still prints the raw
+		// error to stderr, exactly as before this pr-provenance addition.
+		var ee exitError
+		if !errors.As(err, &ee) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(code)
 	}
 }

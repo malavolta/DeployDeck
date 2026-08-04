@@ -78,3 +78,27 @@ latent issues surfaced on the first real run and were fixed:
 - `deploydeck --version` — ldflags-injected `internal/version`.
 - The non-blocking update-notification banner (`internal/update`) checks the
   GitHub Releases API and degrades silently on any failure.
+
+## Additional release secret: `PROVENANCE_SECRET` (pr-provenance)
+
+Added after the v0.1.0 activation above. `.goreleaser.yaml` injects
+`internal/provenance.secret` from the `PROVENANCE_SECRET` repository secret
+via `envOrDefault` (the same pattern `internal/version`'s ldflags use) —
+this is what lets a release binary sign a verifiable
+`Created with DeployDeck vX.Y.Z` marker on every PR it creates, checkable
+later with `deploydeck pr verify <url>`.
+
+- **Set it before the next real release**: add a `PROVENANCE_SECRET`
+  repository secret (any sufficiently random string; it is an HMAC key, not
+  a token against any external service — no third-party account needed).
+- **Fail-soft by design, never a build crash**: an unset `PROVENANCE_SECRET`
+  degrades cleanly — `envOrDefault` falls back to the empty string, so
+  `internal/provenance.secret` stays `""` and every PR marker that release
+  binary signs is the explicit `sig:dev` sentinel (an empty-key HMAC is
+  publicly forgeable, so provenance deliberately marks it as
+  dev/unverifiable instead of pretending it is a real signature).
+  `goreleaser release` still succeeds either way; only the AUTHENTICITY of
+  the resulting markers is affected, never the release itself.
+- **No re-signing of already-published binaries**: setting the secret only
+  affects releases built AFTER it is set — prior releases' markers stay
+  `sig:dev` permanently (they were never re-signable).

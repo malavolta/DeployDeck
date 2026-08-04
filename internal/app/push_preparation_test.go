@@ -9,6 +9,7 @@ import (
 	execpkg "github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/provenance"
 	"github.com/malavolta/DeployDeck/internal/runs"
 )
 
@@ -231,8 +232,11 @@ func TestModel_PushPreparation_NoPRWithoutExplicitConfirm(t *testing.T) {
 	plan := git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
 
 	// Authed path: g reveals the confirm gate WITHOUT creating; y creates.
+	// m.originURL is unset in this test, so pr-provenance's ownerRepo
+	// derivation degrades to footer-only (no marker) — see
+	// create_pr_provenance_test.go for the marker-bearing paths.
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+	cannPRCreate(fr, "UAT", branch, title, provenance.RenderFooter(), execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
 	m.pushPhase = pushReady
@@ -292,8 +296,9 @@ func TestModel_PushPreparation_PRSuccessRecordsURL(t *testing.T) {
 		t.Fatalf("seeding run record: %v", err)
 	}
 
+	// m.originURL is unset in this test: footer-only body (no marker).
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
+	cannPRCreate(fr, "UAT", branch, title, provenance.RenderFooter(), execpkg.CommandResult{ExitCode: 0, Stdout: []byte(prURL + "\n")})
 
 	m := New(Deps{Dir: dir, Config: testConfig(), GH: github.New(fr), Runs: writer})
 	m.state = StatePushPreparation
@@ -334,8 +339,9 @@ func TestModel_PushPreparation_PRFailureShowsManualData(t *testing.T) {
 	branch := "deploy/PROJ-1-to-UAT"
 	title := "PROJ-1 - Promote changes to UAT"
 
+	// m.originURL is unset in this test: footer-only body (no marker).
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 1, Stderr: []byte("no commits between UAT and " + branch)})
+	cannPRCreate(fr, "UAT", branch, title, provenance.RenderFooter(), execpkg.CommandResult{ExitCode: 1, Stderr: []byte("no commits between UAT and " + branch)})
 
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
@@ -462,17 +468,22 @@ func TestApp_BoundaryStillHolds_WithGHWired(t *testing.T) {
 }
 
 // TestCreatePRCmd_BodyWiring_TracksEffectiveDescription is Feature A's body
-// wiring proof: createPRCmd passes effectiveDescription() as the `gh pr
-// create --body` arg — an accepted AI description reaches the fake's
-// captured body, while an unaccepted (even if generated) one still sends an
-// empty body (the historical `gh pr create --body ""` default).
+// wiring proof: createPRCmd passes effectiveDescription() as the body
+// provenance.Compose starts from — an accepted AI description reaches the
+// fake's captured body (with the footer appended), while an unaccepted
+// (even if generated) one sends footer-only (pr-provenance's additive
+// growth: the historical bare `gh pr create --body ""`/aiDescription
+// default now always gains at least the visible footer). m.originURL is
+// unset in both subtests, so ownerRepo degrades to "" and no marker is
+// written — see create_pr_provenance_test.go for the marker-bearing paths.
 func TestCreatePRCmd_BodyWiring_TracksEffectiveDescription(t *testing.T) {
 	branch := "deploy/PROJ-1-to-UAT"
 	title := "PROJ-1 - Promote changes to UAT"
+	footer := provenance.RenderFooter()
 
-	t.Run("not accepted: body is empty even with a generated description", func(t *testing.T) {
+	t.Run("not accepted: body is footer-only even with a generated description", func(t *testing.T) {
 		fr := ghRunner("authed")
-		cannPRCreate(fr, "UAT", branch, title, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+		cannPRCreate(fr, "UAT", branch, title, footer, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 		m := New(Deps{GH: github.New(fr)})
 		m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
@@ -481,14 +492,15 @@ func TestCreatePRCmd_BodyWiring_TracksEffectiveDescription(t *testing.T) {
 
 		m.createPRCmd()()
 
-		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", title, "--body", "") {
-			t.Fatalf("an unaccepted suggestion should send an empty body, calls: %v", fr.Calls)
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", title, "--body", footer) {
+			t.Fatalf("an unaccepted suggestion should send a footer-only body, calls: %v", fr.Calls)
 		}
 	})
 
-	t.Run("accepted: body is the accepted aiDescription", func(t *testing.T) {
+	t.Run("accepted: body is the accepted aiDescription plus the footer", func(t *testing.T) {
+		wantBody := "AI drafted description\n\n" + footer
 		fr := ghRunner("authed")
-		cannPRCreate(fr, "UAT", branch, title, "AI drafted description", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
+		cannPRCreate(fr, "UAT", branch, title, wantBody, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
 
 		m := New(Deps{GH: github.New(fr)})
 		m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
@@ -498,8 +510,8 @@ func TestCreatePRCmd_BodyWiring_TracksEffectiveDescription(t *testing.T) {
 
 		m.createPRCmd()()
 
-		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", title, "--body", "AI drafted description") {
-			t.Fatalf("an accepted suggestion should send its aiDescription as the body, calls: %v", fr.Calls)
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", title, "--body", wantBody) {
+			t.Fatalf("an accepted suggestion should send its aiDescription plus the footer as the body, calls: %v", fr.Calls)
 		}
 	})
 }

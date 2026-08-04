@@ -8,6 +8,7 @@ import (
 	execpkg "github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/provenance"
 )
 
 // aiDep returns a fake Deps.GenerateSummary that always drafts title/desc,
@@ -34,10 +35,14 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 	branch := "deploy/PROJ-1-to-UAT"
 	formulaTitle := github.SuggestedTitle("PROJ-1", "UAT")
 	aiTitle := "PROJ-1 - AI drafted title"
+	// m.originURL is unset throughout this test: pr-provenance's ownerRepo
+	// derivation degrades to "" and every body below is footer-only/
+	// description+footer, never a marker.
+	footer := provenance.RenderFooter()
 
 	t.Run("requested but explicitly declined (d) keeps the formula title on gh pr create", func(t *testing.T) {
 		fr := ghRunner("authed")
-		cannPRCreate(fr, "UAT", branch, formulaTitle, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+		cannPRCreate(fr, "UAT", branch, formulaTitle, footer, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 		m := New(Deps{
 			Dir:             "/repo",
@@ -74,10 +79,10 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		cmd4()
 		_ = next4
 
-		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", "") {
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", footer) {
 			t.Fatalf("gh pr create should have used the formula title %q (explicitly declined), calls: %v", formulaTitle, fr.Calls)
 		}
-		if calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", "") {
+		if calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", footer) {
 			t.Fatal("gh pr create must NOT use the AI title after an explicit decline")
 		}
 	})
@@ -85,7 +90,8 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 	t.Run("requested then accepted (second a) sends the AI title and description as discrete args", func(t *testing.T) {
 		fr := ghRunner("authed")
 		aiDescription := "AI drafted description"
-		cannPRCreate(fr, "UAT", branch, aiTitle, aiDescription, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
+		wantBody := aiDescription + "\n\n" + footer
+		cannPRCreate(fr, "UAT", branch, aiTitle, wantBody, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/2\n")})
 
 		m := New(Deps{
 			Dir:             "/repo",
@@ -128,7 +134,7 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		prMsg := cmd5()
 		_, _ = next5.(Model).Update(prMsg)
 
-		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", aiDescription) {
+		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", wantBody) {
 			t.Fatalf("gh pr create should use the accepted AI title %q and description %q as discrete args, calls: %v", aiTitle, aiDescription, fr.Calls)
 		}
 		if n := prCreateCalls(fr); n != 1 {
@@ -247,9 +253,11 @@ func TestModel_PushPreparation_PRConfirm_ReadyUnaccepted_YUsesAI(t *testing.T) {
 	branch := "deploy/PROJ-1-to-UAT"
 	aiTitle := "PROJ-1 - AI drafted title"
 	aiDescription := "AI drafted description"
+	// m.originURL is unset: footer-only degrade, no marker.
+	wantBody := aiDescription + "\n\n" + provenance.RenderFooter()
 
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, aiTitle, aiDescription, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+	cannPRCreate(fr, "UAT", branch, aiTitle, wantBody, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
@@ -272,7 +280,7 @@ func TestModel_PushPreparation_PRConfirm_ReadyUnaccepted_YUsesAI(t *testing.T) {
 	}
 	cmd()
 
-	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", aiDescription) {
+	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", wantBody) {
 		t.Fatalf("gh pr create should use the AI title/body, calls: %v", fr.Calls)
 	}
 }
@@ -286,9 +294,10 @@ func TestModel_PushPreparation_PRConfirm_ReadyUnaccepted_DUsesDefault(t *testing
 	branch := "deploy/PROJ-1-to-UAT"
 	formulaTitle := github.SuggestedTitle("PROJ-1", "UAT")
 	aiTitle := "PROJ-1 - AI drafted title"
+	footer := provenance.RenderFooter()
 
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, formulaTitle, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+	cannPRCreate(fr, "UAT", branch, formulaTitle, footer, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
@@ -311,8 +320,8 @@ func TestModel_PushPreparation_PRConfirm_ReadyUnaccepted_DUsesDefault(t *testing
 	}
 	cmd()
 
-	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", "") {
-		t.Fatalf("gh pr create should use the default formula title and empty body, calls: %v", fr.Calls)
+	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", footer) {
+		t.Fatalf("gh pr create should use the default formula title and a footer-only body, calls: %v", fr.Calls)
 	}
 }
 
@@ -365,9 +374,10 @@ func TestModel_PushPreparation_PRConfirm_AlreadyAccepted_YUsesAI(t *testing.T) {
 	branch := "deploy/PROJ-1-to-UAT"
 	aiTitle := "PROJ-1 - AI drafted title"
 	aiDescription := "AI drafted description"
+	wantBody := aiDescription + "\n\n" + provenance.RenderFooter()
 
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, aiTitle, aiDescription, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+	cannPRCreate(fr, "UAT", branch, aiTitle, wantBody, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
 	m.state = StatePushPreparation
@@ -388,7 +398,7 @@ func TestModel_PushPreparation_PRConfirm_AlreadyAccepted_YUsesAI(t *testing.T) {
 	}
 	cmd()
 
-	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", aiDescription) {
+	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", wantBody) {
 		t.Fatalf("gh pr create should use the already-accepted AI title/body, calls: %v", fr.Calls)
 	}
 }
@@ -399,9 +409,10 @@ func TestModel_PushPreparation_PRConfirm_AlreadyAccepted_YUsesAI(t *testing.T) {
 func TestModel_PushPreparation_PRConfirm_NoAI_YUsesFormula(t *testing.T) {
 	branch := "deploy/PROJ-1-to-UAT"
 	formulaTitle := github.SuggestedTitle("PROJ-1", "UAT")
+	footer := provenance.RenderFooter()
 
 	fr := ghRunner("authed")
-	cannPRCreate(fr, "UAT", branch, formulaTitle, "", execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
+	cannPRCreate(fr, "UAT", branch, formulaTitle, footer, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("https://github.com/org/repo/pull/1\n")})
 
 	// Deps.GenerateSummary nil: no AI configured at all.
 	m := New(Deps{Dir: "/repo", Config: testConfig(), GH: github.New(fr)})
@@ -420,7 +431,7 @@ func TestModel_PushPreparation_PRConfirm_NoAI_YUsesFormula(t *testing.T) {
 	}
 	cmd()
 
-	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", "") {
+	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", footer) {
 		t.Fatalf("gh pr create should use the formula title, calls: %v", fr.Calls)
 	}
 }

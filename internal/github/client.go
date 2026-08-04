@@ -52,6 +52,14 @@ type Client interface {
 	// the caller's normal create path is unaffected. A genuine Runner
 	// failure (gh missing/cannot start) still surfaces as err.
 	PRForBranch(ctx context.Context, branch string) (url string, open bool, err error)
+	// PRDetails runs `gh pr view <url> --json headRefName,body` (pr-
+	// provenance's `deploydeck pr verify <url>`) to fetch the fields needed
+	// to re-check a marker. UNLIKE PRForBranch's non-zero-exit-as-data
+	// (verify has no create-fallthrough to degrade into), a Runner error, a
+	// non-zero exit, OR malformed JSON here ALL return err — never a
+	// zero-valued result silently treated as data (design.md's "PRDetails
+	// degrade" decision).
+	PRDetails(ctx context.Context, url string) (headBranch, body string, err error)
 }
 
 // client is the Runner-backed Client implementation.
@@ -128,6 +136,35 @@ func (c *client) PRForBranch(ctx context.Context, branch string) (string, bool, 
 	}
 
 	return parsed.URL, parsed.State == "OPEN", nil
+}
+
+// prDetails is the shape `gh pr view <url> --json headRefName,body` prints.
+type prDetails struct {
+	HeadRefName string `json:"headRefName"`
+	Body        string `json:"body"`
+}
+
+// PRDetails implements Client.PRDetails.
+func (c *client) PRDetails(ctx context.Context, url string) (string, string, error) {
+	req := exec.CommandRequest{
+		Name: "gh",
+		Args: []string{"pr", "view", url, "--json", "headRefName,body"},
+	}
+
+	result, err := c.runner.Run(ctx, req)
+	if err != nil {
+		return "", "", fmt.Errorf("github: running gh pr view: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return "", "", fmt.Errorf("github: gh pr view exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+	}
+
+	var parsed prDetails
+	if err := json.Unmarshal(result.Stdout, &parsed); err != nil {
+		return "", "", fmt.Errorf("github: parsing gh pr view output: %w", err)
+	}
+
+	return parsed.HeadRefName, parsed.Body, nil
 }
 
 // combineOutput joins stdout and stderr the same way internal/delta's own

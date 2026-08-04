@@ -99,3 +99,82 @@ func TestCompareURL(t *testing.T) {
 		})
 	}
 }
+
+// TestOwnerRepo is task 2.1 (RED): pr-provenance's thin wrapper over
+// parseOrigin, exercising the same SSH/HTTPS/ssh:// origin forms
+// TestCompareURL already covers, plus the junk-origin degrade.
+//
+// HOST-QUALIFIED (remediation): OwnerRepo now returns "host/owner/repo", not
+// bare "owner/repo" — a signature payload built from a host-STRIPPED
+// ownerRepo would let a marker signed for github.com/org/repo verify on an
+// Enterprise host sharing the same org/repo/branch/runID. Casing is
+// otherwise preserved exactly as parsed (lowering happens in
+// provenance.Sign, not here).
+func TestOwnerRepo(t *testing.T) {
+	tests := []struct {
+		name      string
+		originURL string
+		want      string
+		wantOK    bool
+	}{
+		{"github.com SSH", "git@github.com:org/repo.git", "github.com/org/repo", true},
+		{"github.com HTTPS", "https://github.com/org/repo", "github.com/org/repo", true},
+		{"ssh:// form with trailing .git", "ssh://git@github.com/org/repo.git", "github.com/org/repo", true},
+		{"Enterprise SSH host", "git@github.ibm.com:org/repo.git", "github.ibm.com/org/repo", true},
+		{"host-qualified, owner/repo casing preserved as parsed", "git@github.com:Org/Repo.git", "github.com/Org/Repo", true},
+		{"junk origin", "not-a-valid-origin-url", "", false},
+		{"empty origin", "", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := github.OwnerRepo(tt.originURL)
+			if ok != tt.wantOK {
+				t.Fatalf("OwnerRepo(%q) ok = %v, want %v", tt.originURL, ok, tt.wantOK)
+			}
+			if ok && got != tt.want {
+				t.Fatalf("OwnerRepo(%q) = %q, want %q", tt.originURL, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestParsePRURL is task 2.1 (RED): ParsePRURL derives owner/repo from a PR
+// URL's ANCHORED shape (https://<host>/<owner>/<repo>/pull/<n>) — a
+// different shape than an origin remote, so parseOrigin's own patterns
+// must NOT be reused as-is (design's "owner/repo helpers" decision).
+//
+// HOST-QUALIFIED (remediation): ParsePRURL now returns "host/owner/repo",
+// not bare "owner/repo" — the verify-side counterpart of OwnerRepo's fix,
+// so a marker copied to a PR on a different host with the same org/repo/
+// branch/runID fails verification instead of matching.
+func TestParsePRURL(t *testing.T) {
+	tests := []struct {
+		name   string
+		prURL  string
+		want   string
+		wantOK bool
+	}{
+		{"github.com PR URL", "https://github.com/org/repo/pull/42", "github.com/org/repo", true},
+		{"Enterprise host PR URL", "https://github.ibm.com/org/repo/pull/7", "github.ibm.com/org/repo", true},
+		{"trailing slash", "https://github.com/org/repo/pull/42/", "github.com/org/repo", true},
+		{"arbitrary enterprise host", "https://ghe.corp/org/repo/pull/7", "ghe.corp/org/repo", true},
+		{"non-PR path (repo root)", "https://github.com/org/repo", "", false},
+		{"non-PR path (issues)", "https://github.com/org/repo/issues/42", "", false},
+		{"non-numeric PR number", "https://github.com/org/repo/pull/abc", "", false},
+		{"empty URL", "", "", false},
+		{"garbage", "not-a-url-at-all", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := github.ParsePRURL(tt.prURL)
+			if ok != tt.wantOK {
+				t.Fatalf("ParsePRURL(%q) ok = %v, want %v", tt.prURL, ok, tt.wantOK)
+			}
+			if ok && got != tt.want {
+				t.Fatalf("ParsePRURL(%q) = %q, want %q", tt.prURL, got, tt.want)
+			}
+		})
+	}
+}

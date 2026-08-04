@@ -51,6 +51,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # pr-provenance: signs every DeployDeck-created PR marker
+          # (internal/provenance.secret, injected via .goreleaser.yaml's
+          # envOrDefault ldflag). Fail-soft by design: if this secret is ever
+          # unset on a real release, goreleaser still succeeds and the
+          # binary simply signs dev markers (sig:dev) instead of failing the
+          # build — see docs/ACTIVATION-CHECKLIST.md.
+          PROVENANCE_SECRET: ${{ secrets.PROVENANCE_SECRET }}
           # ACTIVATION-GATED PLACEHOLDER secrets — do not exist in this repo
           # yet. Required only once homebrew-tap/scoop-bucket repos exist
           # (docs/ACTIVATION-CHECKLIST.md steps b/c). goreleaser's brews/scoops
