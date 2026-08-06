@@ -91,6 +91,8 @@ func (m Model) viewBody() string {
 		return m.viewBranchCleanup()
 	case StateBranchCollision:
 		return m.viewBranchCollision()
+	case StateDeployGateBlocked:
+		return m.viewDeployGateBlocked()
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
@@ -786,6 +788,17 @@ func (m Model) viewQuickDeploy() string {
 		b.WriteString("  " + m.quickConfirm + "_\n")
 	}
 
+	// deploy-gate remediation (resilience review, WARNING): keyQuickDeploy
+	// clears quickConfirm the instant a gated Enter fires, BEFORE
+	// gateCheckCmd's several sequential gh reads land — with no indicator the
+	// cleared confirm buffer above makes the screen look frozen for that
+	// whole async window, which is what made a re-typed DESPLEGAR+Enter
+	// during it realistic (the CRITICAL double-fire fix in keyQuickDeploy's
+	// in-flight guard). Surface the wait explicitly instead of silence.
+	if m.gateCheckingRunID != "" {
+		b.WriteString("\n  " + styleDim.Render("Verificando gate (aprobaciones · threads · validación · firma)…") + "\n")
+	}
+
 	if m.quickErr != nil {
 		b.WriteString("\n  " + mark("XX") + " El quick deploy falló (el run NO se marca como desplegado):\n")
 		b.WriteString("  " + m.quickErr.Error() + "\n")
@@ -794,6 +807,50 @@ func (m Model) viewQuickDeploy() string {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
 	b.WriteString(footer("Enter confirmar   q/Esc volver"))
+	return b.String()
+}
+
+// conditionLabelES maps a gate.Condition.Name English machine key (never
+// user-facing on its own) to its Spanish display label — remediation-pass
+// readability fix: viewDeployGateBlocked used to inline c.Name verbatim into
+// otherwise-Spanish copy. An unrecognized/future name degrades to the raw
+// key itself rather than an empty label, so a new condition is never
+// rendered as blank.
+func conditionLabelES(name string) string {
+	switch name {
+	case "approvals":
+		return "aprobaciones"
+	case "threads":
+		return "comentarios sin resolver"
+	case "validation-comment":
+		return "comentario de validación"
+	case "signature":
+		return "firma"
+	case "pr-resolution":
+		return "localización de la PR"
+	default:
+		return name
+	}
+}
+
+// viewDeployGateBlocked renders deploy-gate's gate-block screen (deploy-gate
+// spec: "Gate-Block Screen"): every UNMET condition (m.gateConditions),
+// never only the first, each with its own reason — using style.go's
+// semantic palette (mark("XX") = styleErr for a failed condition; styleDim
+// for the closing "no override" note). There is deliberately no key/hint
+// suggesting any way to proceed anyway.
+func (m Model) viewDeployGateBlocked() string {
+	var b strings.Builder
+	b.WriteString(m.screenHeader("Deploy Bloqueado Por Gate"))
+	b.WriteString("\n  " + mark("XX") + " El deploy gate bloqueó la ejecución. Condiciones no cumplidas:\n\n")
+	for _, c := range m.gateConditions {
+		if c.Passed {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("  %s %s: %s\n", mark("XX"), conditionLabelES(c.Name), c.Detail))
+	}
+	b.WriteString("\n  " + styleDim.Render("No hay ninguna opción para omitir este bloqueo desde la app.") + "\n")
+	b.WriteString(footer("q/Esc volver al historial"))
 	return b.String()
 }
 

@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/malavolta/DeployDeck/internal/config"
+	execpkg "github.com/malavolta/DeployDeck/internal/exec"
+	"github.com/malavolta/DeployDeck/internal/gate"
 	"github.com/malavolta/DeployDeck/internal/git"
+	"github.com/malavolta/DeployDeck/internal/github"
+	"github.com/malavolta/DeployDeck/internal/runs"
+	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
 // TestOnSpinnerTick_BumpsFrameWhileInSpinnerState is task 5.2 (RED):
@@ -247,4 +254,205 @@ func TestOnPrepDone_NoAutoFire_WhenAlreadyPendingOrHeld(t *testing.T) {
 			t.Error("onPrepDone must not re-request once a suggestion is already held")
 		}
 	})
+}
+
+// --- 6.9/6.10: onGateCheckDone --------------------------------------------
+
+// TestOnGateCheckDone_Passed_DispatchesQuickDeployCmd is task 6.9 (RED): a
+// passed Result dispatches quickDeployCmd (point-of-no-return) — the action
+// (the real `sf project deploy quick` call) is recorded.
+func TestOnGateCheckDone_Passed_DispatchesQuickDeployCmd(t *testing.T) {
+	fr := execpkg.NewFakeRunner()
+	fr.When("sf", quickDeployArgs("0AfPASS1", "UAT_SBX"), quickDeploySuccess("0AfPASS1"))
+
+	m := New(Deps{Dir: "/repo", Config: quickDeployConfig(true, false), SF: salesforce.New(fr)})
+	m.runs = []runs.Record{{RunID: "run-1", Target: "UAT", Alias: "UAT_SBX", JobID: "0AfPASS1"}}
+	m.runsCursor = 0
+	m.gateCheckingRunID = "run-1"
+
+	next, cmd := m.Update(gateCheckDoneMsg{result: gate.Result{Passed: true}})
+	nm := next.(Model)
+	if cmd == nil {
+		t.Fatal("a passed gate check should dispatch quickDeployCmd")
+	}
+	if nm.gateCheckingRunID != "" {
+		t.Errorf("gateCheckingRunID should be cleared once the check lands, got %q", nm.gateCheckingRunID)
+	}
+	if nm.quickDeployingRunID != "run-1" {
+		t.Fatalf("quickDeployingRunID = %q, want %q (point-of-no-return capture)", nm.quickDeployingRunID, "run-1")
+	}
+
+	msg := run(t, cmd)
+	if _, ok := msg.(quickDeployDoneMsg); !ok {
+		t.Fatalf("expected a quickDeployDoneMsg, got %T", msg)
+	}
+	if len(fr.Calls) != 1 {
+		t.Fatalf("expected exactly 1 real sf quick-deploy call (the action recorded), got %d: %v", len(fr.Calls), fr.Calls)
+	}
+}
+
+// TestOnGateCheckDone_Blocked_TransitionsWithoutDispatchingQuickDeploy is
+// task 6.10 (RED): a failed Result sets m.gateConditions, transitions to
+// StateDeployGateBlocked, and does NOT dispatch quickDeployCmd — no sf
+// action is ever recorded.
+func TestOnGateCheckDone_Blocked_TransitionsWithoutDispatchingQuickDeploy(t *testing.T) {
+	fr := execpkg.NewFakeRunner() // no canned response: any sf call would error loudly
+	m := New(Deps{Dir: "/repo", Config: quickDeployConfig(true, false), SF: salesforce.New(fr)})
+	m.runs = []runs.Record{{RunID: "run-1", Target: "UAT", Alias: "UAT_SBX", JobID: "0AfBLOCK1"}}
+	m.runsCursor = 0
+	m.gateCheckingRunID = "run-1"
+
+	blockedResult := gate.Result{
+		Passed: false,
+		Conditions: []gate.Condition{
+			{Name: "approvals", Passed: false, Detail: "0/1 aprobaciones requeridas"},
+		},
+	}
+	next, cmd := m.Update(gateCheckDoneMsg{result: blockedResult})
+	nm := next.(Model)
+	if nm.State() != StateDeployGateBlocked {
+		t.Fatalf("a blocked gate check should transition to StateDeployGateBlocked, got %v", nm.State())
+	}
+	if len(nm.gateConditions) != 1 || nm.gateConditions[0].Name != "approvals" {
+		t.Fatalf("gateConditions = %+v, want the blocked Result's Conditions", nm.gateConditions)
+	}
+	if cmd != nil {
+		t.Fatal("a blocked gate check must NOT dispatch quickDeployCmd")
+	}
+	if len(fr.Calls) != 0 {
+		t.Fatalf("a blocked gate check must never touch sf, calls: %v", fr.Calls)
+	}
+}
+
+// --- 6.16: onReportDone's terminal-success validation-comment trigger ------
+
+// gatedPollingModel layers an enabled gate + a gh client onto pollingModel's
+// base (delta_validation_test.go), for onReportDone's terminal-success
+// validation-comment trigger tests.
+func gatedPollingModel(t *testing.T, dir string, clk *fakeClock, gateCfg config.GateConfig, gh github.Client) Model {
+	t.Helper()
+	m := pollingModel(t, dir, clk)
+	cfg := m.deps.Config
+	cfg.Gates = map[string]config.GateConfig{"UAT": gateCfg}
+	m.deps.Config = cfg
+	m.deps.GH = gh
+	return m
+}
+
+// TestOnReportDone_TerminalSuccess_GateEnabledRequireCommentOn_TriggersPostComment
+// is task 6.16 (RED): a terminal SUCCESS on a gate-enabled target with
+// requireValidationComment on (and no existing marker comment) triggers
+// postValidationCommentCmd.
+func TestOnReportDone_TerminalSuccess_GateEnabledRequireCommentOn_TriggersPostComment(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+
+	fr := execpkg.NewFakeRunner()
+	branch := "deploy/PROJ-1-to-UAT"
+	fr.When("gh", []string{"pr", "view", branch, "--json", "url,state"}, execpkg.CommandResult{
+		ExitCode: 0, Stdout: []byte(`{"url":"` + deployGatePRURL + `","state":"OPEN"}`),
+	})
+	fr.When("gh", []string{"pr", "view", deployGatePRURL, "--json", "comments"}, execpkg.CommandResult{
+		ExitCode: 0, Stdout: []byte(`{"comments":[]}`),
+	})
+
+	gateCfg := config.GateConfig{Enabled: true, Approvers: []string{"alice"}, RequireValidationComment: ptrBool(true)}
+	m := gatedPollingModel(t, dir, clk, gateCfg, github.New(fr))
+
+	next, cmd := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "Succeeded", Raw: "{}"}})
+	nm := next.(Model)
+	if nm.State() != StateSucceeded {
+		t.Fatalf("expected StateSucceeded, got %v", nm.State())
+	}
+	if cmd == nil {
+		t.Fatal("expected onReportDone to dispatch postValidationCommentCmd on a gate-enabled, requireValidationComment-on target")
+	}
+	msg := run(t, cmd)
+	if _, ok := msg.(postCommentDoneMsg); !ok {
+		t.Fatalf("expected a postCommentDoneMsg, got %T", msg)
+	}
+}
+
+// TestOnReportDone_TerminalSuccess_UngatedTarget_DoesNotTriggerPostComment is
+// task 6.16's regression companion: an ungated target never triggers the
+// comment command.
+func TestOnReportDone_TerminalSuccess_UngatedTarget_DoesNotTriggerPostComment(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	m := pollingModel(t, dir, clk) // no Gates configured at all
+
+	next, cmd := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "Succeeded", Raw: "{}"}})
+	nm := next.(Model)
+	if nm.State() != StateSucceeded {
+		t.Fatalf("expected StateSucceeded, got %v", nm.State())
+	}
+	if cmd != nil {
+		t.Fatal("an ungated target must never trigger the validation-comment command")
+	}
+}
+
+// TestOnReportDone_TerminalSuccess_RequireCommentOff_DoesNotTrigger is a
+// companion RED case: a gate-enabled target with requireValidationComment
+// explicit false never triggers the comment command either.
+func TestOnReportDone_TerminalSuccess_RequireCommentOff_DoesNotTrigger(t *testing.T) {
+	dir := t.TempDir()
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	gateCfg := config.GateConfig{Enabled: true, Approvers: []string{"alice"}, RequireValidationComment: ptrBool(false)}
+	m := gatedPollingModel(t, dir, clk, gateCfg, github.New(execpkg.NewFakeRunner()))
+
+	next, cmd := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: "Succeeded", Raw: "{}"}})
+	nm := next.(Model)
+	if nm.State() != StateSucceeded {
+		t.Fatalf("expected StateSucceeded, got %v", nm.State())
+	}
+	if cmd != nil {
+		t.Fatal("requireValidationComment explicit false must never trigger the validation-comment command")
+	}
+}
+
+// TestOnReportDone_NonSuccessfulTerminal_GatedTarget_DoesNotTriggerPostComment
+// is task 6.16's other regression companion: a non-successful terminal
+// state (Failed/Canceled) never triggers the comment command, even on a
+// gate-enabled target.
+func TestOnReportDone_NonSuccessfulTerminal_GatedTarget_DoesNotTriggerPostComment(t *testing.T) {
+	for _, status := range []string{"Failed", "Canceled"} {
+		t.Run(status, func(t *testing.T) {
+			dir := t.TempDir()
+			clk := &fakeClock{t: time.Unix(1000, 0)}
+			gateCfg := config.GateConfig{Enabled: true, Approvers: []string{"alice"}, RequireValidationComment: ptrBool(true)}
+			m := gatedPollingModel(t, dir, clk, gateCfg, github.New(execpkg.NewFakeRunner()))
+
+			next, cmd := m.Update(reportDoneMsg{report: salesforce.DeployReport{Status: status, Raw: "{}"}})
+			nm := next.(Model)
+			if nm.State() == StateValidationPolling {
+				t.Fatalf("expected a terminal state for status %q, still polling", status)
+			}
+			if cmd != nil {
+				t.Fatalf("a non-successful terminal state (%s) must never trigger the validation-comment command", status)
+			}
+		})
+	}
+}
+
+// --- 6.19: onPostCommentDone is best-effort --------------------------------
+
+// TestOnPostCommentDone_Failure_DoesNotAlterTerminalSuccessState is task
+// 6.19 (RED): a failed comment post is best-effort — it never alters the
+// already-terminal-success run state.
+func TestOnPostCommentDone_Failure_DoesNotAlterTerminalSuccessState(t *testing.T) {
+	m := New(Deps{})
+	m.state = StateSucceeded
+	m.report = salesforce.DeployReport{Status: "Succeeded"}
+
+	next, cmd := m.Update(postCommentDoneMsg{err: errStub})
+	nm := next.(Model)
+	if nm.State() != StateSucceeded {
+		t.Fatalf("a failed comment post must not alter the terminal-success state, got %v", nm.State())
+	}
+	if cmd != nil {
+		t.Error("onPostCommentDone should fire no further command")
+	}
+	if nm.report.Status != "Succeeded" {
+		t.Errorf("report status must stay unaffected, got %q", nm.report.Status)
+	}
 }

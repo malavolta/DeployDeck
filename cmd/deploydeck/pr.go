@@ -12,16 +12,20 @@ import (
 	"github.com/malavolta/DeployDeck/internal/provenance"
 )
 
-// verifyFn is the provenance.Verify call runPRVerify makes, held behind a
-// package-private var so tests can inject each Result classification
-// deterministically. `go test` never links in the release ldflags secret,
-// so the REAL provenance.Verify can only ever return DevMarker/DevVerifier
-// in this binary — Verified/Mismatch both require a real, non-empty
-// injected secret, which is exhaustively exercised (with a real test
-// secret) by internal/provenance's own tests instead. This seam lets
-// pr_verify_test.go exercise runPRVerify's full exit-code mapping
-// regardless of build-time secret injection.
-var verifyFn = provenance.Verify
+// bestResult is the provenance.BestResult call runPRVerify makes, held
+// behind a package-private var so tests can inject a coarse (Result, runID)
+// outcome deterministically. `go test` never links in the release ldflags
+// secret, so the REAL provenance.BestResult (which composes
+// provenance.Verify) can only ever return DevMarker/DevVerifier in this
+// binary — Verified/Mismatch both require a real, non-empty injected
+// secret, which is exhaustively exercised (with a real test secret) by
+// internal/provenance's own TestBestResult_AnyOfClassification instead.
+// This seam lets pr_verify_test.go exercise runPRVerify's exit-code mapping
+// regardless of build-time secret injection, WITHOUT pr.go owning any
+// per-marker any-of ranking logic itself (design.md's "Provenance reuse"
+// decision, D11: `pr verify` and the deploy-gate signature condition share
+// ONE implementation, provenance.BestResult).
+var bestResult = provenance.BestResult
 
 // exitError carries an intentional non-zero process exit code from
 // runPRVerify's RunE wrapper, letting main()'s post-Execute dispatch
@@ -76,8 +80,9 @@ func newPRVerifyCmd() *cobra.Command {
 
 // runPRVerify is the testable core of `pr verify`: it derives owner/repo
 // from url, fetches the PR's headRefName/body, parses every marker in the
-// body, and classifies the BEST outcome (bestVerifyResult) — writing a
-// human-readable result to w and returning the matching exit code
+// body, and classifies the BEST outcome (bestResult, the
+// provenance.BestResult seam) — writing a human-readable result to w and
+// returning the matching exit code
 // (design.md's Data Flow "Verify" and "pr verify exit codes" table):
 //
 //	0 verified · 1 mismatch (forged/copied) · 2 no marker ·
@@ -102,7 +107,7 @@ func runPRVerify(w io.Writer, gh github.Client, url string) int {
 		return 2
 	}
 
-	result, runID := bestVerifyResult(ownerRepo, headBranch, markers)
+	result, runID := bestResult(ownerRepo, headBranch, markers)
 	switch result {
 	case provenance.Verified:
 		fmt.Fprintf(w, "pr verify: verified — this PR was created by DeployDeck (run %s)\n", runID)
@@ -123,43 +128,5 @@ func runPRVerify(w io.Writer, gh github.Client, url string) int {
 		// tampering.
 		fmt.Fprintf(w, "pr verify: unrecognized verification result for run %s — treating as indeterminate, not a forgery\n", runID)
 		return 4
-	}
-}
-
-// bestVerifyResult classifies every parsed marker via verifyFn and returns
-// the highest-ranked outcome (verifyResultRank): Verified beats
-// Dev(Marker/Verifier) beats Mismatch. A PR body is untrusted, editable
-// text — an AI-generated description can echo a prior marker verbatim, and
-// anyone with edit access to the PR can prepend a forged one — so a single
-// genuine signature anywhere in the body must always win over noise
-// elsewhere in it (any-of classification), never whichever marker happens
-// to come first.
-func bestVerifyResult(ownerRepo, headBranch string, markers []provenance.Marker) (result provenance.Result, runID string) {
-	for i, m := range markers {
-		r := verifyFn(ownerRepo, headBranch, m.RunID, m.Sig)
-		if i == 0 || verifyResultRank(r) > verifyResultRank(result) {
-			result, runID = r, m.RunID
-		}
-		if r == provenance.Verified {
-			break // nothing outranks Verified
-		}
-	}
-	return result, runID
-}
-
-// verifyResultRank orders provenance.Result values for bestVerifyResult's
-// any-of classification: Verified > Dev(Marker/Verifier) > Mismatch. An
-// unrecognized/future Result ranks lowest of all, so it can never silently
-// outrank a real classification when multiple markers are present.
-func verifyResultRank(r provenance.Result) int {
-	switch r {
-	case provenance.Verified:
-		return 3
-	case provenance.DevMarker, provenance.DevVerifier:
-		return 2
-	case provenance.Mismatch:
-		return 1
-	default:
-		return 0
 	}
 }

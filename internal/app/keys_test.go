@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/malavolta/DeployDeck/internal/config"
+	"github.com/malavolta/DeployDeck/internal/gate"
 	"github.com/malavolta/DeployDeck/internal/git"
 )
 
@@ -296,5 +298,181 @@ func TestBackTransitions_ClearStaleNotice(t *testing.T) {
 				t.Errorf("notice = %q, want cleared (\"\") on this back-transition", nm.notice)
 			}
 		})
+	}
+}
+
+// --- 6.7: keyQuickDeploy's gate branch ------------------------------------
+
+// gatedQuickDeployConfig mirrors quickDeployConfig but adds an enabled gates
+// entry for "UAT" so keyQuickDeploy's point-of-no-return branches into
+// gateCheckCmd instead of quickDeployCmd directly.
+func gatedQuickDeployConfig(allow bool, gateCfg config.GateConfig) config.Config {
+	cfg := quickDeployConfig(allow, false)
+	cfg.Gates = map[string]config.GateConfig{"UAT": gateCfg}
+	return cfg
+}
+
+// TestKeyQuickDeploy_Enter_GatedTarget_DispatchesGateCheckNotQuickDeploy is
+// task 6.7 (RED): the typed-DESPLEGAR confirmation on a gated target
+// dispatches gateCheckCmd, NOT quickDeployCmd directly — no `sf project
+// deploy quick` call happens until the gate check itself lands and passes
+// (design.md's "re-checked at point of no return").
+func TestKeyQuickDeploy_Enter_GatedTarget_DispatchesGateCheckNotQuickDeploy(t *testing.T) {
+	gateCfg := config.GateConfig{Enabled: true, Approvers: []string{"alice"}}
+	cfg := gatedQuickDeployConfig(true, gateCfg)
+	m, fr, _, _ := quickDeployModel(t, cfg, "UAT", "UAT_SBX", "0AfGATE1")
+	m = typeString(m, "DESPLEGAR")
+
+	next, cmd := m.Update(keyPress("enter"))
+	nm := next.(Model)
+	if nm.State() != StateQuickDeploy {
+		t.Fatalf("the confirm screen should hold until the gate check lands, got %v", nm.State())
+	}
+	if cmd == nil {
+		t.Fatal("a fully authorized confirmation on a gated target should fire the gate-check command")
+	}
+	if len(fr.Calls) != 0 {
+		t.Fatalf("quickDeployCmd (sf) must NOT fire directly on a gated target, sf calls: %v", fr.Calls)
+	}
+
+	msg := run(t, cmd)
+	if _, ok := msg.(gateCheckDoneMsg); !ok {
+		t.Fatalf("expected a gateCheckDoneMsg on a gated target, got %T", msg)
+	}
+}
+
+// TestKeyQuickDeploy_Enter_UngatedTarget_StillDispatchesQuickDeployCmd is
+// task 6.7's regression companion: an ungated target still dispatches
+// quickDeployCmd directly, deploying exactly as today.
+func TestKeyQuickDeploy_Enter_UngatedTarget_StillDispatchesQuickDeployCmd(t *testing.T) {
+	m, fr, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfUNGATED1")
+	m = typeString(m, "DESPLEGAR")
+
+	next, cmd := m.Update(keyPress("enter"))
+	nm := next.(Model)
+	if nm.State() != StateQuickDeploy {
+		t.Fatalf("expected to stay on StateQuickDeploy until quickDeployDoneMsg lands, got %v", nm.State())
+	}
+	if cmd == nil {
+		t.Fatal("expected quickDeployCmd to fire directly on an ungated target")
+	}
+	msg := run(t, cmd)
+	if _, ok := msg.(quickDeployDoneMsg); !ok {
+		t.Fatalf("expected a quickDeployDoneMsg on an ungated target, got %T", msg)
+	}
+	if len(fr.Calls) != 1 {
+		t.Fatalf("expected exactly 1 sf quick-deploy call on an ungated target, got %d: %v", len(fr.Calls), fr.Calls)
+	}
+}
+
+// TestKeyQuickDeploy_Enter_GateCheckInFlight_BlocksSecondEnter is the
+// CRITICAL remediation-pass fix (resilience review): keyQuickDeploy's
+// in-flight guard covered ONLY m.quickDeployingRunID, never
+// m.gateCheckingRunID — so retyping DESPLEGAR+Enter during the async
+// gateCheckCmd window (Enter already dispatched it, but onGateCheckDone has
+// not landed yet) passed every guard and fired a SECOND gateCheckCmd. If
+// both gate checks eventually pass, that lands TWO real quickDeployCmd
+// dispatches for the same run — a double real `sf project deploy quick`.
+// The guard must reject Enter while EITHER window is open, and reopen once
+// the pending check lands (a BLOCK clears gateCheckingRunID, so a fresh
+// retry is allowed again).
+func TestKeyQuickDeploy_Enter_GateCheckInFlight_BlocksSecondEnter(t *testing.T) {
+	gateCfg := config.GateConfig{Enabled: true, Approvers: []string{"alice"}}
+	cfg := gatedQuickDeployConfig(true, gateCfg)
+	m, fr, _, _ := quickDeployModel(t, cfg, "UAT", "UAT_SBX", "0AfGATE2")
+	m = typeString(m, "DESPLEGAR")
+
+	// First Enter: dispatches gateCheckCmd and captures gateCheckingRunID.
+	next, cmd := m.Update(keyPress("enter"))
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("setup: the first gated Enter must dispatch gateCheckCmd")
+	}
+	if m.gateCheckingRunID == "" {
+		t.Fatal("setup: gateCheckingRunID must be captured while the gate check is in flight")
+	}
+
+	// Retype DESPLEGAR + Enter WHILE the first gate check is still pending
+	// (mirrors the real re-type window: the confirm buffer is cleared on
+	// firing, so quickConfirm must be typed again to reach the
+	// point-of-no-return branch at all).
+	m = typeString(m, "DESPLEGAR")
+	next, cmd2 := m.Update(keyPress("enter"))
+	m = next.(Model)
+	if cmd2 != nil {
+		t.Fatal("a second Enter while a gate check is already in flight must be a strict no-op")
+	}
+	if len(fr.Calls) != 0 {
+		t.Fatalf("no sf call must fire while a gate check is in flight, calls: %v", fr.Calls)
+	}
+
+	// Land the pending (first) gate check as a BLOCK.
+	next, _ = m.Update(gateCheckDoneMsg{result: gate.Result{Passed: false, Conditions: []gate.Condition{
+		{Name: "approvals", Passed: false, Detail: "0/1 aprobaciones requeridas"},
+	}}})
+	m = next.(Model)
+	if m.gateCheckingRunID != "" {
+		t.Fatalf("onGateCheckDone must clear gateCheckingRunID on a BLOCK, got %q", m.gateCheckingRunID)
+	}
+	if m.State() != StateDeployGateBlocked {
+		t.Fatalf("a failed gate check must transition to StateDeployGateBlocked, got %v", m.State())
+	}
+
+	// A fresh retry (back on StateQuickDeploy, re-confirmed) must be allowed
+	// again — the guard reopens once the in-flight window closes. quickConfirm
+	// still holds the blocked no-op's untouched "DESPLEGAR" buffer, so clear
+	// it first (mirrors the real flow: q/esc back to StateRunHistory clears
+	// it too) before retyping the confirmation from scratch.
+	m.state = StateQuickDeploy
+	m.quickConfirm = ""
+	m = typeString(m, "DESPLEGAR")
+	next, cmd3 := m.Update(keyPress("enter"))
+	m = next.(Model)
+	if cmd3 == nil {
+		t.Fatal("a fresh Enter after the BLOCK landed must be allowed (guard must reopen)")
+	}
+}
+
+// --- 6.12: keyDeployGateBlocked --------------------------------------------
+
+// TestKeyDeployGateBlocked_QAndEsc_ReturnToRunHistory is task 6.12 (RED):
+// both q and esc back out of the gate-block screen to StateRunHistory,
+// firing no command.
+func TestKeyDeployGateBlocked_QAndEsc_ReturnToRunHistory(t *testing.T) {
+	for _, key := range []string{"q", "esc"} {
+		t.Run(key, func(t *testing.T) {
+			m := New(Deps{})
+			m.state = StateDeployGateBlocked
+			m.gateConditions = []gate.Condition{{Name: "approvals", Passed: false, Detail: "0/1 aprobaciones requeridas"}}
+
+			next, cmd := m.Update(keyPress(key))
+			nm := next.(Model)
+			if nm.State() != StateRunHistory {
+				t.Fatalf("%s should return to StateRunHistory, got %v", key, nm.State())
+			}
+			if cmd != nil {
+				t.Errorf("%s must not fire a command", key)
+			}
+		})
+	}
+}
+
+// TestKeyDeployGateBlocked_NoOverrideKeyBypassesTheBlock is task 6.12 (RED):
+// deploy-gate spec's "No override exists" — no key OTHER than q/esc offers
+// any way to proceed anyway.
+func TestKeyDeployGateBlocked_NoOverrideKeyBypassesTheBlock(t *testing.T) {
+	m := New(Deps{})
+	m.state = StateDeployGateBlocked
+	m.gateConditions = []gate.Condition{{Name: "approvals", Passed: false, Detail: "0/1 aprobaciones requeridas"}}
+
+	for _, key := range []string{"enter", "y", "o", "d", "f"} {
+		next, cmd := m.Update(keyPress(key))
+		nm := next.(Model)
+		if nm.State() != StateDeployGateBlocked {
+			t.Fatalf("key %q must not offer a bypass, but transitioned to %v", key, nm.State())
+		}
+		if cmd != nil {
+			t.Fatalf("key %q must not fire a command (no override)", key)
+		}
 	}
 }

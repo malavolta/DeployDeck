@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -53,6 +54,29 @@ func (c Config) Validate() error {
 
 	if c.AI.Enabled && (c.AI.Endpoint == "" || c.AI.Model == "") {
 		return fmt.Errorf("config: ai is enabled but endpoint or model is empty")
+	}
+
+	// Sorted iteration (remediation-pass readability fix): Go's map iteration
+	// order is randomized per range statement, so an unsorted range here made
+	// the reported error target — and therefore the whole error message —
+	// flaky whenever more than one gate was invalid at once.
+	gateTargets := make([]string, 0, len(c.Gates))
+	for target := range c.Gates {
+		gateTargets = append(gateTargets, target)
+	}
+	sort.Strings(gateTargets)
+
+	for _, target := range gateTargets {
+		gate := c.Gates[target]
+		if !gate.Enabled {
+			continue
+		}
+		if gate.MinApprovals != nil && *gate.MinApprovals < 1 {
+			return fmt.Errorf("config: gate %q has minApprovals %d, must be >= 1", target, *gate.MinApprovals)
+		}
+		if len(gate.Approvers) == 0 {
+			return fmt.Errorf("config: gate %q is enabled but approvers is empty", target)
+		}
 	}
 
 	return nil

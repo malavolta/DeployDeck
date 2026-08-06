@@ -569,6 +569,37 @@ func TestViewQuickDeploy_ShowsQuickErr(t *testing.T) {
 	}
 }
 
+// TestViewQuickDeploy_ShowsInFlightIndicator_WhileGateChecking is the
+// WARNING remediation-pass fix (resilience review): keyQuickDeploy clears the
+// confirm buffer the instant a gated Enter fires (before gateCheckCmd's
+// several sequential gh reads land), so with no indicator the screen looks
+// frozen for the whole async window — exactly what made a re-typed
+// DESPLEGAR+Enter during that window realistic (the CRITICAL double-fire
+// fix). The screen must show a visible, Spanish in-flight note while
+// m.gateCheckingRunID is set.
+func TestViewQuickDeploy_ShowsInFlightIndicator_WhileGateChecking(t *testing.T) {
+	m, _, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfGATECHK")
+	m.gateCheckingRunID = m.runs[m.runsCursor].RunID
+
+	v := m.View()
+	if !strings.Contains(v, "Verificando gate") {
+		t.Errorf("view should show an in-flight gate-check indicator while gateCheckingRunID is set, got:\n%s", v)
+	}
+}
+
+// TestViewQuickDeploy_NoInFlightIndicator_WhenNotGateChecking is the
+// triangulation companion: the indicator must NOT appear on the ordinary
+// screen (gateCheckingRunID empty), so this is a genuinely conditional note,
+// not a permanent addition to the screen.
+func TestViewQuickDeploy_NoInFlightIndicator_WhenNotGateChecking(t *testing.T) {
+	m, _, _, _ := quickDeployModel(t, quickDeployConfig(true, false), "UAT", "UAT_SBX", "0AfGATECHK2")
+
+	v := m.View()
+	if strings.Contains(v, "Verificando gate") {
+		t.Errorf("view should NOT show the in-flight indicator when no gate check is pending, got:\n%s", v)
+	}
+}
+
 // --- Adversarial-review remediations (H-1, M-1, H-2) -----------------------
 
 // TestKeyQuickDeploy_Enter_DoubleEnter_FiresQuickDeployOnce is Finding H-1

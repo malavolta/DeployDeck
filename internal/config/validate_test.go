@@ -168,6 +168,110 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
+// TestConfig_Validate_Gates is tasks 1.7-1.9 (RED): an enabled gate with an
+// explicit minApprovals < 1 is rejected; an enabled gate with an empty
+// approvers list is rejected UNCONDITIONALLY, even when minApprovals is
+// omitted; an enabled gate with minApprovals omitted (nil) and a non-empty
+// approvers list passes (nil is never treated as "< 1") — deploy-gate spec:
+// "An enabled gate with invalid approval settings is rejected".
+func TestConfig_Validate_Gates(t *testing.T) {
+	zero := 0
+	negative := -1
+	one := 1
+
+	tests := []struct {
+		name    string
+		gate    config.GateConfig
+		wantErr bool
+	}{
+		{
+			name:    "enabled gate with explicit minApprovals < 1 (zero) is rejected",
+			gate:    config.GateConfig{Enabled: true, Approvers: []string{"alice"}, MinApprovals: &zero},
+			wantErr: true,
+		},
+		{
+			name:    "enabled gate with explicit negative minApprovals is rejected",
+			gate:    config.GateConfig{Enabled: true, Approvers: []string{"alice"}, MinApprovals: &negative},
+			wantErr: true,
+		},
+		{
+			name:    "enabled gate with empty approvers is rejected even with minApprovals omitted",
+			gate:    config.GateConfig{Enabled: true, Approvers: nil},
+			wantErr: true,
+		},
+		{
+			name:    "enabled gate with empty approvers and explicit minApprovals is still rejected",
+			gate:    config.GateConfig{Enabled: true, Approvers: []string{}, MinApprovals: &one},
+			wantErr: true,
+		},
+		{
+			name:    "enabled gate with minApprovals omitted and a non-empty approvers list passes",
+			gate:    config.GateConfig{Enabled: true, Approvers: []string{"alice"}},
+			wantErr: false,
+		},
+		{
+			name:    "enabled gate with explicit valid minApprovals and approvers passes",
+			gate:    config.GateConfig{Enabled: true, Approvers: []string{"alice", "bob"}, MinApprovals: &one},
+			wantErr: false,
+		},
+		{
+			name:    "disabled gate with invalid settings is NOT validated (ungated, deploys as today)",
+			gate:    config.GateConfig{Enabled: false, Approvers: nil, MinApprovals: &zero},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Gates = map[string]config.GateConfig{"UAT": tt.gate}
+
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("expected Validate() to return an error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("expected Validate() to return nil, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestConfig_Validate_Gates_DeterministicErrorTarget is the remediation-pass
+// readability fix (Fix 7): with MULTIPLE invalid gates, Validate() must name
+// the SAME target on every call — Go's map iteration order is randomized per
+// range statement (even across repeated ranges over the SAME map), so an
+// unsorted `for target, gate := range c.Gates` makes the reported error
+// target (and therefore the whole error message) flaky. Sorting the keys
+// first makes the alphabetically-first invalid target win, deterministically,
+// every time.
+func TestConfig_Validate_Gates_DeterministicErrorTarget(t *testing.T) {
+	cfg := validConfig()
+	cfg.Gates = map[string]config.GateConfig{
+		"ZETA":   {Enabled: true, Approvers: nil},
+		"ALPHA":  {Enabled: true, Approvers: nil},
+		"MIDDLE": {Enabled: true, Approvers: nil},
+	}
+
+	var first string
+	for i := 0; i < 20; i++ {
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if i == 0 {
+			first = err.Error()
+			continue
+		}
+		if err.Error() != first {
+			t.Fatalf("Validate() error is non-deterministic across repeated calls on the SAME map: run 0 got %q, run %d got %q", first, i, err.Error())
+		}
+	}
+	if !strings.Contains(first, `"ALPHA"`) {
+		t.Fatalf("expected the deterministic error to always name the alphabetically-first invalid gate %q, got: %q", "ALPHA", first)
+	}
+}
+
 // TestConfig_Validate_RunsBoundsIdentifyField is task 2.1 (RED): the
 // run-retention spec requires each bounds error to identify the offending
 // field (run-retention spec: "KeepLast/KeepDays Config Bounds Are

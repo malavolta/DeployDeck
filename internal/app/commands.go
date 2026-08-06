@@ -3,13 +3,16 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/gate"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
 	"github.com/malavolta/DeployDeck/internal/prereq"
@@ -56,6 +59,15 @@ const updateCheckTimeout = 3 * time.Second
 // Data Flow: "ctx=WithTimeout"), mirroring updateCheckTimeout's discipline —
 // a slow/unreachable local model must never stall the pushReady screen.
 const aiSuggestTimeout = 15 * time.Second
+
+// gateCheckTimeout bounds gateCheckCmd's WHOLE sequence of gh reads
+// (resolvePRURL's fallback lookup plus the 4 independent condition reads),
+// mirroring queueCmd's "shared per-call timeout across multiple sequential
+// calls" discipline (remediation-pass resilience WARNING). keyQuickDeploy
+// clears the confirm buffer the instant this fires, so an unbounded
+// context.Background() let a single hung gh invocation stall
+// gateCheckDoneMsg — and the frozen-looking screen — forever.
+const gateCheckTimeout = 30 * time.Second
 
 // --- Messages ---
 
@@ -1521,4 +1533,242 @@ func (m Model) createPRCmd() tea.Cmd {
 		url, raw, err := gh.CreatePR(ctx, base, head, title, body)
 		return prCreatedMsg{url: url, raw: raw, err: err}
 	}
+}
+
+// --- deploy-gate --------------------------------------------------------
+
+// errNoGitHubClient is returned by deploy-gate's gh reads when Deps.GH is
+// nil — never a panic. A gate must fail closed exactly like a real gh
+// failure would (design.md's "any gh read error ... captured into the
+// matching Facts.*Err" contract), so a missing client degrades to the same
+// per-condition failure a genuine gh error would produce.
+var errNoGitHubClient = errors.New("app: no gh client configured")
+
+// resolvePRURL implements deploy-gate's fail-closed PR resolution (deploy-
+// gate spec: "Fail-Closed PR Resolution"): rec.PRUrl is used when already
+// recorded; an empty PRUrl falls back to locating the PR by the run's own
+// promotion-branch name (PRForBranch(RenderBranchName(branchFormat,
+// rec.Ticket, rec.Target))). Neither path resolving (including a nil gh
+// client) returns ok=false — the caller BLOCKS rather than skips
+// evaluation, never silently treating "no PR" as passing.
+func resolvePRURL(ctx context.Context, gh github.Client, rec runs.Record, branchFormat string) (string, bool) {
+	if rec.PRUrl != "" {
+		return rec.PRUrl, true
+	}
+	if gh == nil {
+		return "", false
+	}
+	branch := git.RenderBranchName(branchFormat, rec.Ticket, rec.Target)
+	url, _, err := gh.PRForBranch(ctx, branch)
+	if err != nil || url == "" {
+		return "", false
+	}
+	return url, true
+}
+
+// gateCheckDoneMsg carries a completed deploy-gate evaluation (design.md's
+// "gateCheckCmd" data flow): always a fully-formed gate.Result, whatever the
+// individual gh reads did — gateCheckCmd never panics and never returns a
+// bare error, only a Result whose conditions reflect any read failure
+// fail-closed.
+type gateCheckDoneMsg struct {
+	result gate.Result
+}
+
+// gateCheckCmd runs deploy-gate's async evaluation for the CURRENTLY
+// SELECTED run (m.runs[m.runsCursor], mirroring quickDeployCmd's own
+// selection): resolvePRURL, then PRReviews/UnresolvedThreadCount/
+// PRComments/verifyProvenance (D11) — mapping ANY gh read error
+// independently into the MATCHING Facts.*Err (never a blanket failure, and
+// NEVER a crash) — before calling gate.Evaluate. When resolvePRURL cannot
+// resolve a PR at all, the 4 reads are skipped entirely and
+// Facts.PRResolved stays false (gate.Evaluate then reports a single failed
+// pr-resolution condition).
+func (m Model) gateCheckCmd() tea.Cmd {
+	gh := m.deps.GH
+	rec := m.runs[m.runsCursor]
+	gateCfg, _ := m.deps.Config.GateFor(rec.Target)
+	branchFormat := m.deps.Config.BranchFormat
+	parent := m.ctx()
+	return func() tea.Msg {
+		// gateCheckTimeout bounds the WHOLE sequence below (resolvePRURL's
+		// fallback lookup plus the 4 independent reads) under ONE shared
+		// deadline (mirrors queueCmd's discipline) — a hung gh now fails
+		// closed via the normal Facts.*Err -> failed-condition path instead
+		// of stalling gateCheckDoneMsg indefinitely.
+		ctx, cancel := context.WithTimeout(parent, gateCheckTimeout)
+		defer cancel()
+
+		facts := gate.Facts{Config: gateCfg}
+
+		prURL, ok := resolvePRURL(ctx, gh, rec, branchFormat)
+		facts.PRResolved = ok
+		if !ok {
+			return gateCheckDoneMsg{result: gate.Evaluate(facts)}
+		}
+
+		if gh == nil {
+			// Defensive only: resolvePRURL(ctx, nil, ...) can return ok=true
+			// solely via rec.PRUrl already being set, without ever needing gh —
+			// still map every remaining read as failed rather than crash on a
+			// nil Client.
+			facts.ReviewsErr = errNoGitHubClient
+			facts.ThreadErr = errNoGitHubClient
+			facts.CommentErr = errNoGitHubClient
+			facts.ProvenanceErr = errNoGitHubClient
+			return gateCheckDoneMsg{result: gate.Evaluate(facts)}
+		}
+
+		if reviews, err := gh.PRReviews(ctx, prURL); err != nil {
+			facts.ReviewsErr = err
+		} else {
+			facts.Reviews = mapReviews(reviews)
+		}
+
+		if unresolved, err := gh.UnresolvedThreadCount(ctx, prURL); err != nil {
+			facts.ThreadErr = err
+		} else {
+			facts.UnresolvedCount = unresolved
+		}
+
+		if comments, err := gh.PRComments(ctx, prURL); err != nil {
+			facts.CommentErr = err
+		} else {
+			facts.CommentPresent = gate.HasValidationComment(commentBodies(comments))
+		}
+
+		if result, err := verifyProvenance(ctx, gh, prURL); err != nil {
+			facts.ProvenanceErr = err
+		} else {
+			facts.Provenance = result
+		}
+
+		return gateCheckDoneMsg{result: gate.Evaluate(facts)}
+	}
+}
+
+// verifyProvenance composes deploy-gate's signature condition source
+// (design.md D11): PRDetails -> provenance.ParseMarkers -> provenance.
+// BestResult — the SAME ranking implementation `pr verify` uses (cmd/
+// deploydeck's bestResult seam), so both share one classification. A gh/
+// parse failure fetching the PR body returns an error (the caller maps it
+// to Facts.ProvenanceErr, fail-closed); a PR body with NO marker at all is
+// legitimate data, not a failure — it classifies as provenance.Mismatch
+// (never the zero-valued provenance.Verified, which would wrongly pass an
+// absent signature).
+func verifyProvenance(ctx context.Context, gh github.Client, prURL string) (provenance.Result, error) {
+	ownerRepo, ok := github.ParsePRURL(prURL)
+	if !ok {
+		return 0, fmt.Errorf("app: could not parse owner/repo from PR URL %q", prURL)
+	}
+	headBranch, body, err := gh.PRDetails(ctx, prURL)
+	if err != nil {
+		return 0, fmt.Errorf("app: fetching PR details: %w", err)
+	}
+	markers := provenance.ParseMarkers(body)
+	if len(markers) == 0 {
+		return provenance.Mismatch, nil
+	}
+	result, _ := provenance.BestResult(ownerRepo, headBranch, markers)
+	return result, nil
+}
+
+// mapReviews maps github.Review DTOs into gate.ApproverReview value types at
+// the app boundary (design.md's "Gate package" decision: gate stays pure,
+// app owns the gh-DTO -> gate-value mapping).
+func mapReviews(reviews []github.Review) []gate.ApproverReview {
+	mapped := make([]gate.ApproverReview, len(reviews))
+	for i, r := range reviews {
+		mapped[i] = gate.ApproverReview{Login: r.Login, State: r.State}
+	}
+	return mapped
+}
+
+// commentBodies extracts just the Body field from github.Comment DTOs, the
+// shape gate.HasValidationComment consumes.
+func commentBodies(comments []github.Comment) []string {
+	bodies := make([]string, len(comments))
+	for i, c := range comments {
+		bodies[i] = c.Body
+	}
+	return bodies
+}
+
+// postCommentDoneMsg carries the deploy-gate validation-comment post/upsert
+// outcome (best-effort — see onPostCommentDone).
+type postCommentDoneMsg struct {
+	err error
+}
+
+// requireValidationCommentOn resolves GateConfig.RequireValidationComment's
+// default-on toggle (nil/omitted -> on; explicit false -> off) — the SAME
+// semantics internal/gate.Evaluate applies to its own condition toggles.
+// This is purely a dispatch-gating decision, not part of the gate evaluation
+// itself, so it stays here rather than inline in gate.Evaluate — but it
+// reuses gate.ToggleOn (remediation-pass readability fix) instead of
+// duplicating the nil-check, so the default-on convention lives in ONE place.
+func requireValidationCommentOn(cfg config.GateConfig) bool {
+	return gate.ToggleOn(cfg.RequireValidationComment)
+}
+
+// postValidationCommentCmd composes and posts (or skips, if already
+// present) deploy-gate's validation-comment (deploy-gate spec:
+// "Validation-Comment Condition And Posting"; validation-progress spec:
+// "Terminal Successful CheckOnly Triggers The Deploy-Gate Validation
+// Comment"). It is fired ONLY from onReportDone's already-terminal-SUCCESS
+// branch — best-effort and async: resolvePRURL failing to find a PR, or any
+// gh read/write error, degrades to a silent skip/no-op (postCommentDoneMsg
+// carries the error for onPostCommentDone's best-effort landing, but never
+// blocks or alters the terminal-success screen itself). Re-validation of
+// the same job skips posting when a marker comment already exists on the
+// PR — never a duplicate.
+func (m Model) postValidationCommentCmd() tea.Cmd {
+	gh := m.deps.GH
+	format := m.deps.Config.BranchFormat
+	rec := runs.Record{PRUrl: m.prURL, Ticket: m.plan.Ticket, Target: m.plan.TargetBranch}
+	jobID := m.jobID
+	runID := m.runID
+	report := m.report
+	ctx := m.ctx()
+	return func() tea.Msg {
+		if gh == nil {
+			return postCommentDoneMsg{}
+		}
+		prURL, ok := resolvePRURL(ctx, gh, rec, format)
+		if !ok {
+			return postCommentDoneMsg{}
+		}
+
+		comments, err := gh.PRComments(ctx, prURL)
+		if err != nil {
+			return postCommentDoneMsg{err: err}
+		}
+		if gate.HasValidationComment(commentBodies(comments)) {
+			return postCommentDoneMsg{} // already present: skip, never a duplicate
+		}
+
+		pct, known := gate.AggregateCoverage(coverageTotals(report.CodeCoverage), coverageNotCovered(report.CodeCoverage))
+		_, body := gate.ValidationComment(jobID, runID, report.NumberComponentErrors, report.NumberTestErrors, pct, known)
+		_, err = gh.PostComment(ctx, prURL, body)
+		return postCommentDoneMsg{err: err}
+	}
+}
+
+// coverageTotals/coverageNotCovered project salesforce.DeployReport's
+// per-class CodeCoverage into the two parallel []int slices
+// gate.AggregateCoverage consumes.
+func coverageTotals(cov []salesforce.CodeCoverageResult) []int {
+	totals := make([]int, len(cov))
+	for i, c := range cov {
+		totals[i] = c.NumLocations
+	}
+	return totals
+}
+
+func coverageNotCovered(cov []salesforce.CodeCoverageResult) []int {
+	notCovered := make([]int, len(cov))
+	for i, c := range cov {
+		notCovered[i] = c.NumLocationsNotCovered
+	}
+	return notCovered
 }

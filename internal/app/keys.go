@@ -65,6 +65,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyBranchCleanup(msg)
 	case StateBranchCollision:
 		return m.keyBranchCollision(msg)
+	case StateDeployGateBlocked:
+		return m.keyDeployGateBlocked(msg)
 	case StateError, StateFailed, StateCanceled:
 		if key := msg.String(); key == "q" || key == "enter" || key == "esc" {
 			return m, m.quitCmd()
@@ -1432,11 +1434,18 @@ const quickDeployConfirmWord = "DESPLEGAR"
 func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		if m.quickDeployingRunID != "" {
-			// A quick deploy is already in flight (Finding H-1): ignore Enter so
-			// the same destructive `sf project deploy quick` can never fire twice,
-			// even if the confirm buffer is re-typed. Mirrors pushPushing/
-			// pushPRCreating's "side effect outstanding" guard.
+		if m.quickDeployingRunID != "" || m.gateCheckingRunID != "" {
+			// A quick deploy OR a gate check is already in flight (Finding H-1,
+			// widened by the remediation-pass CRITICAL fix): ignore Enter so the
+			// same destructive `sf project deploy quick` can never fire twice,
+			// even if the confirm buffer is re-typed. Covering ONLY
+			// quickDeployingRunID left the async gateCheckCmd window open — a
+			// re-typed DESPLEGAR+Enter while a gate check was pending passed every
+			// guard and dispatched a SECOND gateCheckCmd, which (if both passed)
+			// fired TWO real quickDeployCmd for the same run. onGateCheckDone
+			// clears gateCheckingRunID before ever dispatching quickDeployCmd, so
+			// this guard reopens the instant that window closes. Mirrors
+			// pushPushing/pushPRCreating's "side effect outstanding" guard.
 			return m, nil
 		}
 		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
@@ -1473,6 +1482,18 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// in-memory ineligible (Finding H-2). Bubble Tea serializes key msgs, so
 		// this closes both the concurrent and after-success re-fire windows.
 		m.quickConfirm = ""
+
+		if _, gated := m.deps.Config.GateFor(rec.Target); gated {
+			// deploy-gate: re-checked at this exact point of no return, between
+			// the word-check above and the real dispatch below. gateCheckCmd
+			// runs async and NEVER calls quickDeployCmd itself — onGateCheckDone
+			// dispatches it on a passed Result, or transitions to
+			// StateDeployGateBlocked on a failed one (design.md's "gate re-
+			// checked at point of no return" decision).
+			m.gateCheckingRunID = rec.RunID
+			return m, m.gateCheckCmd()
+		}
+
 		m.quickDeployingRunID = rec.RunID
 		return m, m.quickDeployCmd()
 	case "q":
@@ -1508,4 +1529,19 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// keyDeployGateBlocked handles deploy-gate's gate-block screen (deploy-gate
+// spec: "Gate-Block Screen"). q/esc are the ONLY live keys, both backing out
+// to StateRunHistory — there is deliberately NO override/bypass key
+// (spec: "No override exists"): every other key press is a strict no-op.
+func (m Model) keyDeployGateBlocked(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "esc":
+		m.gateConditions = nil
+		m.gateCheckingRunID = ""
+		m.state = StateRunHistory
+		return m, nil
+	}
+	return m, nil
 }

@@ -98,6 +98,33 @@ type AIConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// GateConfig is one per-environment deploy-gate entry (deploy-gate spec:
+// "Per-Environment Gate Configuration"): a governance check DeployDeck
+// evaluates locally, after the typed strong confirmation and before quick
+// deploy actually runs. Zero-value-safe and default-off — an entry that is
+// absent, or present with Enabled==false, means the target deploys exactly
+// as the quick-deploy capability already describes.
+//
+// MinApprovals and the three Require* fields are *int/*bool so Load can
+// distinguish "omitted" (nil) from an explicit value: MinApprovals==nil
+// resolves to 1 elsewhere (design's "MinApprovals default" decision); each
+// Require* toggle defaults to ON when omitted (nil) and is OFF only on an
+// explicit `false` — a plain bool's zero value could never mean "on".
+// Approval itself is NEVER toggleable: it always applies once Enabled.
+type GateConfig struct {
+	Enabled   bool     `yaml:"enabled"`
+	Approvers []string `yaml:"approvers"`
+	// MinApprovals nil/omitted resolves to 1; Validate rejects an explicit
+	// value < 1 on an enabled gate.
+	MinApprovals *int `yaml:"minApprovals"`
+	// RequireResolvedThreads/RequireValidationComment/RequireSignature: nil
+	// (omitted) means the condition is evaluated (ON) whenever the gate is
+	// Enabled; an explicit `false` turns that ONE condition off.
+	RequireResolvedThreads   *bool `yaml:"requireResolvedThreads"`
+	RequireValidationComment *bool `yaml:"requireValidationComment"`
+	RequireSignature         *bool `yaml:"requireSignature"`
+}
+
 // Config is the parsed, defaulted deploydeck.yaml.
 type Config struct {
 	// Branches maps a logical environment name (e.g. "integration", "uat",
@@ -141,4 +168,11 @@ type Config struct {
 	// AI gates the optional local-model PR title/description suggestion.
 	// Zero-value-safe (Enabled=false); see AIConfig.
 	AI AIConfig `yaml:"ai"`
+
+	// Gates maps a branch name or glob (e.g. "Release/*") to a per-
+	// environment deploy-gate entry — mirrors Sandboxes' own keying
+	// convention (see GateFor). An entirely omitted section, or every entry
+	// left Enabled==false, is zero-value-safe: no target is gated (deploy-
+	// gate spec: "default-off and zero-value-safe").
+	Gates map[string]GateConfig `yaml:"gates"`
 }

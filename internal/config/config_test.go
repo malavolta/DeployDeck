@@ -227,3 +227,101 @@ ai:
 		t.Errorf("AI = %+v, want %+v", cfg.AI, want)
 	}
 }
+
+// --- deploy-gate: Gates map / *bool / *int nil-vs-explicit parsing (task 1.1) ---
+
+// TestLoad_GatesSection_RequireTogglesNilVsExplicitFalse is task 1.1 (RED):
+// an omitted require* toggle parses as a nil *bool (design's "default-on
+// toggles" decision: nil later means "on when Enabled"), while an explicit
+// `false` parses as a non-nil *bool pointing at false — the two must be
+// DISTINGUISHABLE after Load, which a plain `bool` field could never do.
+func TestLoad_GatesSection_RequireTogglesNilVsExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, `
+branches:
+  integration: INT
+
+gates:
+  UAT:
+    enabled: true
+    approvers:
+      - alice
+    requireSignature: false
+  Prod:
+    enabled: true
+    approvers:
+      - bob
+`)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	uat, ok := cfg.Gates["UAT"]
+	if !ok {
+		t.Fatalf("expected a Gates[\"UAT\"] entry")
+	}
+	if uat.RequireSignature == nil || *uat.RequireSignature != false {
+		t.Fatalf("UAT.RequireSignature = %v, want a non-nil pointer to false (explicit false)", uat.RequireSignature)
+	}
+	if uat.RequireResolvedThreads != nil {
+		t.Fatalf("UAT.RequireResolvedThreads = %v, want nil (omitted)", uat.RequireResolvedThreads)
+	}
+	if uat.RequireValidationComment != nil {
+		t.Fatalf("UAT.RequireValidationComment = %v, want nil (omitted)", uat.RequireValidationComment)
+	}
+
+	prod, ok := cfg.Gates["Prod"]
+	if !ok {
+		t.Fatalf("expected a Gates[\"Prod\"] entry")
+	}
+	if prod.RequireSignature != nil {
+		t.Fatalf("Prod.RequireSignature = %v, want nil (omitted, distinct from UAT's explicit false)", prod.RequireSignature)
+	}
+}
+
+// TestLoad_GatesSection_MinApprovalsNilVsExplicit is task 1.1 (RED): an
+// omitted minApprovals parses as a nil *int (default resolved to 1
+// elsewhere, e.g. by internal/gate); an explicit value parses as a non-nil
+// pointer carrying that exact value — a plain `int` could never distinguish
+// an omitted 0 from an explicit 0.
+func TestLoad_GatesSection_MinApprovalsNilVsExplicit(t *testing.T) {
+	dir := t.TempDir()
+	writeFixture(t, dir, `
+branches:
+  integration: INT
+
+gates:
+  UAT:
+    enabled: true
+    approvers:
+      - alice
+    minApprovals: 2
+  Prod:
+    enabled: true
+    approvers:
+      - bob
+`)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	uat := cfg.Gates["UAT"]
+	if uat.MinApprovals == nil || *uat.MinApprovals != 2 {
+		t.Fatalf("UAT.MinApprovals = %v, want a non-nil pointer to 2", uat.MinApprovals)
+	}
+
+	prod := cfg.Gates["Prod"]
+	if prod.MinApprovals != nil {
+		t.Fatalf("Prod.MinApprovals = %v, want nil (omitted)", prod.MinApprovals)
+	}
+	if len(prod.Approvers) != 1 || prod.Approvers[0] != "bob" {
+		t.Fatalf("Prod.Approvers = %v, want [bob]", prod.Approvers)
+	}
+	if !prod.Enabled {
+		t.Fatalf("Prod.Enabled = false, want true")
+	}
+}

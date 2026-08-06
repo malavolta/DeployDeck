@@ -37,28 +37,34 @@ func prViewRunner(t *testing.T, url, headBranch, body string) *execpkg.FakeRunne
 	return fr
 }
 
-// withVerifyFn overrides the package-level verifyFn for the duration of the
-// test, restoring it in cleanup. `go test` never links in the release
-// ldflags secret, so the REAL provenance.Verify can only ever return
+// withBestResult overrides the package-level bestResult seam for the
+// duration of the test, restoring it in cleanup. `go test` never links in
+// the release ldflags secret, so the REAL provenance.Verify (which
+// provenance.BestResult composes) can only ever return
 // DevMarker/DevVerifier in this binary — Verified/Mismatch both require a
 // real, non-empty injected secret, which is exhaustively exercised (with a
-// real test secret) by internal/provenance's own tests instead. This seam
-// lets runPRVerify's exit-code MAPPING be tested deterministically for every
-// classification.
-func withVerifyFn(t *testing.T, result provenance.Result) {
+// real test secret) by internal/provenance's own TestBestResult_
+// AnyOfClassification instead. This COARSE seam lets runPRVerify's
+// exit-code MAPPING be tested deterministically for every classification,
+// without runPRVerify (or this test file) ever having to fake per-marker
+// signature discrimination itself (task 3.1 restructure — that any-of
+// ranking proof now lives entirely in internal/provenance).
+func withBestResult(t *testing.T, result provenance.Result, runID string) {
 	t.Helper()
-	restore := verifyFn
-	verifyFn = func(ownerRepo, headBranch, runID, sig string) provenance.Result { return result }
-	t.Cleanup(func() { verifyFn = restore })
+	restore := bestResult
+	bestResult = func(ownerRepo, headBranch string, markers []provenance.Marker) (provenance.Result, string) {
+		return result, runID
+	}
+	t.Cleanup(func() { bestResult = restore })
 }
 
 // --- verified -> 0 -----------------------------------------------------
 
 // TestRunPRVerify_Verified is task 4.1 (RED): a genuine marker (via the
-// injected verifyFn seam) exits 0 and reports the run.
+// injected bestResult seam) exits 0 and reports the run.
 func TestRunPRVerify_Verified(t *testing.T) {
 	body := "Some description.\n\n" + provenance.RenderFooter() + "\n" + provenance.RenderMarker(prVerifyRunID, "0123456789abcdef")
-	withVerifyFn(t, provenance.Verified)
+	withBestResult(t, provenance.Verified, prVerifyRunID)
 
 	var buf bytes.Buffer
 	code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, body)), prVerifyURL)
@@ -73,10 +79,10 @@ func TestRunPRVerify_Verified(t *testing.T) {
 // --- forged/mismatch -> 1 -----------------------------------------------
 
 // TestRunPRVerify_Mismatch is task 4.1 (RED): a tampered/forged signature
-// (via the injected verifyFn seam) exits 1, never 0.
+// (via the injected bestResult seam) exits 1, never 0.
 func TestRunPRVerify_Mismatch(t *testing.T) {
 	body := "Some description.\n\n" + provenance.RenderFooter() + "\n" + provenance.RenderMarker(prVerifyRunID, "0123456789abcdef")
-	withVerifyFn(t, provenance.Mismatch)
+	withBestResult(t, provenance.Mismatch, prVerifyRunID)
 
 	var buf bytes.Buffer
 	code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, body)), prVerifyURL)
@@ -90,12 +96,13 @@ func TestRunPRVerify_Mismatch(t *testing.T) {
 // is reported as mismatch (exit 1), NOT verified — the same exit-code
 // mapping as any other forged/tampered signature.
 func TestRunPRVerify_CrossRepoBranchCopiedMarker_Mismatch(t *testing.T) {
-	// The marker's runID/sig look plausible; the injected verifyFn stands in
-	// for provenance.Verify correctly classifying the copied-elsewhere
-	// signature as a Mismatch (proven with a real secret in
-	// internal/provenance's own TestVerify "wrong repo"/"wrong branch" cases).
+	// The marker's runID/sig look plausible; the injected bestResult seam
+	// stands in for provenance.BestResult correctly classifying the
+	// copied-elsewhere signature as a Mismatch (proven with a real secret
+	// in internal/provenance's own TestVerify "wrong repo"/"wrong branch"
+	// cases, and its any-of composition in TestBestResult_AnyOfClassification).
 	body := provenance.RenderFooter() + "\n" + provenance.RenderMarker(prVerifyRunID, "fedcba9876543210")
-	withVerifyFn(t, provenance.Mismatch)
+	withBestResult(t, provenance.Mismatch, prVerifyRunID)
 
 	var buf bytes.Buffer
 	code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, "deploy/OTHER-to-UAT", body)), prVerifyURL)
@@ -198,81 +205,46 @@ func TestRunPRVerify_Degraded(t *testing.T) {
 	})
 }
 
-// --- any-of classification across multiple markers (remediation) ----------
+// --- any-of classification across multiple markers (restructured, task 3.1) -
 
-// TestRunPRVerify_AnyOfClassification is task B (RED, remediation): a PR
-// body can carry more than one marker — a stale one an AI-generated
-// description echoed verbatim, or a bad-faith one prepended by anyone with
-// edit access to the PR to try to discredit the genuine marker. runPRVerify
-// must classify EVERY parsed marker and report the BEST outcome
-// (Verified > Dev > Mismatch), never whichever marker happens to come
-// first. Against the unmodified runPRVerify (first-match parsing), the
-// two "genuine wins" subtests fail: a prepended stale/bogus marker would be
-// reported instead of the genuine one behind it.
+// TestRunPRVerify_AnyOfClassification is task 3.1 (RED, RESTRUCTURED — not a
+// rename): a PR body can carry more than one marker — a stale one an
+// AI-generated description echoed verbatim, or a bad-faith one prepended by
+// anyone with edit access to the PR to try to discredit the genuine marker.
+// The sig-DISCRIMINATING any-of ranking proof (which marker wins per
+// classification) now lives entirely in
+// internal/provenance's own TestBestResult_AnyOfClassification, exercised
+// with a REAL secret — provenance.BestResult owns that logic now, not
+// pr.go. This restructured test proves ONLY pr.go's remaining
+// responsibility: runPRVerify parses the FULL body and passes EVERY parsed
+// marker through to the bestResult seam (never pre-filtering to "the first
+// marker"), and maps whatever Result the seam returns to the documented
+// exit code — a coarse plumbing proof, per the design's "pr_verify_test
+// keeps only exit-code mapping via the coarse bestResult seam".
 func TestRunPRVerify_AnyOfClassification(t *testing.T) {
-	genuineSig := "cafebabecafebabe"
-	bogusSig := "deadbeefdeadbeef"
-	genuineMarker := provenance.RenderMarker(prVerifyRunID, genuineSig)
-	bogusMarker := provenance.RenderMarker("bogus-run", bogusSig)
-	devMarker := provenance.RenderMarker("dev-run", "dev")
+	genuineMarker := provenance.RenderMarker(prVerifyRunID, "cafebabecafebabe")
+	bogusMarker := provenance.RenderMarker("bogus-run", "deadbeefdeadbeef")
+	body := bogusMarker + "\n\n" + genuineMarker
 
-	// withGenuineResult classifies genuineSig as `genuine`, "dev" sigs as
-	// DevMarker, and anything else (the bogus marker) as Mismatch — letting
-	// each subtest drive a DIFFERENT classification per marker, which the
-	// shared withVerifyFn helper (a single constant result) cannot do.
-	withGenuineResult := func(t *testing.T, genuine provenance.Result) {
-		t.Helper()
-		restore := verifyFn
-		verifyFn = func(ownerRepo, headBranch, runID, sig string) provenance.Result {
-			switch sig {
-			case genuineSig:
-				return genuine
-			case "dev":
-				return provenance.DevMarker
-			default:
-				return provenance.Mismatch
-			}
-		}
-		t.Cleanup(func() { verifyFn = restore })
+	var gotMarkers []provenance.Marker
+	restore := bestResult
+	bestResult = func(ownerRepo, headBranch string, markers []provenance.Marker) (provenance.Result, string) {
+		gotMarkers = markers
+		return provenance.Verified, prVerifyRunID
 	}
+	t.Cleanup(func() { bestResult = restore })
 
-	t.Run("prepended bogus marker before genuine: genuine wins, exit 0", func(t *testing.T) {
-		withGenuineResult(t, provenance.Verified)
-		body := bogusMarker + "\n\n" + genuineMarker
-		var buf bytes.Buffer
-		code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, body)), prVerifyURL)
-		if code != 0 {
-			t.Fatalf("runPRVerify() = %d, want 0 (the genuine marker must win over a prepended bogus one)", code)
-		}
-	})
-
-	t.Run("prepended dev marker before genuine: genuine wins, exit 0", func(t *testing.T) {
-		withGenuineResult(t, provenance.Verified)
-		body := devMarker + "\n\n" + genuineMarker
-		var buf bytes.Buffer
-		code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, body)), prVerifyURL)
-		if code != 0 {
-			t.Fatalf("runPRVerify() = %d, want 0 (the genuine marker must win over a prepended dev marker)", code)
-		}
-	})
-
-	t.Run("only a bogus marker present: exit 1", func(t *testing.T) {
-		withGenuineResult(t, provenance.Verified) // irrelevant: no genuine sig in the body
-		var buf bytes.Buffer
-		code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, bogusMarker)), prVerifyURL)
-		if code != 1 {
-			t.Fatalf("runPRVerify() = %d, want 1 (mismatch — no genuine marker present)", code)
-		}
-	})
-
-	t.Run("only a dev marker present: exit 3", func(t *testing.T) {
-		withGenuineResult(t, provenance.Verified) // irrelevant: no genuine sig in the body
-		var buf bytes.Buffer
-		code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, devMarker)), prVerifyURL)
-		if code != 3 {
-			t.Fatalf("runPRVerify() = %d, want 3 (dev-signed marker — no genuine marker present)", code)
-		}
-	})
+	var buf bytes.Buffer
+	code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, body)), prVerifyURL)
+	if code != 0 {
+		t.Fatalf("runPRVerify() = %d, want 0 (bestResult's Verified must map to exit 0)", code)
+	}
+	if len(gotMarkers) != 2 {
+		t.Fatalf("runPRVerify() must pass ALL parsed markers to bestResult, got %d: %+v", len(gotMarkers), gotMarkers)
+	}
+	if gotMarkers[0].RunID != "bogus-run" || gotMarkers[1].RunID != prVerifyRunID {
+		t.Fatalf("runPRVerify() must preserve document order when passing markers to bestResult, got %+v", gotMarkers)
+	}
 }
 
 // --- exhaustive Result -> exit-code mapping, incl. an unknown Result -------
@@ -301,7 +273,7 @@ func TestRunPRVerify_ExhaustiveResultMapping(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			withVerifyFn(t, tt.result)
+			withBestResult(t, tt.result, prVerifyRunID)
 			var buf bytes.Buffer
 			code := runPRVerify(&buf, github.New(prViewRunner(t, prVerifyURL, prVerifyBranch, body)), prVerifyURL)
 			if code != tt.want {

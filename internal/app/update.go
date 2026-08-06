@@ -95,8 +95,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onCancelDone(msg)
 	case quickDeployDoneMsg:
 		return m.onQuickDeployDone(msg)
+	case gateCheckDoneMsg:
+		return m.onGateCheckDone(msg)
 	case reportDoneMsg:
 		return m.onReportDone(msg)
+	case postCommentDoneMsg:
+		return m.onPostCommentDone(msg)
 	case pollTickMsg:
 		return m.onPollTick()
 	case pushDoneMsg:
@@ -1156,9 +1160,70 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 		// the terminal screen so a stray key can't funnel into keyDeleteConfirm.
 		m = m.resetCleanupState()
 		m.state = terminalState(msg.report.Status)
+
+		// deploy-gate / validation-progress: a terminal SUCCESS on a gate-
+		// enabled target with requireValidationComment on triggers the
+		// validation-comment post/upsert, best-effort and async (never blocks
+		// or alters this already-terminal-success screen). An ungated target,
+		// a toggled-off condition, or a non-successful terminal state
+		// (Failed/Canceled) never triggers it.
+		if cmd := m.maybeTriggerValidationCommentCmd(msg.report.Status); cmd != nil {
+			return m, cmd
+		}
 		return m, nil
 	}
 	return m.scheduleNextPoll()
+}
+
+// maybeTriggerValidationCommentCmd is onReportDone's terminal-success gate
+// (validation-progress spec: "Terminal Successful CheckOnly Triggers The
+// Deploy-Gate Validation Comment"): status must be a SUCCESS terminal
+// (Succeeded/SucceededPartial — never Failed/Canceled), the target's gate
+// must be Enabled (config.GateFor), and requireValidationComment must be on
+// (nil/omitted defaults on; explicit false skips it). Only then does it
+// return postValidationCommentCmd; otherwise nil (no trigger).
+func (m Model) maybeTriggerValidationCommentCmd(status string) tea.Cmd {
+	if status != "Succeeded" && status != "SucceededPartial" {
+		return nil
+	}
+	gateCfg, gated := m.deps.Config.GateFor(m.plan.TargetBranch)
+	if !gated || !requireValidationCommentOn(gateCfg) {
+		return nil
+	}
+	return m.postValidationCommentCmd()
+}
+
+// onGateCheckDone lands deploy-gate's async evaluation (design.md's
+// "onGateCheckDone" data flow): a passed Result dispatches quickDeployCmd —
+// the point-of-no-return real `sf project deploy quick` — mirroring
+// keyQuickDeploy's own pre-gate capture (m.quickDeployingRunID = the
+// checked run's own RunID). A failed Result records every unmet condition
+// (m.gateConditions) and transitions to StateDeployGateBlocked WITHOUT ever
+// dispatching quickDeployCmd — no destructive action is taken.
+func (m Model) onGateCheckDone(msg gateCheckDoneMsg) (tea.Model, tea.Cmd) {
+	runID := m.gateCheckingRunID
+	m.gateCheckingRunID = ""
+
+	if !msg.result.Passed {
+		m.gateConditions = msg.result.Conditions
+		m.state = StateDeployGateBlocked
+		return m, nil
+	}
+
+	m.gateConditions = nil
+	if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+		return m, nil
+	}
+	m.quickDeployingRunID = runID
+	return m, m.quickDeployCmd()
+}
+
+// onPostCommentDone lands the deploy-gate validation-comment post/upsert
+// outcome. It is deliberately best-effort (task 6.19): a failure (msg.err)
+// is silently dropped — it NEVER alters the already-terminal-success run
+// state, never surfaces on the success screen, and fires no further command.
+func (m Model) onPostCommentDone(msg postCommentDoneMsg) (tea.Model, tea.Cmd) {
+	return m, nil
 }
 
 // scheduleNextPoll enforces the hard deadline, then arms the NEXT poll tick.

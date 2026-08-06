@@ -321,3 +321,88 @@ func TestCompose(t *testing.T) {
 		}
 	})
 }
+
+// --- 2.1: BestResult any-of classification (extracted from cmd/deploydeck/pr.go) ---
+
+// TestBestResult_AnyOfClassification is task 2.1 (RED): BestResult
+// classifies EVERY parsed marker and reports the BEST outcome
+// (Verified > Dev(Marker/Verifier) > Mismatch), never whichever marker
+// happens to come first — the any-of proof design.md's Churn row moves here
+// (from cmd/deploydeck's now-restructured TestRunPRVerify_AnyOfClassification),
+// exercised with a REAL, non-empty injected secret so genuine
+// Verify-classified markers are actually distinguishable from forged ones,
+// not just a per-marker fake.
+func TestBestResult_AnyOfClassification(t *testing.T) {
+	withSecret(t, "topsecret")
+	ownerRepo, headBranch := "github.com/org/repo", "deploy/PROJ-1-to-UAT"
+	genuineRunID := "PROJ-1-to-UAT-20260101000000"
+	genuineSig := Sign(ownerRepo, headBranch, genuineRunID)
+
+	bogusMarker := Marker{RunID: "bogus-run", Sig: "deadbeefdeadbeef"} // wrong sig -> Mismatch
+	devMarker := Marker{RunID: "dev-run", Sig: "dev"}                  // -> DevMarker
+	genuineMarker := Marker{RunID: genuineRunID, Sig: genuineSig}      // -> Verified
+
+	t.Run("prepended bogus marker before genuine: genuine wins", func(t *testing.T) {
+		result, runID := BestResult(ownerRepo, headBranch, []Marker{bogusMarker, genuineMarker})
+		if result != Verified {
+			t.Fatalf("BestResult() = %v, want Verified (the genuine marker must win over a prepended bogus one)", result)
+		}
+		if runID != genuineRunID {
+			t.Fatalf("BestResult() runID = %q, want %q", runID, genuineRunID)
+		}
+	})
+
+	t.Run("prepended dev marker before genuine: genuine wins", func(t *testing.T) {
+		result, runID := BestResult(ownerRepo, headBranch, []Marker{devMarker, genuineMarker})
+		if result != Verified {
+			t.Fatalf("BestResult() = %v, want Verified (the genuine marker must win over a prepended dev marker)", result)
+		}
+		if runID != genuineRunID {
+			t.Fatalf("BestResult() runID = %q, want %q", runID, genuineRunID)
+		}
+	})
+
+	t.Run("only a bogus marker present: Mismatch", func(t *testing.T) {
+		result, _ := BestResult(ownerRepo, headBranch, []Marker{bogusMarker})
+		if result != Mismatch {
+			t.Fatalf("BestResult() = %v, want Mismatch", result)
+		}
+	})
+
+	t.Run("only a dev marker present: DevMarker", func(t *testing.T) {
+		result, runID := BestResult(ownerRepo, headBranch, []Marker{devMarker})
+		if result != DevMarker {
+			t.Fatalf("BestResult() = %v, want DevMarker", result)
+		}
+		if runID != "dev-run" {
+			t.Fatalf("BestResult() runID = %q, want %q", runID, "dev-run")
+		}
+	})
+
+	t.Run("dev marker beats mismatch when no genuine marker present", func(t *testing.T) {
+		result, runID := BestResult(ownerRepo, headBranch, []Marker{bogusMarker, devMarker})
+		if result != DevMarker {
+			t.Fatalf("BestResult() = %v, want DevMarker (Dev outranks Mismatch)", result)
+		}
+		if runID != "dev-run" {
+			t.Fatalf("BestResult() runID = %q, want %q", runID, "dev-run")
+		}
+	})
+
+	t.Run("empty markers slice returns Mismatch, never the untouched zero value", func(t *testing.T) {
+		// Remediation-pass SUGGESTION (risk review): BestResult used to return
+		// the zero value on an empty slice, and Verified==Result(0) — so a
+		// FUTURE caller that forgot pr.go's/verifyProvenance's own len==0
+		// pre-guard would silently fail OPEN (an absent marker classified as
+		// verified). BestResult must be self-safe: an empty slice is
+		// unverifiable data, not "nothing happened yet", so it must never
+		// rank as Verified.
+		result, runID := BestResult(ownerRepo, headBranch, nil)
+		if result == Verified {
+			t.Fatalf("BestResult(nil) = %v, must NEVER be Verified (that would fail an absent marker OPEN)", result)
+		}
+		if runID != "" {
+			t.Fatalf("BestResult(nil) runID = %q, want empty", runID)
+		}
+	})
+}

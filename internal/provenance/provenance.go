@@ -163,6 +163,58 @@ func Verify(ownerRepo, headBranch, runID, sig string) Result {
 	return Mismatch
 }
 
+// resultRank orders Result values for BestResult's any-of classification:
+// Verified > Dev(Marker/Verifier) > Mismatch. An unrecognized/future Result
+// ranks lowest of all, so it can never silently outrank a real
+// classification when multiple markers are present. Extracted verbatim
+// from cmd/deploydeck/pr.go's former verifyResultRank (design.md's
+// "Provenance reuse" decision).
+func resultRank(r Result) int {
+	switch r {
+	case Verified:
+		return 3
+	case DevMarker, DevVerifier:
+		return 2
+	case Mismatch:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// BestResult classifies EVERY marker in markers via Verify and returns the
+// highest-ranked outcome (resultRank) together with the runID it came
+// from: Verified beats Dev(Marker/Verifier) beats Mismatch. A PR body is
+// untrusted, editable text — an AI-generated description can echo a prior
+// marker verbatim, and anyone with edit access to the PR can prepend a
+// forged one — so a single genuine signature anywhere in the body must
+// always win over noise elsewhere in it (any-of classification), never
+// whichever marker happens to come first. Extracted from
+// cmd/deploydeck/pr.go's former bestVerifyResult (design.md's "Provenance
+// reuse" decision, D11): `pr verify` and the deploy-gate signature
+// condition now share this ONE implementation. An empty markers slice
+// returns Mismatch and an empty runID — deliberately NEVER the untouched
+// zero value, which happens to equal Verified (Result(0)). Both current
+// callers already pre-guard len(markers)==0 via ParseMarkers' own nil-slice
+// convention, but BestResult stays self-safe regardless: a FUTURE caller
+// that skipped that pre-guard must never have an absent marker silently
+// classified as verified (remediation-pass risk SUGGESTION).
+func BestResult(ownerRepo, headBranch string, markers []Marker) (result Result, runID string) {
+	if len(markers) == 0 {
+		return Mismatch, ""
+	}
+	for i, m := range markers {
+		r := Verify(ownerRepo, headBranch, m.RunID, m.Sig)
+		if i == 0 || resultRank(r) > resultRank(result) {
+			result, runID = r, m.RunID
+		}
+		if r == Verified {
+			break // nothing outranks Verified
+		}
+	}
+	return result, runID
+}
+
 // Compose appends RenderFooter (always) and, when ownerRepo is non-empty,
 // the invisible signed marker, to body. Before doing so it STRIPS every
 // pre-existing deploydeck marker already present in body (e.g. an

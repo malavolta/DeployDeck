@@ -178,3 +178,57 @@ func TestParsePRURL(t *testing.T) {
 		})
 	}
 }
+
+// TestParsePRURLParts is task 4.1 (RED): ParsePRURLParts returns the
+// DISCRETE (host, owner, repo, number) parts a deploy-gate github.Client
+// method needs to build gh's args/graphql variables — never a pre-joined
+// "host/owner/repo" string, which ParsePRURL itself still returns by
+// delegating to this.
+func TestParsePRURLParts(t *testing.T) {
+	tests := []struct {
+		name       string
+		prURL      string
+		wantHost   string
+		wantOwner  string
+		wantRepo   string
+		wantNumber int
+		wantOK     bool
+	}{
+		{"github.com PR URL", "https://github.com/org/repo/pull/42", "github.com", "org", "repo", 42, true},
+		{"Enterprise host PR URL", "https://github.ibm.com/org/repo/pull/7", "github.ibm.com", "org", "repo", 7, true},
+		{"trailing slash", "https://github.com/org/repo/pull/42/", "github.com", "org", "repo", 42, true},
+		{"non-PR path (repo root)", "https://github.com/org/repo", "", "", "", 0, false},
+		{"non-numeric PR number", "https://github.com/org/repo/pull/abc", "", "", "", 0, false},
+		{"empty URL", "", "", "", "", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host, owner, repo, number, ok := github.ParsePRURLParts(tt.prURL)
+			if ok != tt.wantOK {
+				t.Fatalf("ParsePRURLParts(%q) ok = %v, want %v", tt.prURL, ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if host != tt.wantHost || owner != tt.wantOwner || repo != tt.wantRepo || number != tt.wantNumber {
+				t.Fatalf("ParsePRURLParts(%q) = (%q,%q,%q,%d), want (%q,%q,%q,%d)",
+					tt.prURL, host, owner, repo, number, tt.wantHost, tt.wantOwner, tt.wantRepo, tt.wantNumber)
+			}
+		})
+	}
+}
+
+// TestParsePRURL_DelegatesToParsePRURLParts is task 4.1 (RED): ParsePRURL's
+// existing behavior (host-qualified "host/owner/repo") is UNCHANGED now
+// that it delegates to ParsePRURLParts internally — a regression guard for
+// every existing caller.
+func TestParsePRURL_DelegatesToParsePRURLParts(t *testing.T) {
+	got, ok := github.ParsePRURL("https://github.ibm.com/org/repo/pull/7")
+	if !ok {
+		t.Fatal("ParsePRURL() ok = false, want true")
+	}
+	if got != "github.ibm.com/org/repo" {
+		t.Fatalf("ParsePRURL() = %q, want %q", got, "github.ibm.com/org/repo")
+	}
+}

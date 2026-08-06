@@ -9,6 +9,7 @@ package github
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 )
 
 // Origin URL patterns CompareURL recognizes. All three derive the SAME
@@ -83,18 +84,38 @@ func OwnerRepo(originURL string) (ownerRepo string, ok bool) {
 // `$`-anchored regexes (design.md's "owner/repo helpers" decision).
 var prURLPattern = regexp.MustCompile(`^https://([^/]+)/([^/]+)/([^/]+)/pull/([0-9]+)/?$`)
 
+// ParsePRURLParts derives the DISCRETE (host, owner, repo, number) parts
+// from a PR URL's ANCHORED shape (https://<host>/<owner>/<repo>/pull/<n>),
+// tolerating an optional trailing slash. deploy-gate's github.Client
+// methods (UnresolvedThreadCount's graphql variables in particular) need
+// these parts SEPARATELY, never pre-joined into a single string — joining
+// them is ParsePRURL's own job, which delegates here. Any non-matching
+// shape (a repo root, an issues URL, a non-numeric PR "number", or plain
+// garbage) returns ok=false, never an error.
+func ParsePRURLParts(prURL string) (host, owner, repo string, number int, ok bool) {
+	m := prURLPattern.FindStringSubmatch(prURL)
+	if m == nil {
+		return "", "", "", 0, false
+	}
+	n, err := strconv.Atoi(m[4])
+	if err != nil {
+		return "", "", "", 0, false
+	}
+	return m[1], m[2], m[3], n, true
+}
+
 // ParsePRURL derives HOST-QUALIFIED "host/owner/repo" from a
 // `deploydeck pr verify <url>` argument — the verify-side counterpart of
 // OwnerRepo's host-qualification: dropping the host here would let a marker
 // signed for one host verify unchanged against a PR URL on a different host
-// sharing the same org/repo/branch/runID. Any non-matching shape (a repo
-// root, an issues URL, a non-numeric PR "number", or plain garbage) returns
-// ok=false, never an error — the caller reports a clear degraded message
-// rather than a raw parse failure.
+// sharing the same org/repo/branch/runID. It delegates to ParsePRURLParts
+// and joins host/owner/repo — every existing caller's behavior is
+// unchanged. Any non-matching shape returns ok=false, never an error — the
+// caller reports a clear degraded message rather than a raw parse failure.
 func ParsePRURL(prURL string) (ownerRepo string, ok bool) {
-	m := prURLPattern.FindStringSubmatch(prURL)
-	if m == nil {
+	host, owner, repo, _, ok := ParsePRURLParts(prURL)
+	if !ok {
 		return "", false
 	}
-	return m[1] + "/" + m[2] + "/" + m[3], true
+	return host + "/" + owner + "/" + repo, true
 }

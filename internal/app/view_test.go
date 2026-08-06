@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/malavolta/DeployDeck/internal/gate"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
 	"github.com/malavolta/DeployDeck/internal/runs"
@@ -596,5 +597,87 @@ func TestBelowGateCoverage_SkipsZeroLocationClasses(t *testing.T) {
 	}
 	if len(below) != 1 || below[0].Name != "LowCoverage" {
 		t.Errorf("expected only the genuine low-coverage class, got:\n%+v", below)
+	}
+}
+
+// --- 6.14: viewDeployGateBlocked -------------------------------------------
+
+// TestViewDeployGateBlocked_ListsEveryUnmetCondition is task 6.14 (RED,
+// Ascii TestMain plain-text assertions), updated by the remediation-pass
+// readability fix (Fix 7): the gate-block screen lists EVERY unmet condition
+// + its reason, not only the first (deploy-gate spec: "All unmet conditions
+// are listed together") — rendered with a Spanish LABEL (conditionLabelES),
+// never c.Name's raw English machine key ("approvals", "signature", …)
+// inlined into otherwise-Spanish copy.
+func TestViewDeployGateBlocked_ListsEveryUnmetCondition(t *testing.T) {
+	m := New(Deps{})
+	m.state = StateDeployGateBlocked
+	m.gateConditions = []gate.Condition{
+		{Name: "approvals", Passed: false, Detail: "0/1 aprobaciones requeridas"},
+		{Name: "threads", Passed: true, Detail: "todos los threads resueltos"},
+		{Name: "validation-comment", Passed: false, Detail: "no existe un comentario de validación en el PR"},
+		{Name: "signature", Passed: false, Detail: "firma de procedencia ausente o no verificable"},
+	}
+
+	v := m.View()
+	for _, want := range []string{
+		"aprobaciones", "0/1 aprobaciones requeridas",
+		"comentario de validación", "no existe un comentario",
+		"firma", "firma de procedencia ausente",
+	} {
+		if !strings.Contains(v, want) {
+			t.Errorf("expected the gate-block screen to mention %q, got:\n%s", want, v)
+		}
+	}
+	// The raw English machine keys must never leak into the rendered screen.
+	for _, badKey := range []string{"approvals", "signature", "validation-comment"} {
+		if strings.Contains(v, badKey) {
+			t.Errorf("expected the raw English condition key %q to be replaced by a Spanish label, got:\n%s", badKey, v)
+		}
+	}
+}
+
+// TestConditionLabelES_MapsEveryKnownConditionName is the remediation-pass
+// readability fix (Fix 7): every gate.Condition.Name the app ever produces
+// (pr-resolution, approvals, threads, validation-comment, signature) has a
+// dedicated Spanish label — never the raw English key rendered verbatim.
+func TestConditionLabelES_MapsEveryKnownConditionName(t *testing.T) {
+	tests := map[string]string{
+		"approvals":          "aprobaciones",
+		"threads":            "comentarios sin resolver",
+		"validation-comment": "comentario de validación",
+		"signature":          "firma",
+		"pr-resolution":      "localización de la PR",
+	}
+	for name, want := range tests {
+		if got := conditionLabelES(name); got != want {
+			t.Errorf("conditionLabelES(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestViewDeployGateBlocked_NoOverrideKeyOffered is task 6.14 (RED): the
+// footer offers ONLY q/Esc — no other key is ever advertised as a way to
+// proceed anyway (deploy-gate spec: "No override exists"). The screen's own
+// body text MAY explain that no override exists (that is the correct,
+// honest copy) — this test targets the actionable footer, not prose.
+func TestViewDeployGateBlocked_NoOverrideKeyOffered(t *testing.T) {
+	m := New(Deps{})
+	m.state = StateDeployGateBlocked
+	m.gateConditions = []gate.Condition{{Name: "approvals", Passed: false, Detail: "0/1 aprobaciones requeridas"}}
+
+	v := m.View()
+	footerStart := strings.LastIndex(v, "[ ")
+	if footerStart < 0 {
+		t.Fatalf("expected a footer block, got:\n%s", v)
+	}
+	footerLine := v[footerStart:]
+	if !strings.Contains(footerLine, "q") || !(strings.Contains(footerLine, "Esc") || strings.Contains(footerLine, "esc")) {
+		t.Fatalf("expected the footer to offer q/Esc, got %q", footerLine)
+	}
+	for _, bad := range []string{"override", "bypass", "forzar igual", "continuar de todos modos"} {
+		if strings.Contains(strings.ToLower(footerLine), bad) {
+			t.Errorf("the footer must never advertise a bypass key, found %q in %q", bad, footerLine)
+		}
 	}
 }

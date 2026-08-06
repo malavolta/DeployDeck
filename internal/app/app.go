@@ -21,6 +21,7 @@ import (
 
 	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/delta"
+	"github.com/malavolta/DeployDeck/internal/gate"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
 	"github.com/malavolta/DeployDeck/internal/prereq"
@@ -179,6 +180,15 @@ const (
 	// branch and any PR history are left untouched on cancel. Appended last
 	// so every prior State's value is never renumbered.
 	StateBranchCollision
+	// StateDeployGateBlocked is deploy-gate's block screen (deploy-gate spec:
+	// "Gate-Block Screen"), reached ONLY from StateQuickDeploy's typed-
+	// DESPLEGAR confirmation when the target's enabled gate (config.GateFor)
+	// has at least one unmet condition (onGateCheckDone's failed-Result
+	// branch). It lists EVERY unmet condition + its reason (m.gateConditions)
+	// — never only the first — and offers NO in-app override or bypass:
+	// q/esc are the only live keys, backing out to StateRunHistory. Appended
+	// last so every prior State's value is never renumbered.
+	StateDeployGateBlocked
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
@@ -585,6 +595,16 @@ type Model struct {
 	packagePath    string
 	sandboxList    []string
 	sandboxCursor  int
+
+	// DeployGate: gateCheckingRunID is the RunID captured the instant
+	// gateCheckCmd is fired from keyQuickDeploy — the point-of-no-return gate
+	// re-check between the typed-DESPLEGAR word-check and dispatch (mirrors
+	// quickDeployingRunID's in-flight-capture pattern). gateConditions is the
+	// full Conditions slice from the LAST failed gate.Evaluate, rendered by
+	// viewDeployGateBlocked (every unmet condition + its reason, never only
+	// the first).
+	gateCheckingRunID string
+	gateConditions    []gate.Condition
 
 	// spinnerFrame (design D5) drives the animated progress spinner shown
 	// during CommitDiscovery/BranchCreation/CherryPicking/DeltaGeneration/
