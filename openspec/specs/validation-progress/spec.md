@@ -153,7 +153,7 @@ The system SHALL render `SucceededPartial` with a distinct header and an explici
 
 ### Requirement: Terminal Successful CheckOnly Triggers The Deploy-Gate Validation Comment
 
-When a validation job reaches a terminal successful state (`Succeeded` or `SucceededPartial`) on an environment whose deploy gate is enabled, the system SHALL trigger the deploy-gate capability's validation-comment post/upsert on the run's pull request (see the `deploy-gate` capability for the marker format, content, and idempotent upsert semantics — not restated here). On an environment with no enabled deploy gate, reaching a terminal successful state SHALL NOT trigger any comment.
+When a validation job reaches a terminal successful state (`Succeeded` or `SucceededPartial`) on an environment whose deploy gate is enabled, the system SHALL trigger the deploy-gate capability's validation-comment post/upsert on the run's pull request. The trigger SHALL ALSO be (re)attempted when the run's PR is created, if a terminal-successful validation already occurred this session on a gate-enabled environment with `requireValidationComment` on — this covers the normal flow where validation completes before the PR exists. Both trigger points invoke the same post/upsert; see the `deploy-gate` capability for the marker format, content, and the exactly-once posting semantics across the two trigger points — not restated here. On an environment with no enabled deploy gate, reaching a terminal successful state SHALL NOT trigger any comment, and PR creation with no terminal-successful validation this session SHALL NOT trigger any comment either.
 
 #### Scenario: Successful CheckOnly on a gate-enabled environment triggers the comment
 - GIVEN a validation job's target environment has an enabled deploy gate
@@ -169,6 +169,11 @@ When a validation job reaches a terminal successful state (`Succeeded` or `Succe
 - GIVEN a validation job's target environment has an enabled deploy gate
 - WHEN the job reaches a terminal state that is not `Succeeded` or `SucceededPartial` (e.g. `Failed` or `Canceled`)
 - THEN the deploy-gate validation comment is NOT triggered
+
+#### Scenario: Validation completes before the PR exists; PR creation (re)triggers the comment
+- GIVEN a validation job reached a terminal successful state this session on a gate-enabled environment with `requireValidationComment` on, before the run's PR existed
+- WHEN the run's PR is subsequently created
+- THEN the deploy-gate validation-comment post/upsert is (re)triggered at PR creation, reaching the PR that did not exist at validation time (see `deploy-gate` for how the dedup marker keeps this exactly-once)
 
 ## Design Notes
 

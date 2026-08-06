@@ -1329,6 +1329,20 @@ func (m Model) onPrCreated(msg prCreatedMsg) (tea.Model, tea.Cmd) {
 	if m.deps.Runs != nil && m.runID != "" {
 		_ = m.deps.Runs.MarkPRCreated(m.runID, msg.url)
 	}
+
+	// validation-comment-timing: the normal flow validates BEFORE the PR
+	// exists, so onReportDone's own trigger (below) fires-and-skips with no
+	// PR to resolve and never retries. Re-attempt here, at the exact point
+	// the PR first exists — reusing the same guard (gate-enabled +
+	// requireValidationComment-on + a terminal-success status this session)
+	// and the same skip-if-present marker for exactly-once delivery
+	// (deploy-gate: "posts at PR creation" / "exactly once across both
+	// trigger points"; validation-progress: "PR creation (re)triggers the
+	// comment"). A non-success/empty m.report.Status, an ungated target, or
+	// an already-posted marker all no-op inside the returned cmd.
+	if cmd := m.maybeTriggerValidationCommentCmd(m.report.Status); cmd != nil {
+		return m, cmd
+	}
 	return m, nil
 }
 
