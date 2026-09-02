@@ -67,6 +67,10 @@ walking up from where you run `deploydeck`, bounded at the git root.
 # defaults to the directory deploydeck.yaml was found in. Set it only when
 # the SFDX project lives in a subdirectory of the git repo. Rejected if
 # absolute or containing a ".." segment.
+#
+# Setting this does NOT change how delta.sourceDirs is read — see the note
+# there. It also moves .deploydeck/ (runs, manifests, lock) to the project
+# directory, so set it before you accumulate run history you care about.
 # projectDir: up_saln0001_giss_salesforce
 
 # Pipeline. Keys MUST be integration/uat/production (read by name to order the
@@ -94,7 +98,16 @@ ticketPatterns:
 
 branchFormat: "deploy/{{ticket}}-to-{{target}}"   # tokens: {{ticket}}, {{target}}
 
-# Delta package. sourceDirs is relative to the GIT ROOT (add the subdir if any).
+# Delta package. sourceDirs is relative to the GIT ROOT — ALWAYS, and even
+# when projectDir is set. Setting projectDir does not make these paths
+# project-relative: if your project lives in a subdirectory, the subdirectory
+# still belongs here. Getting this wrong does not raise an error — sgd simply
+# matches nothing and produces an EMPTY package that validates green and
+# deploys nothing. Copy the path from `git ls-files` output, not from
+# sfdx-project.json.
+#
+#   flat repo:    sourceDirs: [force-app]
+#   nested repo:  sourceDirs: [up_saln0001_giss_salesforce/force-app]
 delta:
   sourceDirs:
     - force-app
