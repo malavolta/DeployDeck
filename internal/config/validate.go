@@ -13,10 +13,18 @@ var branchFormatTokenPattern = regexp.MustCompile(`\{\{[^{}]*\}\}`)
 // a non-empty alias, branchFormat only uses tokens from
 // AllowedBranchFormatTokens, PollIntervalSeconds/PollTimeoutSeconds are
 // strictly positive, Runs.KeepLast/Runs.KeepDays are non-negative (HU-013
-// run-retention: a negative window is nonsensical), and — when any Delta
+// run-retention: a negative window is nonsensical), — when any Delta
 // field is configured — Delta.SourceDirs is non-empty (an sgd run with zero
 // source dirs would scan nothing, silently producing an always-empty
-// package).
+// package), and ProjectDir is neither absolute nor ".."-bearing.
+//
+// NOTE: Validate is NOT called anywhere in production code (verified: only
+// this package's own tests and internal/git's e2e tests call it — see this
+// change's proposal, "Deferred Follow-Up"). Its ProjectDir check is
+// therefore a SECONDARY surfacing point, kept consistent with
+// ProjectRoot's check for callers that do invoke Validate directly (e.g.
+// future tooling); ProjectRoot is the binding enforcement point on the
+// path production actually executes.
 func (c Config) Validate() error {
 	for _, pattern := range c.TicketPatterns {
 		if _, err := regexp.Compile(pattern); err != nil {
@@ -50,6 +58,10 @@ func (c Config) Validate() error {
 
 	if deltaConfigured(c.Delta) && len(c.Delta.SourceDirs) == 0 {
 		return fmt.Errorf("config: delta is configured but sourceDirs is empty")
+	}
+
+	if err := validateProjectDir(c.ProjectDir); err != nil {
+		return err
 	}
 
 	if c.AI.Enabled && (c.AI.Endpoint == "" || c.AI.Model == "") {

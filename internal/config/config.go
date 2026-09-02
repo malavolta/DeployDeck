@@ -175,4 +175,16 @@ type Config struct {
 	// left Enabled==false, is zero-value-safe: no target is gated (deploy-
 	// gate spec: "default-off and zero-value-safe").
 	Gates map[string]GateConfig `yaml:"gates"`
+
+	// ProjectDir is the SFDX project's location RELATIVE TO THE GIT ROOT
+	// (e.g. "up_saln0001_giss_salesforce"), not relative to the directory
+	// deploydeck.yaml was found in. Empty (the default, and every existing
+	// install's implicit value) means "the directory deploydeck.yaml was
+	// found in IS the SFDX project root" — today's behavior, unchanged
+	// (directory-resolution spec: "projectDir Configuration Key"). See
+	// ProjectRoot for how this resolves, and validateProjectDir for the
+	// absolute/".." rejection applied on that resolution path. Deliberately
+	// NOT defaulted in applyDefaults: an empty value already carries its
+	// own meaning, so there is nothing to default it TO.
+	ProjectDir string `yaml:"projectDir"`
 }
