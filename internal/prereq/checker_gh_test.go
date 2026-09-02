@@ -94,9 +94,10 @@ func TestChecker_Check_NilGH_IncludesSkippedGHCheck(t *testing.T) {
 	sfRunner.When("sf", []string{"org", "list", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	checker := &prereq.Checker{
-		Dir: "/repo",
-		Git: git.New(gitRunner),
-		SF:  salesforce.New(sfRunner),
+		GitRoot:       "/repo",
+		ArtifactsRoot: "/repo",
+		Git:           git.New(gitRunner),
+		SF:            salesforce.New(sfRunner),
 	}
 
 	checks, err := checker.Check(context.Background())

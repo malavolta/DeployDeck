@@ -9,6 +9,13 @@ import (
 	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
+// testProjectDir is the dir QuickDeploy's tests pass as the new trailing
+// parameter (design.md ADR-8): the SFDX project root `sf project deploy
+// quick` must run in — asserted directly against exec.CommandRequest.Dir,
+// never appended to Args (task 3.1, directory-resolution spec: "`sf
+// project` Commands Bind To The SFDX Project Root").
+const testProjectDir = "/repo/project"
+
 // quickArgs mirrors the exact `sf project deploy quick` invocation QuickDeploy
 // composes (HU-015 command, design.md Interfaces/Contracts), so the
 // FakeRunner canned response matches the real args — and so jobID and
@@ -35,7 +42,7 @@ func TestClient_QuickDeploy_ComposesArgsAsSlice(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	_, err := client.QuickDeploy(context.Background(), "0AfXXX", "UAT_SANDBOX")
+	_, err := client.QuickDeploy(context.Background(), "0AfXXX", "UAT_SANDBOX", testProjectDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,6 +57,11 @@ func TestClient_QuickDeploy_ComposesArgsAsSlice(t *testing.T) {
 		if call.Args[i] != want {
 			t.Fatalf("arg[%d] = %q, want %q (jobID/targetOrg must stay discrete args)", i, call.Args[i], want)
 		}
+	}
+	// dir reaches the child ONLY as CommandRequest.Dir, never appended to
+	// Args (design.md Threat Matrix "PR commands / argument composition").
+	if call.Dir != testProjectDir {
+		t.Fatalf("Dir = %q, want %q", call.Dir, testProjectDir)
 	}
 }
 
@@ -66,7 +78,7 @@ func TestClient_QuickDeploy_SuccessPreservesRaw(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.QuickDeploy(context.Background(), "0AfYYY", "UAT_SANDBOX")
+	got, err := client.QuickDeploy(context.Background(), "0AfYYY", "UAT_SANDBOX", testProjectDir)
 	if err != nil {
 		t.Fatalf("unexpected error on a successful quick deploy: %v", err)
 	}
@@ -86,7 +98,7 @@ func TestClient_QuickDeploy_CLIErrorSurfacesDecodedMessageAndRaw(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.QuickDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX")
+	got, err := client.QuickDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit code")
 	}
@@ -110,7 +122,7 @@ func TestClient_QuickDeploy_ParsesStatus(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.QuickDeploy(context.Background(), "0Af123", "UAT_SANDBOX")
+	got, err := client.QuickDeploy(context.Background(), "0Af123", "UAT_SANDBOX", testProjectDir)
 	if err != nil {
 		t.Fatalf("unexpected error on a successful quick deploy: %v", err)
 	}
@@ -129,7 +141,7 @@ func TestClient_QuickDeploy_RunnerErrorDoesNotPanic(t *testing.T) {
 	fr := exec.NewFakeRunner() // no When() registered
 	client := salesforce.New(fr)
 
-	_, err := client.QuickDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX")
+	_, err := client.QuickDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error when the runner itself fails to start the command")
 	}

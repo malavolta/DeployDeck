@@ -292,13 +292,37 @@ type Deps struct {
 	Now func() time.Time
 	// Config is the loaded, validated deploydeck.yaml.
 	Config config.Config
-	// Dir is the working directory the flow runs in (the git service
-	// resolves the repo root from it).
+	// Dir is the COMPATIBILITY BASE (design.md ADR-3): the pre-existing,
+	// single conflated directory. It is normalized away into the three
+	// named roots below, once, by normalizeRoots (called from New) —
+	// GitRoot/ProjectDir/ArtifactsRoot each fall back to Dir whenever they
+	// are left empty. Production (cmd/deploydeck) sets the three roots
+	// explicitly and leaves Dir unset; every existing test literal
+	// (`Deps{Dir: d, ...}`, 241 measured sites) keeps working unchanged,
+	// asserting the flat-layout invariant (GitRoot==ProjectDir==
+	// ArtifactsRoot==d) for free.
 	Dir string
-	// NewChecker builds the HU-001 prereq.Checker for the prereq screen.
-	// When nil, the prereq step is a no-op the caller drives with a
-	// prereqDoneMsg directly (used by tests that start past prereqs).
-	NewChecker func(dir string) (*prereq.Checker, error)
+	// GitRoot is the true git repository top level: every Git-backed
+	// operation (commands.go's ~20 g.<Method> sites, deltaCmd's sgd
+	// child-cwd + --repo-dir) binds here (directory-resolution spec: "Git
+	// Operations Bind To The Git Root").
+	GitRoot string
+	// ProjectDir is the SFDX project root (holds sfdx-project.json): all
+	// four `sf project deploy *` commands (validate/report/quick/cancel)
+	// bind here (directory-resolution spec: "`sf project` Commands Bind To
+	// The SFDX Project Root").
+	ProjectDir string
+	// ArtifactsRoot is where .deploydeck/ actually lives: deltaCmd's
+	// OutputDir and Runs both bind here — it must never relocate for an
+	// existing install (design.md ADR-2).
+	ArtifactsRoot string
+	// NewChecker builds the HU-001 prereq.Checker for the prereq screen —
+	// ZERO-ARG (design.md ADR-5): the composition root has already resolved
+	// every root by the time this closure is wired, so internal/app must
+	// not choose (or re-choose) a directory itself. When nil, the prereq
+	// step is a no-op the caller drives with a prereqDoneMsg directly (used
+	// by tests that start past prereqs).
+	NewChecker func() (*prereq.Checker, error)
 	// Edit optionally returns a tea.Cmd that hands off to an interactive
 	// editor/mergetool over path (built by main via tea.ExecProcess, which
 	// may import os/exec — app itself must not). nil disables the handoff.
@@ -678,7 +702,28 @@ func visibleMenuEntries(entries []menuEntry) []menuEntry {
 
 // New builds the initial Model in StatePrereqCheck.
 func New(deps Deps) Model {
+	normalizeRoots(&deps)
 	return Model{deps: deps, state: StatePrereqCheck}
+}
+
+// normalizeRoots seeds GitRoot/ProjectDir/ArtifactsRoot from the
+// compatibility base Dir whenever they are left empty (design.md ADR-3).
+// This function's own body is the ONLY place the Dir field is read anywhere
+// in the package — every other site reads one of the three named roots
+// instead (ADR-6's guard, roots_guard_test.go, enforces this as an
+// executable invariant). It is a pure fallback: an explicitly-set root is
+// NEVER overwritten, so ArtifactsRoot != ProjectDir stays expressible
+// (ADR-2).
+func normalizeRoots(deps *Deps) {
+	if deps.GitRoot == "" {
+		deps.GitRoot = deps.Dir
+	}
+	if deps.ProjectDir == "" {
+		deps.ProjectDir = deps.Dir
+	}
+	if deps.ArtifactsRoot == "" {
+		deps.ArtifactsRoot = deps.ProjectDir
+	}
 }
 
 // State exposes the current state (for tests and callers).

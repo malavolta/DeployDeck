@@ -107,8 +107,12 @@ type Record struct {
 }
 
 // Writer persists run records under baseDir/.deploydeck/runs/. baseDir is
-// always an explicit, already-resolved repository root passed by the
-// caller (internal/app) — never assumed to be the process cwd.
+// always an explicit, already-resolved ARTIFACTS root (corrected doc,
+// directory-resolution spec: previously stated as "the repository root",
+// which is wrong when the SFDX project — and therefore .deploydeck/ — is
+// nested below the git root; .deploydeck/ must never relocate for an
+// existing install) passed by the caller (internal/app) — never assumed to
+// be the process cwd.
 type Writer struct {
 	baseDir string
 }

@@ -236,6 +236,10 @@ func IsTerminal(status string) bool {
 // is NOT a parseable report returns an error carrying Raw, which the poll
 // loop treats as a transient failure retryable within its deadline.
 func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string) (DeployReport, error) {
+	if err := requireProjectDir("sf project deploy report", dir); err != nil {
+		return DeployReport{}, err
+	}
+
 	result, err := c.runner.Run(ctx, exec.CommandRequest{
 		Name: "sf",
 		Args: []string{

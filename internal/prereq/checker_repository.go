@@ -5,18 +5,18 @@ import (
 	"fmt"
 )
 
-// CheckRepository validates that Dir belongs to a Git repository and that
-// an `origin` remote is configured (HU-001: "Repository Membership And
-// Remote Validation"). When Dir is not inside a repository, only the
+// CheckRepository validates that GitRoot belongs to a Git repository and
+// that an `origin` remote is configured (HU-001: "Repository Membership And
+// Remote Validation"). When GitRoot is not inside a repository, only the
 // repository-membership check is returned — origin cannot be evaluated.
 func (c *Checker) CheckRepository(ctx context.Context) ([]PrereqCheck, error) {
-	root, err := c.Git.RepoRoot(ctx, c.Dir)
+	root, err := c.Git.RepoRoot(ctx, c.GitRoot)
 	if err != nil {
 		return []PrereqCheck{
 			{
 				Name:       "git repository",
 				Status:     StatusBlocking,
-				Detail:     fmt.Sprintf("%s is not inside a git repository", c.Dir),
+				Detail:     fmt.Sprintf("%s is not inside a git repository", c.GitRoot),
 				FixCommand: "git init  # or run deploydeck from inside an existing repository",
 			},
 		}, nil

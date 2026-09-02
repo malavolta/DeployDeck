@@ -54,8 +54,10 @@ func TestInit_Batches_PrereqAndCheckUpdate(t *testing.T) {
 	// fakeNewChecker errors immediately (never reaching a real
 	// prereq.Checker.Check call, which would need a wired *git.Service).
 	// This keeps the assertions isolated to Init()'s batching shape, not
-	// prereq internals — already covered by prereq_test.go.
-	fakeNewChecker := func(dir string) (*prereq.Checker, error) {
+	// prereq internals — already covered by prereq_test.go. Zero-arg
+	// (design.md ADR-5): the composition root resolves the roots, not this
+	// closure.
+	fakeNewChecker := func() (*prereq.Checker, error) {
 		return nil, errStub
 	}
 

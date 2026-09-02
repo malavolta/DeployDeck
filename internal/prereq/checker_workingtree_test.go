@@ -15,7 +15,7 @@ import (
 func TestChecker_CheckWorkingTree_Clean_OK(t *testing.T) {
 	dir := newTempRepo(t, false)
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	check, err := checker.CheckWorkingTree(context.Background())
 	if err != nil {
@@ -32,7 +32,7 @@ func TestChecker_CheckWorkingTree_Dirty_Blocks(t *testing.T) {
 		t.Fatalf("failed to seed an uncommitted file: %v", err)
 	}
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	check, err := checker.CheckWorkingTree(context.Background())
 	if err != nil {

@@ -16,7 +16,7 @@ func TestChecker_CheckRepository_OutsideAGitRepo_Blocks(t *testing.T) {
 	}
 	dir := t.TempDir() // no `git init` — not a repository
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	checks, err := checker.CheckRepository(context.Background())
 	if err != nil {
@@ -35,7 +35,7 @@ func TestChecker_CheckRepository_OutsideAGitRepo_Blocks(t *testing.T) {
 func TestChecker_CheckRepository_MissingOrigin_Blocks(t *testing.T) {
 	dir := newTempRepo(t, false)
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	checks, err := checker.CheckRepository(context.Background())
 	if err != nil {
@@ -59,7 +59,7 @@ func TestChecker_CheckRepository_MissingOrigin_Blocks(t *testing.T) {
 func TestChecker_CheckRepository_WithOrigin_AllOK(t *testing.T) {
 	dir := newTempRepo(t, true)
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	checks, err := checker.CheckRepository(context.Background())
 	if err != nil {

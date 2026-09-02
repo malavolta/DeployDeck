@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/malavolta/DeployDeck/internal/config"
@@ -15,7 +16,7 @@ import (
 func TestChecker_CheckGitignore_MissingFile_Blocks(t *testing.T) {
 	dir := newTempRepo(t, false)
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	check, err := checker.CheckGitignore(context.Background())
 	if err != nil {
@@ -35,7 +36,7 @@ func TestChecker_CheckGitignore_PresentButMissingEntry_Blocks(t *testing.T) {
 		t.Fatalf("failed to seed .gitignore: %v", err)
 	}
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	check, err := checker.CheckGitignore(context.Background())
 	if err != nil {
@@ -52,7 +53,7 @@ func TestChecker_CheckGitignore_EntryPresent_OK(t *testing.T) {
 		t.Fatalf("failed to seed .gitignore: %v", err)
 	}
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	check, err := checker.CheckGitignore(context.Background())
 	if err != nil {
@@ -66,7 +67,7 @@ func TestChecker_CheckGitignore_EntryPresent_OK(t *testing.T) {
 func TestChecker_AddGitignoreEntry_AddsEntryAndCheckThenPasses(t *testing.T) {
 	dir := newTempRepo(t, false)
 
-	checker := &prereq.Checker{Dir: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+	checker := &prereq.Checker{GitRoot: dir, ArtifactsRoot: dir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
 
 	before, err := checker.CheckGitignore(context.Background())
 	if err != nil {
@@ -95,6 +96,86 @@ func TestChecker_AddGitignoreEntry_AddsEntryAndCheckThenPasses(t *testing.T) {
 	if after.Status != prereq.StatusOK {
 		t.Fatalf("expected the check to pass after AddGitignoreEntry, got %+v", after)
 	}
+}
+
+// TestChecker_CheckGitignore_Nested is task 2.1 (RED): the gitignore check
+// reads the .gitignore governing the ARTIFACTS root, falling back to the
+// git root's .gitignore when the entry is not there (directory-resolution
+// spec: "Gitignore Check Anchored At The Artifacts Root"; ADR-9's
+// two-candidate read).
+func TestChecker_CheckGitignore_Nested(t *testing.T) {
+	t.Run("entry only in the artifacts-root .gitignore passes", func(t *testing.T) {
+		gitRoot, projectDir := newNestedTempRepo(t, false)
+		if err := os.WriteFile(filepath.Join(projectDir, ".gitignore"), []byte(".deploydeck/\n"), 0o644); err != nil {
+			t.Fatalf("failed to seed artifacts-root .gitignore: %v", err)
+		}
+
+		checker := &prereq.Checker{GitRoot: gitRoot, ArtifactsRoot: projectDir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+
+		check, err := checker.CheckGitignore(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if check.Status != prereq.StatusOK {
+			t.Fatalf("expected the artifacts-root entry alone to pass, got %+v", check)
+		}
+	})
+
+	t.Run("entry only in the git-root .gitignore passes via fallback", func(t *testing.T) {
+		gitRoot, projectDir := newNestedTempRepo(t, false)
+		if err := os.WriteFile(filepath.Join(gitRoot, ".gitignore"), []byte(".deploydeck/\n"), 0o644); err != nil {
+			t.Fatalf("failed to seed git-root .gitignore: %v", err)
+		}
+
+		checker := &prereq.Checker{GitRoot: gitRoot, ArtifactsRoot: projectDir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+
+		check, err := checker.CheckGitignore(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if check.Status != prereq.StatusOK {
+			t.Fatalf("expected the git-root fallback entry to pass, got %+v", check)
+		}
+	})
+
+	t.Run("entry in neither blocks naming the artifacts path", func(t *testing.T) {
+		gitRoot, projectDir := newNestedTempRepo(t, false)
+
+		checker := &prereq.Checker{GitRoot: gitRoot, ArtifactsRoot: projectDir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+
+		check, err := checker.CheckGitignore(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if check.Status != prereq.StatusBlocking {
+			t.Fatalf("expected neither candidate having the entry to block, got %+v", check)
+		}
+		if !strings.Contains(check.FixCommand, projectDir) {
+			t.Fatalf("expected FixCommand %q to name the artifacts path %q", check.FixCommand, projectDir)
+		}
+	})
+
+	t.Run("AddGitignoreEntry writes the artifacts root and creates no file at the git root", func(t *testing.T) {
+		gitRoot, projectDir := newNestedTempRepo(t, false)
+
+		checker := &prereq.Checker{GitRoot: gitRoot, ArtifactsRoot: projectDir, Git: git.New(exec.NewOSRunner()), Config: config.Config{}}
+
+		if err := checker.AddGitignoreEntry(context.Background()); err != nil {
+			t.Fatalf("AddGitignoreEntry failed: %v", err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
+		if err != nil {
+			t.Fatalf("expected the artifacts-root .gitignore to exist: %v", err)
+		}
+		if !containsLine(string(data), ".deploydeck/") {
+			t.Fatalf("expected the artifacts-root .gitignore to contain .deploydeck/, got: %q", data)
+		}
+
+		if _, err := os.Stat(filepath.Join(gitRoot, ".gitignore")); !os.IsNotExist(err) {
+			t.Fatalf("expected NO .gitignore to be created at the git root, stat error: %v", err)
+		}
+	})
 }
 
 func containsLine(content, want string) bool {

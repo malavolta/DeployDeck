@@ -8,7 +8,7 @@ import (
 // CheckWorkingTree detects a dirty working tree, blocking branch-modifying
 // operations (HU-001: "Working Tree Cleanliness Check").
 func (c *Checker) CheckWorkingTree(ctx context.Context) (PrereqCheck, error) {
-	state, err := c.Git.Status(ctx, c.Dir)
+	state, err := c.Git.Status(ctx, c.GitRoot)
 	if err != nil {
 		return PrereqCheck{}, fmt.Errorf("prereq: checking working tree: %w", err)
 	}

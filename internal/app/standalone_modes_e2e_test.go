@@ -553,3 +553,78 @@ func TestE2E_ResumeDetection_StillOfferedAfterMenuLanding_Regression(t *testing.
 		t.Fatalf("accepting resume should route to StateCherryPickConflict, got %v", fresh.State())
 	}
 }
+
+// TestModel_NestedDeps_SFCommands_UseProjectDir is task 5.4 (RED): with a
+// NESTED Deps (ProjectDir != GitRoot), validateCmd/reportCmd/quickDeployCmd/
+// cancelCmd — all four `sf project deploy *` commands — must run with cwd ==
+// ProjectDir, never GitRoot or the old conflated Dir (directory-resolution
+// spec: "`sf project` Commands Bind To The SFDX Project Root"), captured
+// directly on exec.CommandRequest.Dir via FakeRunner (never inferred from
+// Args, which stay byte-identical to before this change).
+func TestModel_NestedDeps_SFCommands_UseProjectDir(t *testing.T) {
+	gitRoot := t.TempDir()
+	projectDir := filepath.Join(gitRoot, "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(projectDir, "package.xml")
+
+	const jobID = "0Af000000000NESTED"
+	fr := execpkg.NewFakeRunner()
+	fr.When("sf", []string{
+		"project", "deploy", "validate",
+		"--manifest", manifestPath,
+		"--target-org", "UAT_SBX",
+		"--test-level", "RunLocalTests",
+		"--async", "--json",
+	}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{"id":"` + jobID + `","done":false,"state":"Queued"}}`)})
+	fr.When("sf", []string{
+		"project", "deploy", "report",
+		"--job-id", jobID,
+		"--target-org", "UAT_SBX",
+		"--json",
+	}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{"status":"Succeeded"}}`)})
+	fr.When("sf", []string{
+		"project", "deploy", "quick",
+		"--job-id", jobID,
+		"--target-org", "UAT_SBX",
+		"--json",
+	}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{"id":"` + jobID + `","status":"Succeeded"}}`)})
+	fr.When("sf", []string{
+		"project", "deploy", "cancel",
+		"--job-id", jobID,
+		"--target-org", "UAT_SBX",
+		"--json",
+	}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{"id":"` + jobID + `","status":"Canceled"}}`)})
+
+	deps := Deps{
+		GitRoot:       gitRoot,
+		ProjectDir:    projectDir,
+		ArtifactsRoot: projectDir,
+		Config:        standaloneValidateConfig(),
+		SF:            salesforce.New(fr),
+	}
+	m := New(deps)
+	m.plan = git.DeploymentPlan{
+		PackageXMLPath: manifestPath,
+		SandboxAlias:   "UAT_SBX",
+		TestLevel:      "RunLocalTests",
+	}
+	m.jobID = jobID
+	m.runs = []runs.Record{{JobID: jobID, Alias: "UAT_SBX"}}
+	m.runsCursor = 0
+
+	run(t, m.validateCmd())
+	run(t, m.reportCmd())
+	run(t, m.quickDeployCmd())
+	run(t, m.cancelCmd())
+
+	if len(fr.Calls) != 4 {
+		t.Fatalf("expected exactly 4 sf calls, got %d: %+v", len(fr.Calls), fr.Calls)
+	}
+	for _, call := range fr.Calls {
+		if call.Dir != projectDir {
+			t.Errorf("call %v Dir = %q, want ProjectDir %q (never GitRoot)", call.Args, call.Dir, projectDir)
+		}
+	}
+}

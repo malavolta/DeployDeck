@@ -113,7 +113,7 @@ func header(title string) string {
 // (originalBranchCmd) — "" until it lands, rendering as a bare trailing
 // separator rather than blocking the bar.
 func (m Model) contextBar() string {
-	line := "  " + filepath.Base(m.deps.Dir) + " · " + m.originalBranch
+	line := "  " + filepath.Base(m.deps.GitRoot) + " · " + m.originalBranch
 	if m.plan.SandboxAlias != "" {
 		line += " · " + m.plan.SandboxAlias
 	}
@@ -148,7 +148,12 @@ func spinnerView(f int) string {
 func (m Model) viewPrereq() string {
 	var b strings.Builder
 	b.WriteString(m.screenHeader("Doctor"))
-	b.WriteString(fmt.Sprintf("\n  Repo: %s\n\n  Prerequisitos\n\n", m.deps.Dir))
+	// Required: Deps.Dir is unset in production (design.md ADR-3 — main
+	// wires the three named roots and leaves Dir as the zero-value
+	// compatibility base). No dedicated test for this one line (budget
+	// lever 1) — contextBar's test above already proves GitRoot is read
+	// correctly from a nested Deps.
+	b.WriteString(fmt.Sprintf("\n  Repo: %s\n\n  Prerequisitos\n\n", m.deps.GitRoot))
 	for _, c := range m.checks {
 		b.WriteString(fmt.Sprintf("  %s %s  %s\n", mark(statusMark(c.Status)), c.Name, c.Detail))
 		if c.FixCommand != "" {
