@@ -99,6 +99,38 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		// Task 1.6 (RED): Validate is the SECONDARY surfacing point for the
+		// projectDir path-traversal guard (directory-resolution spec:
+		// "projectDir Configuration Key") — ProjectRoot, on the resolution
+		// path production actually executes, carries the binding rule.
+		{
+			name: "absolute projectDir fails",
+			mutate: func(c *config.Config) {
+				c.ProjectDir = "/etc/passwd"
+			},
+			wantErr: true,
+		},
+		{
+			name: "projectDir with a .. segment fails",
+			mutate: func(c *config.Config) {
+				c.ProjectDir = "../escape"
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty projectDir passes",
+			mutate: func(c *config.Config) {
+				c.ProjectDir = ""
+			},
+			wantErr: false,
+		},
+		{
+			name: "relative projectDir passes",
+			mutate: func(c *config.Config) {
+				c.ProjectDir = "up_saln0001_giss_salesforce"
+			},
+			wantErr: false,
+		},
 		{
 			name: "negative runs.keepDays fails",
 			mutate: func(c *config.Config) {

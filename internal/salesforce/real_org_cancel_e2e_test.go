@@ -43,7 +43,14 @@ func TestE2ERealOrg_Cancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	result, err := client.CancelDeploy(ctx, jobID, alias)
+	// A real directory is now REQUIRED: CancelDeploy rejects an empty dir up
+	// front (ErrMissingProjectDir), because internal/exec would otherwise
+	// treat it as "inherit the process cwd" — the conflation the
+	// directory-resolution change removes. This test exercises the CLI call
+	// surviving end-to-end for an operator-supplied jobId, not a real deploy
+	// flow, so a temp dir is enough: its contract is that the command
+	// EXECUTED and produced output, and a CLI-level rejection counts.
+	result, err := client.CancelDeploy(ctx, jobID, alias, t.TempDir())
 
 	// The CLI must have EXECUTED: a non-empty Raw proves `sf project deploy
 	// cancel` actually ran and produced output — success OR a CLI-level

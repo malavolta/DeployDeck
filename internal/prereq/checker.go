@@ -30,9 +30,18 @@ type PrereqCheck struct {
 // salesforce.Client and config.Config. It is reused by both the TUI and the
 // `deploydeck doctor` CLI subcommand so their results never drift.
 type Checker struct {
-	// Dir is the directory to run repo/worktree checks from; Git resolves
-	// the actual repo root itself.
-	Dir string
+	// GitRoot MUST be the resolved repository root (directory-resolution
+	// design.md ADR-4): repository/working-tree/hooks/gpgsign checks run
+	// against it, and the gitignore FALLBACK read consumes it directly
+	// instead of re-resolving it via c.Git.RepoRoot.
+	GitRoot string
+
+	// ArtifactsRoot is where .deploydeck/ actually lives — the gitignore
+	// check's PRIMARY probe and its AddGitignoreEntry fix target (ADR-2:
+	// .deploydeck/ must never relocate for an existing install). No Checker
+	// check runs an `sf project` command, so — unlike app.Deps — there is
+	// deliberately no ProjectDir field here (ADR-4).
+	ArtifactsRoot string
 
 	Git    *git.Service
 	SF     salesforce.Client

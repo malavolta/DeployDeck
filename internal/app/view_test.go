@@ -165,6 +165,21 @@ func TestContextBar_AppendsOrgOnceResolved(t *testing.T) {
 	}
 }
 
+// TestContextBar_NestedDeps_UsesGitRoot is task 5.6 (RED): the context bar's
+// repo segment must read GitRoot, not the old conflated Dir — with a nested
+// Deps (GitRoot != Dir), the bar shows GitRoot's base name (directory-
+// resolution spec: Git-backed context reads bind to the git root).
+func TestContextBar_NestedDeps_UsesGitRoot(t *testing.T) {
+	m := New(Deps{GitRoot: "/repo/my-org/DeployDeck", ProjectDir: "/repo/my-org/DeployDeck/project"})
+	m.originalBranch = "feature/X"
+
+	got := m.contextBar()
+	want := "  " + filepath.Base("/repo/my-org/DeployDeck") + " · feature/X\n"
+	if got != want {
+		t.Errorf("contextBar() = %q, want %q (must read GitRoot, not the unset Dir)", got, want)
+	}
+}
+
 // TestScreenHeader_ComposesHeaderAndContextBar is task 2.1/2.2's companion
 // (design's screenHeader contract): screenHeader(title) = header(title) +
 // contextBar(), so every routed screen gets both the title line and the bar.

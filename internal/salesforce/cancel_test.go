@@ -14,6 +14,10 @@ import (
 // CancelDeploy composes (HU-012 command, HISTORIAS.md:796-800), so the
 // FakeRunner canned response matches the real args — and so the jobId and
 // alias are asserted to be DISCRETE slice elements, never shell-interpolated.
+//
+// testProjectDir (defined in quick_test.go, shared package-level test data)
+// is the dir CancelDeploy's tests pass as the new trailing parameter
+// (design.md ADR-8), asserted against exec.CommandRequest.Dir.
 func cancelArgs(jobID, alias string) []string {
 	return []string{
 		"project", "deploy", "cancel",
@@ -35,7 +39,7 @@ func TestClient_CancelDeploy_ComposesArgsAsSlice(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	_, err := client.CancelDeploy(context.Background(), "0AfXXX", "UAT_SANDBOX")
+	_, err := client.CancelDeploy(context.Background(), "0AfXXX", "UAT_SANDBOX", testProjectDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,6 +55,11 @@ func TestClient_CancelDeploy_ComposesArgsAsSlice(t *testing.T) {
 			t.Fatalf("arg[%d] = %q, want %q (jobId/alias must stay discrete args)", i, call.Args[i], want)
 		}
 	}
+	// dir reaches the child ONLY as CommandRequest.Dir, never appended to
+	// Args (design.md Threat Matrix "PR commands / argument composition").
+	if call.Dir != testProjectDir {
+		t.Fatalf("Dir = %q, want %q", call.Dir, testProjectDir)
+	}
 }
 
 // TestClient_CancelDeploy_SuccessPreservesRaw covers the happy path: a zero
@@ -65,7 +74,7 @@ func TestClient_CancelDeploy_SuccessPreservesRaw(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.CancelDeploy(context.Background(), "0AfYYY", "UAT_SANDBOX")
+	got, err := client.CancelDeploy(context.Background(), "0AfYYY", "UAT_SANDBOX", testProjectDir)
 	if err != nil {
 		t.Fatalf("unexpected error on a successful cancel: %v", err)
 	}
@@ -85,7 +94,7 @@ func TestClient_CancelDeploy_CLIErrorSurfacesDecodedMessageAndRaw(t *testing.T) 
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.CancelDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX")
+	got, err := client.CancelDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit code")
 	}
@@ -109,7 +118,7 @@ func TestClient_CancelDeploy_CLIErrorSurfacesRawWhenUnparseable(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.CancelDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX")
+	got, err := client.CancelDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit code")
 	}
@@ -134,7 +143,7 @@ func TestClient_CancelDeploy_ParsesStatusAndCanceledByName(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	got, err := client.CancelDeploy(context.Background(), "0Af123", "UAT_SANDBOX")
+	got, err := client.CancelDeploy(context.Background(), "0Af123", "UAT_SANDBOX", testProjectDir)
 	if err != nil {
 		t.Fatalf("unexpected error on a successful cancel: %v", err)
 	}
@@ -160,7 +169,7 @@ func TestClient_CancelDeploy_AlreadyTerminalPreClassifiedAsSentinel(t *testing.T
 	})
 	client := salesforce.New(fr)
 
-	_, err := client.CancelDeploy(context.Background(), "0AfPRE", "UAT_SANDBOX")
+	_, err := client.CancelDeploy(context.Background(), "0AfPRE", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -181,7 +190,7 @@ func TestClient_CancelDeploy_AlreadyTerminalRacedClassifiedAsSentinel(t *testing
 	})
 	client := salesforce.New(fr)
 
-	_, err := client.CancelDeploy(context.Background(), "0AfRACE", "UAT_SANDBOX")
+	_, err := client.CancelDeploy(context.Background(), "0AfRACE", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -202,7 +211,7 @@ func TestClient_CancelDeploy_OtherNameStaysGenericError(t *testing.T) {
 	})
 	client := salesforce.New(fr)
 
-	_, err := client.CancelDeploy(context.Background(), "0AfGEN", "UAT_SANDBOX")
+	_, err := client.CancelDeploy(context.Background(), "0AfGEN", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -221,7 +230,7 @@ func TestClient_CancelDeploy_RunnerErrorDoesNotPanic(t *testing.T) {
 	fr := exec.NewFakeRunner() // no When() registered
 	client := salesforce.New(fr)
 
-	_, err := client.CancelDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX")
+	_, err := client.CancelDeploy(context.Background(), "0AfZZZ", "UAT_SANDBOX", testProjectDir)
 	if err == nil {
 		t.Fatal("expected an error when the runner itself fails to start the command")
 	}

@@ -19,9 +19,14 @@ import (
 // Request is one delta-generation invocation's parameters.
 type Request struct {
 	// Dir is the repository root `sf sgd source delta` runs in (the
-	// CommandRequest's Dir) — always an explicit, already-resolved root,
-	// never a trusted process cwd (see design.md's Threat Matrix "Git repo
-	// selection" row).
+	// CommandRequest's Dir) AND is emitted verbatim as an explicit
+	// --repo-dir flag (ADR-7) — always an explicit, already-resolved GIT
+	// root, never a trusted process cwd (see design.md's Threat Matrix "Git
+	// repo selection" row). sgd's --repo-dir defaults to "./" and, unlike
+	// git, does NOT walk up to find the repository, so relying on cwd alone
+	// breaks the moment the process cwd differs from the git root
+	// (directory-resolution spec: "sgd Binds To The Git Root, Not The
+	// Project Root").
 	Dir string
 	// From and To are the two git refs compared, passed through literally
 	// (e.g. "origin/UAT", "HEAD") — never re-derived here.
@@ -104,7 +109,14 @@ func (s *Service) Generate(ctx context.Context, req Request) (Result, error) {
 // buildArgs composes the single sgd invocation:
 //
 //	sf sgd source delta --from <From> --to <To> --output-dir <OutputDir> --generate-delta
-//	  (--source-dir X)... [--ignore-file <path>] [--ignore-destructive-file <path>]
+//	  --repo-dir <Dir> (--source-dir X)... [--ignore-file <path>] [--ignore-destructive-file <path>]
+//
+// --repo-dir is ALWAYS emitted explicitly (ADR-7) — sgd's own default is
+// "./" and it does not walk up to find the repository the way git does.
+// SourceDirs entries are passed through VERBATIM, exactly as configured:
+// they are repo-root-relative (directory-resolution spec's INVARIANT) and
+// are NEVER re-prefixed with Dir here — doing so would double-prefix a
+// nested-layout path and silently produce an empty package.
 func buildArgs(req Request) []string {
 	args := []string{
 		"sgd", "source", "delta",
@@ -112,6 +124,7 @@ func buildArgs(req Request) []string {
 		"--to", req.To,
 		"--output-dir", req.OutputDir,
 		"--generate-delta",
+		"--repo-dir", req.Dir,
 	}
 	for _, dir := range req.SourceDirs {
 		args = append(args, "--source-dir", dir)

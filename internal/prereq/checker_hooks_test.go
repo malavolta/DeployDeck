@@ -19,7 +19,7 @@ func newFakeCheckerWithRepoRoot(t *testing.T, root string) *prereq.Checker {
 		ExitCode: 0,
 		Stdout:   []byte(root + "\n"),
 	})
-	return &prereq.Checker{Dir: root, Git: git.New(fr), Config: config.Config{}}
+	return &prereq.Checker{GitRoot: root, ArtifactsRoot: root, Git: git.New(fr), Config: config.Config{}}
 }
 
 func TestChecker_CheckHooks_NoHooksDirectory_OK(t *testing.T) {

@@ -19,9 +19,13 @@ const testLevelRunSpecifiedTests = "RunSpecifiedTests"
 // ValidateRequest is one `sf project deploy validate` invocation's
 // parameters.
 type ValidateRequest struct {
-	// Dir is the repository root the command runs in (the CommandRequest's
-	// Dir) — an explicit, already-resolved root, never a trusted process
-	// cwd (see design.md's Threat Matrix "Git repo selection" row).
+	// Dir is the SFDX PROJECT ROOT the command runs in (the CommandRequest's
+	// Dir) — the directory holding sfdx-project.json, NOT the repository
+	// root (corrected doc: `sf project deploy validate` requires
+	// sfdx-project.json in its cwd; a nested-layout repo's SFDX project root
+	// can differ from its git root — directory-resolution spec). Always an
+	// explicit, already-resolved root, never a trusted process cwd (see
+	// design.md's Threat Matrix "PR commands / argument composition" row).
 	Dir string
 	// ManifestPath is the generated package.xml (HU-007) validated against
 	// TargetOrg.
@@ -74,6 +78,10 @@ type validateResultEnvelope struct {
 // the flow survives — this never panics and never blocks the caller from
 // continuing (HU-010 AC: "se muestra mensaje y JSON raw si existe").
 func (c *client) ValidateDeploy(ctx context.Context, req ValidateRequest) (ValidateResult, error) {
+	if err := requireProjectDir("sf project deploy validate", req.Dir); err != nil {
+		return ValidateResult{}, err
+	}
+
 	cmdReq := exec.CommandRequest{
 		Name: "sf",
 		Args: buildValidateArgs(req),

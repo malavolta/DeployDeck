@@ -15,7 +15,7 @@ func newFakeCheckerWithGitConfig(t *testing.T, root string, configResult exec.Co
 	fr := exec.NewFakeRunner()
 	fr.When("git", []string{"rev-parse", "--show-toplevel"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(root + "\n")})
 	fr.When("git", []string{"config", "--get", "commit.gpgsign"}, configResult)
-	return &prereq.Checker{Dir: root, Git: git.New(fr), Config: config.Config{}}
+	return &prereq.Checker{GitRoot: root, ArtifactsRoot: root, Git: git.New(fr), Config: config.Config{}}
 }
 
 func TestChecker_CheckGpgSign_Unset_OK(t *testing.T) {

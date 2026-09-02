@@ -31,14 +31,20 @@ type quickDeployResultEnvelope struct {
 // <targetOrg> --json` and returns the raw response. jobID and targetOrg are
 // passed as DISCRETE slice elements (never shell-joined/interpolated —
 // design.md Threat Matrix "PR / argument composition"); jobID is always the
-// eligible run's own job, never user-typed. Error handling mirrors
-// CancelDeploy: a runner-start failure (binary missing, etc.) returns a zero
+// eligible run's own job, never user-typed. dir is the SFDX project root
+// the command runs in, threaded ONLY into CommandRequest.Dir, never
+// appended to Args (design ADR-8). Error handling mirrors CancelDeploy: a
+// runner-start failure (binary missing, etc.) returns a zero
 // QuickDeployResult and an error — the command never ran, so there is no Raw
 // to preserve. A non-zero CLI exit returns a QuickDeployResult carrying Raw
 // (so the raw JSON stays available for display) together with an error: the
 // decoded envelope's message when the CLI emitted parseable JSON, or the raw
 // stdout+stderr otherwise. The flow survives either way — this never panics.
-func (c *client) QuickDeploy(ctx context.Context, jobID, targetOrg string) (QuickDeployResult, error) {
+func (c *client) QuickDeploy(ctx context.Context, jobID, targetOrg, dir string) (QuickDeployResult, error) {
+	if err := requireProjectDir("sf project deploy quick", dir); err != nil {
+		return QuickDeployResult{}, err
+	}
+
 	result, err := c.runner.Run(ctx, exec.CommandRequest{
 		Name: "sf",
 		Args: []string{
@@ -47,6 +53,7 @@ func (c *client) QuickDeploy(ctx context.Context, jobID, targetOrg string) (Quic
 			"--target-org", targetOrg,
 			"--json",
 		},
+		Dir: dir,
 	})
 	if err != nil {
 		return QuickDeployResult{}, fmt.Errorf("salesforce: running sf project deploy quick: %w", err)

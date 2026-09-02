@@ -14,10 +14,11 @@ import (
 
 func newFakeCheckerDeps(fr *exec.FakeRunner, cfg config.Config) *prereq.Checker {
 	return &prereq.Checker{
-		Dir:    "/repo",
-		Git:    git.New(fr),
-		SF:     salesforce.New(fr),
-		Config: cfg,
+		GitRoot:       "/repo",
+		ArtifactsRoot: "/repo",
+		Git:           git.New(fr),
+		SF:            salesforce.New(fr),
+		Config:        cfg,
 	}
 }
 

@@ -199,7 +199,7 @@ stateDiagram-v2
 
 ## Arquitectura De Persistencia Local
 
-Todo lo que DeployDeck genera vive bajo `.deploydeck/` en la raiz del repo, incluidos los manifests delta. El directorio completo debe estar en `.gitignore` del repo Salesforce — es un chequeo bloqueante del doctor — para que los artefactos nunca ensucien el working tree que la propia herramienta exige limpio.
+Todo lo que DeployDeck genera vive bajo `.deploydeck/` en la raiz de artefactos (`artifactsRoot`; coincide con la raiz del repo en el layout plano, el caso por defecto — ver "Three-Root Directory Model" mas abajo), incluidos los manifests delta. El directorio completo debe estar en el `.gitignore` que gobierna esa raiz — es un chequeo bloqueante del doctor — para que los artefactos nunca ensucien el working tree que la propia herramienta exige limpio.
 
 ```text
 .deploydeck/
@@ -250,6 +250,31 @@ type RunRecord struct {
 }
 ```
 
+## Three-Root Directory Model
+
+DeployDeck resolves exactly three named directory roots ONCE, at the composition root (`cmd/deploydeck`'s `resolveRoots`), instead of collapsing them onto a single `os.Getwd()` value. `internal/app` and `internal/prereq` carry them as separate, plain-string fields; every downstream consumer reads the ONE root it semantically needs.
+
+| Root | Resolved from | Binds |
+|---|---|---|
+| `GitRoot` | `git rev-parse --show-toplevel` | Every Git-backed operation (branch/commit/cherry-pick/status/hooks/gpgsign), `sf sgd source delta` (child cwd AND its explicit `--repo-dir` flag — sgd's own default is `./` and it does NOT walk up to find the repository the way git does) |
+| `ProjectDir` | The optional `projectDir` config key, relative to `GitRoot` (default: the directory `deploydeck.yaml` was found in) | All four `sf project deploy *` commands (validate/report/quick/cancel) — `sf project` requires `sfdx-project.json` in its cwd |
+| `ArtifactsRoot` | Always equals `ProjectDir` | `.deploydeck/` (runs, manifests, lock), the gitignore enforcement check |
+
+For a FLAT repo (the default — no `projectDir` configured, `deploydeck.yaml` at the git root) all three roots coincide, and every path, command cwd and artifact location is byte-identical to a version of DeployDeck that never had this distinction. This is the backward-compatibility guarantee: `projectDir` is additive and zero-value-safe.
+
+For a NESTED repo (the SFDX project lives in a subdirectory of the git root, e.g. a monorepo), the three roots diverge:
+
+```yaml
+# deploydeck.yaml, found at the git root or anywhere it was historically
+projectDir: up_saln0001_giss_salesforce  # relative to the git root; rejected if absolute or containing ".."
+```
+
+`delta.sourceDirs` stays REPO-ROOT-RELATIVE regardless of `projectDir` (an explicit invariant, not an oversight): `Summarize`'s outside-sourceDirs check and sgd's `--source-dir` both compare against `git diff --name-only` output, which is always git-root-relative. Reinterpreting `sourceDirs` as project-relative would double-prefix nested-layout paths and silently produce an empty-but-successful delta package.
+
+`internal/prereq.Checker` mirrors the same split with `GitRoot`/`ArtifactsRoot` fields (no `ProjectDir` — no prereq check ever runs an `sf project` command). Its gitignore check reads the `.gitignore` governing `ArtifactsRoot` FIRST, falling back to `GitRoot`'s `.gitignore` for existing nested installs that already whitelisted `.deploydeck/` there; the offered fix always writes at `ArtifactsRoot`, never at `GitRoot`.
+
+`internal/app.Deps` keeps its pre-existing `Dir` field as a zero-value-safe COMPATIBILITY BASE: `GitRoot`/`ProjectDir`/`ArtifactsRoot` each fall back to `Dir` when left empty (`normalizeRoots`, called once from `app.New`). Production (`cmd/deploydeck`) sets the three named roots explicitly and leaves `Dir` unset; `Dir` is read NOWHERE else in the package, an invariant enforced by an executable guard test (`internal/app/roots_guard_test.go`) rather than left to a one-off review.
+
 ## Contrato Del Wrapper De Ejecucion
 
 ```go
@@ -295,6 +320,12 @@ deploydeck.yaml
 Ejemplo:
 
 ```yaml
+# projectDir is OPTIONAL and additive (see "Three-Root Directory Model"
+# above): omit it entirely for a flat repo (deploydeck.yaml at the SFDX
+# project root, today's default) — set it only when the SFDX project lives
+# in a subdirectory of the git repo, relative to the git root.
+# projectDir: up_saln0001_giss_salesforce
+
 branches:
   integration: INT
   uat: UAT

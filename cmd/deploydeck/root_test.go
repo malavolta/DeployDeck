@@ -148,13 +148,20 @@ func TestNewRootCmd_Doctor_AllChecksPass_ExitsZero(t *testing.T) {
 
 	lockPath := t.TempDir() + "/lock"
 	deps := Deps{
-		NewChecker: func(dir string) (*prereq.Checker, error) {
+		// The dir param is deliberately IGNORED: every git-backed check
+		// resolves through the FakeRunner (Dir-blind, keyed on Name+Args
+		// only), but CheckGitignore is now pure filesystem (ADR-9) and
+		// reads ArtifactsRoot directly — it must be the seeded `root`
+		// regardless of the real process cwd RunE's os.Getwd() happens to
+		// report during `go test`.
+		NewChecker: func(string) (*prereq.Checker, error) {
 			return &prereq.Checker{
-				Dir:    dir,
-				Git:    git.New(fr),
-				SF:     salesforce.New(fr),
-				Config: config.Config{},
-				Lock:   prereq.NewLock(lockPath, prereq.LockInfo{PID: 1, PName: "deploydeck"}, fakeAliveProber{}),
+				GitRoot:       root,
+				ArtifactsRoot: root,
+				Git:           git.New(fr),
+				SF:            salesforce.New(fr),
+				Config:        config.Config{},
+				Lock:          prereq.NewLock(lockPath, prereq.LockInfo{PID: 1, PName: "deploydeck"}, fakeAliveProber{}),
 			}, nil
 		},
 	}
@@ -177,10 +184,11 @@ func TestNewRootCmd_Doctor_BlockingCheck_ExitsNonZero(t *testing.T) {
 	deps := Deps{
 		NewChecker: func(dir string) (*prereq.Checker, error) {
 			return &prereq.Checker{
-				Dir:    dir,
-				Git:    git.New(fr),
-				SF:     salesforce.New(sfr),
-				Config: config.Config{},
+				GitRoot:       dir,
+				ArtifactsRoot: dir,
+				Git:           git.New(fr),
+				SF:            salesforce.New(sfr),
+				Config:        config.Config{},
 			}, nil
 		},
 	}

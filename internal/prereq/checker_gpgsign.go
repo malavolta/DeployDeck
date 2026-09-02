@@ -10,7 +10,7 @@ import (
 // cherry-pick/--continue commits so a no-tty gpg prompt can never hang a
 // run.
 func (c *Checker) CheckGpgSign(ctx context.Context) (PrereqCheck, error) {
-	value, ok, err := c.Git.ConfigGet(ctx, c.Dir, "commit.gpgsign")
+	value, ok, err := c.Git.ConfigGet(ctx, c.GitRoot, "commit.gpgsign")
 	if err != nil {
 		return PrereqCheck{}, fmt.Errorf("prereq: checking commit.gpgsign: %w", err)
 	}

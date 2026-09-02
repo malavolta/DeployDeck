@@ -54,10 +54,25 @@ On Linux the Homebrew cask is unavailable — use `go install` or the tarball.
 ## Configure
 
 Put `deploydeck.yaml` at your Salesforce project root (next to
-`sfdx-project.json`) and run `deploydeck` there. It resolves the git root itself,
-so the project can sit in a subdirectory.
+`sfdx-project.json`) and run `deploydeck` there — it resolves the git root, the
+SFDX project root and the `.deploydeck/` artifacts root separately, so the
+project can sit in a subdirectory of the git repo (a monorepo, for example)
+with no other config change. `deploydeck.yaml` itself can also be found by
+walking up from where you run `deploydeck`, bounded at the git root.
 
 ```yaml
+# OPTIONAL. The SFDX project's location relative to the GIT ROOT. Omit it
+# entirely for a flat repo (deploydeck.yaml at the git root — the default,
+# and every install that predates this key): the SFDX project root then
+# defaults to the directory deploydeck.yaml was found in. Set it only when
+# the SFDX project lives in a subdirectory of the git repo. Rejected if
+# absolute or containing a ".." segment.
+#
+# Setting this does NOT change how delta.sourceDirs is read — see the note
+# there. It also moves .deploydeck/ (runs, manifests, lock) to the project
+# directory, so set it before you accumulate run history you care about.
+# projectDir: up_saln0001_giss_salesforce
+
 # Pipeline. Keys MUST be integration/uat/production (read by name to order the
 # promotion); values are your branch names.
 branches:
@@ -83,7 +98,16 @@ ticketPatterns:
 
 branchFormat: "deploy/{{ticket}}-to-{{target}}"   # tokens: {{ticket}}, {{target}}
 
-# Delta package. sourceDirs is relative to the GIT ROOT (add the subdir if any).
+# Delta package. sourceDirs is relative to the GIT ROOT — ALWAYS, and even
+# when projectDir is set. Setting projectDir does not make these paths
+# project-relative: if your project lives in a subdirectory, the subdirectory
+# still belongs here. Getting this wrong does not raise an error — sgd simply
+# matches nothing and produces an EMPTY package that validates green and
+# deploys nothing. Copy the path from `git ls-files` output, not from
+# sfdx-project.json.
+#
+#   flat repo:    sourceDirs: [force-app]
+#   nested repo:  sourceDirs: [up_saln0001_giss_salesforce/force-app]
 delta:
   sourceDirs:
     - force-app
@@ -115,7 +139,8 @@ ai:
 ```
 
 `branches`, `sandboxes`, `ticketPatterns`, `branchFormat` and `delta` are
-required; `gates`, `quickDeploy` and `ai` are optional and default to off.
+required; `projectDir`, `gates`, `quickDeploy` and `ai` are optional and
+default to off (`projectDir` defaults to a flat layout — see above).
 
 ## Use
 

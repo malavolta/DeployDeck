@@ -14,11 +14,15 @@ import (
 // TestService_Generate_ComposesArgs_TableDriven proves Generate composes
 // exactly ONE `sf sgd source delta` invocation (threat-matrix
 // "PR/argument composition" row): --from/--to/--output-dir/--generate-delta
-// always present, one repeated --source-dir per configured entry (in
-// order), and --ignore-file/--ignore-destructive-file added only when
-// configured. CommandRequest.Dir is always req.Dir (the repo root the
-// caller resolved), never a trusted cwd (threat-matrix "Git repo
-// selection" row).
+// always present, an explicit --repo-dir <Dir> is ALWAYS emitted (task 4.1,
+// directory-resolution spec: "sgd Binds To The Git Root, Not The Project
+// Root" — sgd's --repo-dir defaults to "./" and does not walk up), one
+// repeated --source-dir per configured entry in order and UNCHANGED (the
+// regression guard for the sourceDirs invariant: buildArgs must never
+// re-prefix a SourceDirs entry with Dir), and
+// --ignore-file/--ignore-destructive-file added only when configured.
+// CommandRequest.Dir is always req.Dir (the repo root the caller resolved),
+// never a trusted cwd (threat-matrix "Git repo selection" row).
 func TestService_Generate_ComposesArgs_TableDriven(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -82,6 +86,7 @@ func TestService_Generate_ComposesArgs_TableDriven(t *testing.T) {
 				"sgd", "source", "delta",
 				"--from", req.From, "--to", req.To,
 				"--output-dir", outputDir, "--generate-delta",
+				"--repo-dir", req.Dir,
 			}, tt.wantTail(outputDir)...)
 
 			runner := exec.NewFakeRunner()
@@ -120,6 +125,7 @@ func TestService_Generate_DiscoversArtifacts(t *testing.T) {
 			"sgd", "source", "delta",
 			"--from", "origin/UAT", "--to", "HEAD",
 			"--output-dir", outputDir, "--generate-delta",
+			"--repo-dir", "/repo",
 			"--source-dir", "force-app",
 		}
 		return req, args, outputDir
@@ -185,6 +191,7 @@ func TestService_Generate_SgdFailureReturnsErrorWithRaw_NoArtifacts(t *testing.T
 		"sgd", "source", "delta",
 		"--from", "origin/UAT", "--to", "HEAD",
 		"--output-dir", outputDir, "--generate-delta",
+		"--repo-dir", "/repo",
 		"--source-dir", "force-app",
 	}
 

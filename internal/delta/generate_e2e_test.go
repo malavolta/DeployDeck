@@ -150,6 +150,117 @@ func seedSgdRepo(t *testing.T) (dir string, runner exec.Runner) {
 	return dir, runner
 }
 
+// seedNestedSgdRepo mirrors seedSgdRepo's EXACT init/config/baseline/edit/
+// delete sequence, but nests the SFDX project one level below the git root
+// (<gitRoot>/project/force-app, <gitRoot>/project/sfdx-project.json)
+// instead of at the git root itself — the regression guard for this
+// change's worst failure mode: a silently empty-but-successful delta
+// package from sgd's implicit "./" repo-dir default (proposal R5, design.md
+// "Budget": "not a lever"). Returns gitRoot so callers pass it as both the
+// child cwd AND --repo-dir.
+func seedNestedSgdRepo(t *testing.T) (gitRoot string, runner exec.Runner) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping real-sgd nested integration test in -short mode")
+	}
+
+	fixture, err := filepath.Abs(testE2EOrgFixtureDir)
+	if err != nil {
+		t.Fatalf("failed to resolve fixture path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixture, "force-app")); err != nil {
+		t.Skipf("test-e2e-org fixture not found at %s: %v", fixture, err)
+	}
+
+	runner = exec.NewOSRunner()
+	gitRoot = t.TempDir()
+	project := filepath.Join(gitRoot, "project")
+
+	runGit(t, runner, gitRoot, "init", "-b", "main")
+	runGit(t, runner, gitRoot, "config", "user.name", "DeployDeck Test")
+	runGit(t, runner, gitRoot, "config", "user.email", "deploydeck-test@example.com")
+
+	copyFixtureTree(t, filepath.Join(fixture, "force-app"), filepath.Join(project, "force-app"))
+	copyFixtureTree(t, filepath.Join(fixture, "sfdx-project.json"), filepath.Join(project, "sfdx-project.json"))
+
+	runGit(t, runner, gitRoot, "add", "-A")
+	runGit(t, runner, gitRoot, "commit", "-m", "seed: nested test-e2e-org force-app baseline")
+
+	runGit(t, runner, gitRoot, "branch", "UAT")
+	runGit(t, runner, gitRoot, "remote", "add", "origin", gitRoot)
+	runGit(t, runner, gitRoot, "update-ref", "refs/remotes/origin/UAT", "refs/heads/UAT")
+
+	classesDir := filepath.Join(project, "force-app", "main", "default", "classes")
+	accountServicePath := filepath.Join(classesDir, "AccountService.cls")
+	existing, err := os.ReadFile(accountServicePath)
+	if err != nil {
+		t.Fatalf("failed to read AccountService.cls fixture: %v", err)
+	}
+	edited := append(append([]byte{}, existing...), []byte("\n// nested delta-validation integration test edit\n")...)
+	if err := os.WriteFile(accountServicePath, edited, 0o644); err != nil {
+		t.Fatalf("failed to edit AccountService.cls: %v", err)
+	}
+
+	runGit(t, runner, gitRoot, "add", "-A")
+	runGit(t, runner, gitRoot, "commit", "-m", "edit project/force-app/.../AccountService.cls")
+
+	return gitRoot, runner
+}
+
+// TestService_Generate_RealSgd_NestedRepo is tasks 7.1/7.2 (RED/GREEN): with
+// the SFDX project nested one level below the git root, sourceDirs set to
+// the repo-root-relative "project/force-app" (directory-resolution spec's
+// sourceDirs INVARIANT — unaffected by projectDir), and Request.Dir ==
+// gitRoot (both the child cwd AND the emitted --repo-dir), the REAL sgd
+// invocation produces a NON-EMPTY package.xml — the only guard against a
+// silently empty-but-successful delta package that validates green and
+// deploys nothing (proposal R5).
+func TestService_Generate_RealSgd_NestedRepo(t *testing.T) {
+	gitRoot, runner := seedNestedSgdRepo(t)
+
+	outputDir := filepath.Join(gitRoot, "project", ".deploydeck", "manifest", "delta", "PROJ-1-to-UAT")
+	svc := delta.New(runner)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := svc.Generate(ctx, delta.Request{
+		Dir:        gitRoot,
+		From:       "origin/UAT",
+		To:         "HEAD",
+		OutputDir:  outputDir,
+		SourceDirs: []string{"project/force-app"},
+	})
+	if err != nil {
+		t.Fatalf("Generate() unexpected error against real sgd (nested layout): %v", err)
+	}
+
+	if result.PackageXMLPath == "" {
+		t.Fatal("expected a non-empty PackageXMLPath")
+	}
+	pkgData, err := os.ReadFile(result.PackageXMLPath)
+	if err != nil {
+		t.Fatalf("failed to read generated package.xml: %v", err)
+	}
+	pkg, err := delta.ParsePackage(pkgData)
+	if err != nil {
+		t.Fatalf("ParsePackage() on real sgd output: %v", err)
+	}
+	// NON-EMPTY is the load-bearing assertion (task 7.2): a silent
+	// implicit-cwd bug reproduces as sgd running with ZERO members found,
+	// not as a hard error — this is the only guard that would catch it.
+	if len(pkg.Types) == 0 {
+		t.Fatal("expected a NON-EMPTY package.xml (<types> present) — an empty package here means sgd silently scanned the wrong repo root")
+	}
+	if !memberOfType(pkg, "ApexClass", "AccountService") {
+		t.Fatalf("expected package.xml to list AccountService under ApexClass, got %+v", pkg.Types)
+	}
+
+	if result.Raw == "" {
+		t.Error("expected Raw to capture the real sgd command output")
+	}
+}
+
 func TestService_Generate_RealSgd_TempRepo(t *testing.T) {
 	dir, runner := seedSgdRepo(t)
 

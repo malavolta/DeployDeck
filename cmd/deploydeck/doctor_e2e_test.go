@@ -274,11 +274,12 @@ func TestHU001_Doctor_E2E_ConsolidatedVariants(t *testing.T) {
 
 func buildDoctorChecker(dir string, sfRunner exec.Runner, cfg config.Config, lock *prereq.Lock) *prereq.Checker {
 	return &prereq.Checker{
-		Dir:    dir,
-		Git:    git.New(exec.NewOSRunner()),
-		SF:     salesforce.New(sfRunner),
-		Config: cfg,
-		Lock:   lock,
+		GitRoot:       dir,
+		ArtifactsRoot: dir,
+		Git:           git.New(exec.NewOSRunner()),
+		SF:            salesforce.New(sfRunner),
+		Config:        cfg,
+		Lock:          lock,
 	}
 }
 

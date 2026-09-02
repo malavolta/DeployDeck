@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	osexec "os/exec"
-	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -112,18 +111,23 @@ func newRunsPruneCmd() *cobra.Command {
 	}
 }
 
-// runPrune loads dir's retention config and prunes the local run history under
-// dir/.deploydeck/runs/, writing a summary of what was removed to w. It is the
-// testable core of `deploydeck runs prune`: RunE only supplies the resolved
-// working directory. Prune touches ONLY per-run directories enumerated by the
-// writer — never arbitrary paths (runs package's threat-matrix guarantee).
+// runPrune resolves dir's (gitRoot, projectDir, artifactsRoot) triple and
+// prunes the local run history under artifactsRoot/.deploydeck/runs/,
+// writing a summary of what was removed to w. It is the testable core of
+// `deploydeck runs prune`: RunE only supplies the resolved working
+// directory, and resolveRoots is called from that RAW cwd — same
+// composition-root pattern as defaultChecker/defaultRunTUI (design.md's
+// Resolution Sequence). Prune touches ONLY per-run directories enumerated
+// by the writer — never arbitrary paths (runs package's threat-matrix
+// guarantee).
 func runPrune(w io.Writer, dir string) error {
-	cfg, err := config.Load(dir)
+	g := git.New(exec.NewOSRunner())
+	r, cfg, err := resolveRoots(context.Background(), g, dir)
 	if err != nil {
-		return fmt.Errorf("runs prune: loading %s: %w", config.FileName, err)
+		return fmt.Errorf("runs prune: %w", err)
 	}
 
-	removed, err := runs.NewWriter(dir).Prune(cfg.Runs.KeepLast, cfg.Runs.KeepDays, time.Now())
+	removed, err := runs.NewWriter(r.ArtifactsRoot).Prune(cfg.Runs.KeepLast, cfg.Runs.KeepDays, time.Now())
 	if err != nil {
 		return fmt.Errorf("runs prune: %w", err)
 	}
@@ -191,38 +195,18 @@ func renderPrereqChecks(w io.Writer, checks []prereq.PrereqCheck) (blocking bool
 	return blocking
 }
 
-// defaultChecker builds a prereq.Checker backed by real OS processes: a
-// shared OSRunner for git/sf, deploydeck.yaml loaded from dir, and a
-// single-instance lock at dir/.deploydeck/lock guarded by a real
-// OSProcessProber.
+// defaultChecker builds a prereq.Checker backed by real OS processes,
+// resolving the (gitRoot, projectDir, artifactsRoot) triple from dir (the
+// UNCHANGED func(dir string) signature — design.md ADR-5's
+// cmd/deploydeck.Deps.NewChecker contract) before composing it via
+// newChecker.
 func defaultChecker(dir string) (*prereq.Checker, error) {
-	cfg, err := config.Load(dir)
+	g := git.New(exec.NewOSRunner())
+	r, cfg, err := resolveRoots(context.Background(), g, dir)
 	if err != nil {
-		return nil, fmt.Errorf("loading %s: %w", config.FileName, err)
+		return nil, err
 	}
-
-	runner := exec.NewOSRunner()
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown-host"
-	}
-	self := prereq.LockInfo{PID: os.Getpid(), PName: "deploydeck", Host: hostname}
-	lock := prereq.NewLock(filepath.Join(dir, ".deploydeck", "lock"), self, prereq.NewOSProcessProber(runner))
-
-	return &prereq.Checker{
-		Dir:    dir,
-		Git:    git.New(runner),
-		SF:     salesforce.New(runner),
-		Config: cfg,
-		Lock:   lock,
-		// GH backs the informative, non-blocking gh doctor check (HU-014).
-		GH: github.New(runner),
-		// AI backs the informative, non-blocking AI model doctor check
-		// (ai-pr-summary); nil (composeAIClient's degrade) when cfg.AI is
-		// disabled/absent, mirroring GH's nil-skip discipline.
-		AI: composeAIClient(cfg),
-	}, nil
+	return newChecker(cfg, r)
 }
 
 // composeAIClient builds the real internal/ai.Client backing Checker.AI/
@@ -269,21 +253,32 @@ func composeGenerateSummary(cfg config.Config) func(ctx context.Context, ticket 
 // is built HERE — main may import os/exec, so internal/app never has to (it
 // stays behind the service seam, enforced by internal/app/boundary_test.go).
 func defaultRunTUI(dir string) error {
-	cfg, err := config.Load(dir)
+	runner := exec.NewOSRunner()
+	g := git.New(runner)
+	r, cfg, err := resolveRoots(context.Background(), g, dir)
 	if err != nil {
-		return fmt.Errorf("loading %s: %w", config.FileName, err)
+		return err
 	}
 
-	runner := exec.NewOSRunner()
 	deps := app.Deps{
-		Git:         git.New(runner),
-		SF:          salesforce.New(runner),
-		Delta:       delta.New(runner),
-		GH:          github.New(runner),
-		Runs:        runs.NewWriter(dir),
-		Config:      cfg,
-		Dir:         dir,
-		NewChecker:  defaultChecker,
+		Git:   g,
+		SF:    salesforce.New(runner),
+		Delta: delta.New(runner),
+		GH:    github.New(runner),
+		// Runs binds to the ARTIFACTS root — .deploydeck/ must never
+		// relocate for an existing install (design.md ADR-2).
+		Runs:   runs.NewWriter(r.ArtifactsRoot),
+		Config: cfg,
+		// GitRoot/ProjectDir/ArtifactsRoot are set explicitly; Dir is left
+		// unset (design.md ADR-3 — Dir is only the test-literal
+		// compatibility base, never set by production).
+		GitRoot:       r.GitRoot,
+		ProjectDir:    r.ProjectDir,
+		ArtifactsRoot: r.ArtifactsRoot,
+		// NewChecker is a ZERO-ARG closure over the already-resolved
+		// (cfg, r) pair (design.md ADR-5): internal/app must not choose —
+		// or re-choose — a directory itself.
+		NewChecker:  func() (*prereq.Checker, error) { return newChecker(cfg, r) },
 		Edit:        editHandoff,
 		CheckUpdate: defaultCheckUpdate,
 		// GenerateSummary backs the optional ai-pr-summary suggestion

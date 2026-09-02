@@ -33,10 +33,11 @@ func TestChecker_Check_AllPrerequisitesPass_AllCriticalChecksOK(t *testing.T) {
 	lock := prereq.NewLock(lockPath, self, fakeProber{alive: func(int, time.Time) bool { return false }})
 
 	checker := &prereq.Checker{
-		Dir:  dir,
-		Git:  git.New(exec.NewOSRunner()),
-		SF:   salesforce.New(sfRunner),
-		Lock: lock,
+		GitRoot:       dir,
+		ArtifactsRoot: dir,
+		Git:           git.New(exec.NewOSRunner()),
+		SF:            salesforce.New(sfRunner),
+		Lock:          lock,
 		Config: config.Config{
 			Sandboxes: map[string]config.SandboxConfig{"UAT": {Alias: "uat", TestLevel: "RunLocalTests"}},
 		},
@@ -74,10 +75,11 @@ func TestChecker_Check_MissingGitBinary_BlocksWithFixCommand(t *testing.T) {
 	sfRunner.When("sf", []string{"org", "list", "--json"}, exec.CommandResult{ExitCode: 0, Stdout: []byte(`{"status":0,"result":{}}`)})
 
 	checker := &prereq.Checker{
-		Dir:    "/repo",
-		Git:    git.New(gitRunner),
-		SF:     salesforce.New(sfRunner),
-		Config: config.Config{},
+		GitRoot:       "/repo",
+		ArtifactsRoot: "/repo",
+		Git:           git.New(gitRunner),
+		SF:            salesforce.New(sfRunner),
+		Config:        config.Config{},
 	}
 
 	checks, err := checker.Check(context.Background())

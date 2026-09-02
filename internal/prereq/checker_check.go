@@ -16,7 +16,7 @@ const nameGitRepository = "git repository"
 // And Reporting").
 //
 // Repo-dependent checks (working tree, gitignore, hooks, gpgsign) are
-// skipped when Dir is not inside a git repository — the repo-membership
+// skipped when GitRoot is not inside a git repository — the repo-membership
 // check already reports that as blocking, and running the others would
 // only surface the same root cause redundantly, or error where a check
 // does not itself degrade gracefully (unlike CheckVersions).

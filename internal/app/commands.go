@@ -499,15 +499,17 @@ func (m Model) aiSuggestCmd() tea.Cmd {
 
 // runPrereqCmd runs the HU-001 checker. When no checker is injected (tests
 // starting past prereqs) it is a no-op and the caller drives prereqDoneMsg.
+// NewChecker is ZERO-ARG (design.md ADR-5): the composition root has
+// already resolved every root by the time this closure is wired, so
+// internal/app never chooses (or re-chooses) a directory itself.
 func (m Model) runPrereqCmd() tea.Cmd {
 	if m.deps.NewChecker == nil {
 		return nil
 	}
-	dir := m.deps.Dir
 	newChecker := m.deps.NewChecker
 	ctx := m.ctx()
 	return func() tea.Msg {
-		checker, err := newChecker(dir)
+		checker, err := newChecker()
 		if err != nil {
 			return prereqDoneMsg{err: err}
 		}
@@ -527,7 +529,7 @@ func (m Model) runPrereqCmd() tea.Cmd {
 // results, unchanged.
 func (m Model) discoverCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	cfg := m.deps.Config
 	ticket := m.ticket
 	prelim := m.prelim
@@ -573,7 +575,7 @@ func (m Model) discoverCmd() tea.Cmd {
 // straight to StateCommitSelection.
 func (m Model) confirmSourceCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	cfg := m.deps.Config
 	ticket := m.ticket
 	prelim := m.prelim
@@ -609,7 +611,7 @@ func (m Model) confirmSourceCmd() tea.Cmd {
 // (StateError).
 func (m Model) rePromoteRemapCmd(priorSHAs []string, target, source string) tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		result, err := g.RemapCommitsByPatchID(ctx, dir, priorSHAs, target, source)
@@ -625,7 +627,7 @@ func (m Model) rePromoteRemapCmd(priorSHAs []string, target, source string) tea.
 // warnings rather than blocking the selection screen.
 func (m Model) depWarningsCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ordered := m.discovery.OrderedCommits
 	selected := selectedSHASet(m.items)
 	ctx := m.ctx()
@@ -659,7 +661,7 @@ func (m Model) sandboxWarnCmd(alias string) tea.Cmd {
 // branchCreateCmd runs HU-005 fetch + promotion-branch creation.
 func (m Model) branchCreateCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	target := m.plan.TargetBranch
 	name := m.branchName
 	ctx := m.ctx()
@@ -679,7 +681,7 @@ func (m Model) branchCreateCmd() tea.Cmd {
 // contract when no source was ever resolved.
 func (m Model) reuseBranchCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	branch := m.branchName
 	sourceRef := m.source.Name
 	commits := m.plan.SelectedCommits
@@ -752,7 +754,7 @@ func deleteExistingDeployBranch(ctx context.Context, g *git.Service, dir, name s
 // succeeding.
 func (m Model) deleteAndRecreateBranchCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	target := m.plan.TargetBranch
 	name := m.branchName
 	ctx := m.ctx()
@@ -768,7 +770,7 @@ func (m Model) deleteAndRecreateBranchCmd() tea.Cmd {
 // commits in ONE invocation (never a Go loop).
 func (m Model) cherryPickCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	commits := m.plan.SelectedCommits
 	contiguous := m.contiguous
 	ctx := m.ctx()
@@ -781,7 +783,7 @@ func (m Model) cherryPickCmd() tea.Cmd {
 // continueCmd runs `git cherry-pick --continue` through the gate.
 func (m Model) continueCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		outcome, err := g.ContinueCherryPick(ctx, dir)
@@ -792,7 +794,7 @@ func (m Model) continueCmd() tea.Cmd {
 // skipCmd runs `git cherry-pick --skip` for an empty pick.
 func (m Model) skipCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		outcome, err := g.SkipCherryPick(ctx, dir)
@@ -803,7 +805,7 @@ func (m Model) skipCmd() tea.Cmd {
 // abortCmd runs `git cherry-pick --abort`.
 func (m Model) abortCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		return abortedMsg{err: g.AbortCherryPick(ctx, dir)}
@@ -814,7 +816,7 @@ func (m Model) abortCmd() tea.Cmd {
 // continue-gate. This is the poll that reconciles external actions.
 func (m Model) repoStateCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		state, err := g.RepoState(ctx, dir)
@@ -835,7 +837,7 @@ func (m Model) repoStateCmd() tea.Cmd {
 // touched (each looked up through the git service, never an app-level exec).
 func (m Model) verifyCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	selected := m.plan.SelectedCommits
 	base := "origin/" + m.plan.TargetBranch
 	ctx := m.ctx()
@@ -911,7 +913,13 @@ func (m Model) startSpinner() (Model, tea.Cmd) {
 func (m Model) deltaCmd() tea.Cmd {
 	svc := m.deps.Delta
 	g := m.deps.Git
-	dir := m.deps.Dir
+	// sgd binds to the GIT ROOT (child cwd + --repo-dir), never the SFDX
+	// project root — directory-resolution spec: "sgd Binds To The Git
+	// Root, Not The Project Root". The output artifacts live under the
+	// ARTIFACTS root, which must never relocate for an existing install
+	// (design.md ADR-2).
+	gitRoot := m.deps.GitRoot
+	artifactsRoot := m.deps.ArtifactsRoot
 	cfg := m.deps.Config
 	ticket := m.plan.Ticket
 	target := m.plan.TargetBranch
@@ -919,10 +927,10 @@ func (m Model) deltaCmd() tea.Cmd {
 	return func() tea.Msg {
 		from := "origin/" + target
 		to := "HEAD"
-		outputDir := filepath.Join(dir, deltaBaseDir(cfg), ticket+"-to-"+target)
+		outputDir := filepath.Join(artifactsRoot, deltaBaseDir(cfg), ticket+"-to-"+target)
 
 		result, err := svc.Generate(ctx, delta.Request{
-			Dir:                   dir,
+			Dir:                   gitRoot,
 			From:                  from,
 			To:                    to,
 			OutputDir:             outputDir,
@@ -951,7 +959,7 @@ func (m Model) deltaCmd() tea.Cmd {
 		// OutsideSourceDirs is informational: a transient git-diff error must
 		// not sink an otherwise successful delta, so ChangedFiles is
 		// best-effort (mirrors depWarningsCmd's degrade-to-empty policy).
-		changed, _ := g.ChangedFiles(ctx, dir, from, to)
+		changed, _ := g.ChangedFiles(ctx, gitRoot, from, to)
 
 		summary := delta.Summarize(pkg, destructive, changed, cfg.Delta.SourceDirs)
 		return deltaDoneMsg{result: result, summary: summary}
@@ -989,7 +997,7 @@ func (m Model) validateCmd() tea.Cmd {
 	sf := m.deps.SF
 	writer := m.deps.Runs
 	now := m.now()
-	dir := m.deps.Dir
+	dir := m.deps.ProjectDir
 	plan := m.plan
 	runID := m.runID
 	ctx := m.ctx()
@@ -1088,7 +1096,7 @@ func (m Model) resumeDetectCmd() tea.Cmd {
 	if g == nil || writer == nil {
 		return nil
 	}
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	parent := m.ctx()
 	return func() tea.Msg {
 		// Bound the git-backed RepoState read so a slow/hung git never stalls
@@ -1118,7 +1126,7 @@ func (m Model) originalBranchCmd() tea.Cmd {
 	if g == nil {
 		return nil
 	}
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		branch, err := g.CurrentBranch(ctx, dir)
@@ -1133,7 +1141,7 @@ func (m Model) originalBranchCmd() tea.Cmd {
 // (BORRAR), else normal (y) confirm — one call per attempt, no N+1").
 func (m Model) unpushedCountCmd(branch string) tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		count, err := g.UnpushedCommitCount(ctx, dir, branch)
@@ -1193,7 +1201,7 @@ func (m Model) quitCmd() tea.Cmd {
 	if !canRestore && !del {
 		return tea.Quit
 	}
-	g, dir, ctx, original := m.deps.Git, m.deps.Dir, m.ctx(), m.originalBranch
+	g, dir, ctx, original := m.deps.Git, m.deps.GitRoot, m.ctx(), m.originalBranch
 	return func() tea.Msg {
 		current, err := g.CurrentBranch(ctx, dir)
 		if err != nil {
@@ -1265,9 +1273,10 @@ func (m Model) cancelCmd() tea.Cmd {
 	sf := m.deps.SF
 	jobID := m.jobID
 	alias := m.plan.SandboxAlias
+	dir := m.deps.ProjectDir
 	ctx := m.ctx()
 	return func() tea.Msg {
-		result, err := sf.CancelDeploy(ctx, jobID, alias)
+		result, err := sf.CancelDeploy(ctx, jobID, alias, dir)
 		return cancelDoneMsg{result: result, err: err}
 	}
 }
@@ -1285,9 +1294,10 @@ func (m Model) quickDeployCmd() tea.Cmd {
 	rec := m.runs[m.runsCursor]
 	jobID := rec.JobID
 	alias := rec.Alias
+	dir := m.deps.ProjectDir
 	ctx := m.ctx()
 	return func() tea.Msg {
-		result, err := sf.QuickDeploy(ctx, jobID, alias)
+		result, err := sf.QuickDeploy(ctx, jobID, alias, dir)
 		return quickDeployDoneMsg{result: result, err: err}
 	}
 }
@@ -1301,7 +1311,7 @@ func (m Model) reportCmd() tea.Cmd {
 	sf := m.deps.SF
 	jobID := m.jobID
 	alias := m.plan.SandboxAlias
-	dir := m.deps.Dir
+	dir := m.deps.ProjectDir
 	parent := m.pollContext()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, reportCallTimeout)
@@ -1323,7 +1333,7 @@ func pollTickCmd(seconds int) tea.Cmd {
 // running it").
 func (m Model) pushCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	branch := m.plan.PromotionBranch
 	ctx := m.ctx()
 	return func() tea.Msg {
@@ -1341,7 +1351,7 @@ func (m Model) pushCmd() tea.Cmd {
 func (m Model) preparePRCmd() tea.Cmd {
 	g := m.deps.Git
 	gh := m.deps.GH
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	base := m.plan.TargetBranch
 	head := m.plan.PromotionBranch
 	reusing := m.reusing
@@ -1394,7 +1404,7 @@ func (m Model) preparePRCmd() tea.Cmd {
 func (m Model) listDeployBranchesCmd() tea.Cmd {
 	g := m.deps.Git
 	writer := m.deps.Runs
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	format := m.deps.Config.BranchFormat
 	inProgress := m.repoState.InProgress
 	ctx := m.ctx()
@@ -1442,7 +1452,7 @@ type standaloneBranchesMsg struct {
 // outside tests) degrades to an explicit error rather than a panic.
 func (m Model) standaloneBranchesCmd() tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		if g == nil {
@@ -1463,7 +1473,7 @@ func (m Model) standaloneBranchesCmd() tea.Cmd {
 // restore/checkout choreography is needed: it is deleted directly.
 func (m Model) deleteOrphanCmd(name string, pushed bool) tea.Cmd {
 	g := m.deps.Git
-	dir := m.deps.Dir
+	dir := m.deps.GitRoot
 	ctx := m.ctx()
 	return func() tea.Msg {
 		if err := g.DeleteLocalBranch(ctx, dir, name); err != nil {

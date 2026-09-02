@@ -45,19 +45,25 @@ type Client interface {
 	// <alias> --json` (HU-012): it cancels the CURRENT run's own async
 	// validation/deploy job to free the shared sandbox queue. jobID is always
 	// the run's own job (never another user's, never user-typed) and is passed
-	// as a discrete slice arg, never shell-interpolated. Success and failure
-	// both preserve Raw; error handling mirrors ValidateDeploy so the flow
-	// survives a CLI error without crashing.
-	CancelDeploy(ctx context.Context, jobID, targetOrg string) (CancelResult, error)
+	// as a discrete slice arg, never shell-interpolated. dir is the SFDX
+	// project root (the directory holding sfdx-project.json) the command
+	// runs in — set as exec.CommandRequest.Dir, never appended to Args
+	// (design ADR-8, directory-resolution spec: "`sf project` Commands Bind
+	// To The SFDX Project Root"). Success and failure both preserve Raw;
+	// error handling mirrors ValidateDeploy so the flow survives a CLI error
+	// without crashing.
+	CancelDeploy(ctx context.Context, jobID, targetOrg, dir string) (CancelResult, error)
 	// QuickDeploy runs `sf project deploy quick --job-id <id> --target-org
 	// <alias> --json` (HU-015): it re-runs a prior successful validation's
 	// job as an actual deploy, reusing that job's already-passed test
 	// results within Salesforce's quick-deploy window. jobID is always an
 	// eligible run's own job (never another run's, never user-typed) and is
-	// passed as a discrete slice arg, never shell-interpolated. Success and
-	// failure both preserve Raw; error handling mirrors CancelDeploy so the
-	// flow survives a CLI error without crashing.
-	QuickDeploy(ctx context.Context, jobID, targetOrg string) (QuickDeployResult, error)
+	// passed as a discrete slice arg, never shell-interpolated. dir is the
+	// SFDX project root the command runs in — same contract as
+	// CancelDeploy's dir (design ADR-8). Success and failure both preserve
+	// Raw; error handling mirrors CancelDeploy so the flow survives a CLI
+	// error without crashing.
+	QuickDeploy(ctx context.Context, jobID, targetOrg, dir string) (QuickDeployResult, error)
 }
 
 // VersionInfo is the parsed `sf --version` output.

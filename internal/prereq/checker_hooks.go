@@ -25,7 +25,7 @@ var interferingHookNames = map[string]bool{
 // checkout or cherry-pick (HU-001 / RNF-005). This check is ALWAYS
 // informative — it never blocks.
 func (c *Checker) CheckHooks(ctx context.Context) (PrereqCheck, error) {
-	root, err := c.Git.RepoRoot(ctx, c.Dir)
+	root, err := c.Git.RepoRoot(ctx, c.GitRoot)
 	if err != nil {
 		return PrereqCheck{}, fmt.Errorf("prereq: checking git hooks: %w", err)
 	}

@@ -810,6 +810,7 @@ func TestModel_DeltaCmd_ComposesGenerateAndSummarize(t *testing.T) {
 		"--to", "HEAD",
 		"--output-dir", outputDir,
 		"--generate-delta",
+		"--repo-dir", dir,
 		"--source-dir", "force-app",
 	}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sgd done")})
 
@@ -835,6 +836,69 @@ func TestModel_DeltaCmd_ComposesGenerateAndSummarize(t *testing.T) {
 	}
 	if dmsg.result.PackageXMLPath == "" {
 		t.Error("delta result should carry the package.xml path")
+	}
+}
+
+// TestModel_DeltaCmd_NestedDeps_UsesGitRootAndArtifactsRoot is task 5.3
+// (RED): with a NESTED Deps (GitRoot != ArtifactsRoot), deltaCmd must send
+// delta.Request.Dir == GitRoot (sgd's repo-dir/child-cwd binding,
+// directory-resolution spec: "sgd Binds To The Git Root, Not The Project
+// Root") and write its OutputDir under ArtifactsRoot (ADR-2: .deploydeck/
+// artifacts never relocate) — proving the two roots are read independently,
+// not both from the old conflated Dir.
+func TestModel_DeltaCmd_NestedDeps_UsesGitRootAndArtifactsRoot(t *testing.T) {
+	gitRoot := t.TempDir()
+	artifactsRoot := filepath.Join(gitRoot, "project")
+	if err := os.MkdirAll(artifactsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := validationConfig()
+	cfg.Delta = config.DeltaConfig{SourceDirs: []string{"force-app"}}
+
+	outputDir := filepath.Join(artifactsRoot, config.DefaultDeltaOutputDir, "PROJ-1-to-UAT")
+	if err := os.MkdirAll(filepath.Join(outputDir, "package"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pkgXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+  <types><members>AccountService</members><name>ApexClass</name></types>
+  <version>59.0</version>
+</Package>`
+	if err := os.WriteFile(filepath.Join(outputDir, "package", "package.xml"), []byte(pkgXML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sgdRunner := execpkg.NewFakeRunner()
+	sgdRunner.When("sf", []string{
+		"sgd", "source", "delta",
+		"--from", "origin/UAT",
+		"--to", "HEAD",
+		"--output-dir", outputDir,
+		"--generate-delta",
+		"--repo-dir", gitRoot,
+		"--source-dir", "force-app",
+	}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("sgd done")})
+
+	deps := Deps{
+		GitRoot:       gitRoot,
+		ArtifactsRoot: artifactsRoot,
+		Config:        cfg,
+		Delta:         delta.New(sgdRunner),
+		Git:           git.New(execpkg.NewFakeRunner()),
+	}
+	m := New(deps)
+	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT"}
+
+	msg := run(t, m.deltaCmd())
+	dmsg, ok := msg.(deltaDoneMsg)
+	if !ok {
+		t.Fatalf("expected deltaDoneMsg, got %T", msg)
+	}
+	if dmsg.err != nil {
+		t.Fatalf("deltaCmd errored (sgd invocation likely used the wrong root): %v", dmsg.err)
+	}
+	if dmsg.result.PackageXMLPath != filepath.Join(outputDir, "package", "package.xml") {
+		t.Fatalf("PackageXMLPath = %q, want it rooted under ArtifactsRoot's outputDir %q", dmsg.result.PackageXMLPath, outputDir)
 	}
 }
 
