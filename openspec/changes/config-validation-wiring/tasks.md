@@ -64,7 +64,7 @@ Chain strategy: pending
 
 ## Phase 7: Secondary — W-5 comment (separate commit)
 
-- [ ] 7.1 `checker_aliases.go:32` — update comment (now true under ADR-1); zero behavior change, no test.
+- [x] 7.1 `checker_aliases.go:32` — update comment (now true under ADR-1); zero behavior change, no test.
 
 ## Phase 8: Secondary — W-3 partial coverage (separate commit)
 
