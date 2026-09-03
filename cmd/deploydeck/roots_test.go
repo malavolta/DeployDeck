@@ -61,6 +61,12 @@ func TestResolveRoots_FlatRepo(t *testing.T) {
 	if r.GitRoot != dir || r.ProjectDir != dir || r.ArtifactsRoot != dir {
 		t.Fatalf("flat repo roots = %+v, want all three == %q", r, dir)
 	}
+	// config-validation-wiring task 1.1 (RED): a flat repo collapses
+	// ConfigDir into the same directory as the other three roots too —
+	// deploydeck.yaml sits at the git root, so that is where it was found.
+	if r.ConfigDir != dir {
+		t.Errorf("ConfigDir = %q, want %q (flat repo: config file lives at the git root)", r.ConfigDir, dir)
+	}
 	if cfg.Branches["integration"] != "INT" {
 		t.Fatalf("expected the loaded Config to carry parsed fields, got %+v", cfg)
 	}
@@ -137,6 +143,16 @@ func TestResolveRoots_NestedRepo_ExplicitProjectDir(t *testing.T) {
 	}
 	if r.ArtifactsRoot != wantProjectDir {
 		t.Errorf("ArtifactsRoot = %q, want %q", r.ArtifactsRoot, wantProjectDir)
+	}
+	// config-validation-wiring task 1.1 (RED): ConfigDir is a FOURTH,
+	// genuinely distinct fact here — deploydeck.yaml was LOCATED at
+	// gitRoot, while an explicit projectDir points the SFDX project root
+	// somewhere else entirely (design.md ADR-3).
+	if r.ConfigDir != gitRoot {
+		t.Errorf("ConfigDir = %q, want %q (the directory deploydeck.yaml was actually found in)", r.ConfigDir, gitRoot)
+	}
+	if r.ConfigDir == r.ProjectDir {
+		t.Fatal("expected ConfigDir and ProjectDir to be DISTINCT when projectDir is explicit")
 	}
 }
 
@@ -240,6 +256,30 @@ func TestNewChecker_LockPathUsesArtifactsRoot(t *testing.T) {
 	}
 	if checker.ArtifactsRoot != artifactsRoot {
 		t.Errorf("Checker.ArtifactsRoot = %q, want %q", checker.ArtifactsRoot, artifactsRoot)
+	}
+}
+
+// TestNewChecker_SetsConfigPathFromConfigDir is config-validation-wiring
+// task 1.1 (RED): newChecker composes Checker.ConfigPath from
+// roots.ConfigDir, not GitRoot or ProjectDir — config.Locate searches
+// UPWARD, so in a nested layout a bare filename would leave the operator
+// unable to tell which of two candidate files CheckConfig's FixCommand
+// means (design.md ADR-3).
+func TestNewChecker_SetsConfigPathFromConfigDir(t *testing.T) {
+	gitRoot := t.TempDir()
+	configDir := filepath.Join(gitRoot, "up_saln0001_giss_salesforce")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	checker, err := newChecker(config.Config{}, roots{GitRoot: gitRoot, ProjectDir: configDir, ArtifactsRoot: configDir, ConfigDir: configDir})
+	if err != nil {
+		t.Fatalf("newChecker() unexpected error: %v", err)
+	}
+
+	wantPath := filepath.Join(configDir, config.FileName)
+	if checker.ConfigPath != wantPath {
+		t.Errorf("checker.ConfigPath = %q, want %q", checker.ConfigPath, wantPath)
 	}
 }
 

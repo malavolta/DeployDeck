@@ -18,13 +18,21 @@ var branchFormatTokenPattern = regexp.MustCompile(`\{\{[^{}]*\}\}`)
 // source dirs would scan nothing, silently producing an always-empty
 // package), and ProjectDir is neither absolute nor ".."-bearing.
 //
-// NOTE: Validate is NOT called anywhere in production code (verified: only
-// this package's own tests and internal/git's e2e tests call it — see this
-// change's proposal, "Deferred Follow-Up"). Its ProjectDir check is
-// therefore a SECONDARY surfacing point, kept consistent with
-// ProjectRoot's check for callers that do invoke Validate directly (e.g.
-// future tooling); ProjectRoot is the binding enforcement point on the
-// path production actually executes.
+// PRECONDITION: c MUST already have been through applyDefaults, i.e.
+// produced by Load — never a bare Config{} literal. Omitting
+// pollIntervalSeconds/pollTimeoutSeconds is the normal way to author
+// deploydeck.yaml, so calling Validate before defaults are applied fails
+// those two fields spuriously on every real config (config-validation-wiring
+// ADR-6; TestConfig_Validate_BareLiteralRejectsUnDefaultedPollFields pins
+// the un-defaulted-literal case as a regression guard).
+//
+// Validate's production caller is internal/prereq's Checker.CheckConfig
+// (config-validation-wiring ADR-1), registered first in Checker.Check() so
+// a malformed config surfaces before any check that consumes it. Its
+// ProjectDir check here is a SECONDARY surfacing point, kept consistent
+// with ProjectRoot's check for callers that invoke Validate directly (e.g.
+// tooling outside the CheckConfig path); ProjectRoot remains the binding
+// enforcement point on the resolution path production actually executes.
 func (c Config) Validate() error {
 	for _, pattern := range c.TicketPatterns {
 		if _, err := regexp.Compile(pattern); err != nil {

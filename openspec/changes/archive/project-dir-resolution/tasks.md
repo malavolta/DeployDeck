@@ -102,6 +102,16 @@ Budget levers applied: **1** (view.go label, no dedicated test) and **2** (inter
 
 - [x] 7.1 RED: `internal/delta/generate_e2e_test.go` — add the nested-fixture variant: copy `test-e2e-org/` into `<gitRoot>/project/`, set `sourceDirs` to the repo-root-relative `project/force-app`, run real `sf sgd source delta` from the nested layout.
 - [x] 7.2 GREEN: confirm the nested e2e run's `Generate` produces a NON-EMPTY package (`package.xml` has `<types>` members) and the sgd invocation carried `--repo-dir <gitRoot>`. This is the only guard against a silently empty-but-successful delta package — not a lever, keep unconditionally. Ran against the real `sf`/`sgd` binaries in this environment — PASS.
+
+  > Note (config-validation-wiring): the `--repo-dir <gitRoot>` flag
+  > assertion above lives in `internal/delta/service_test.go` (unit level,
+  > asserting `buildArgs`' composed argument list). Whether the flag is
+  > merely EMITTED versus whether sgd actually HONORS it independently of
+  > the child process's cwd is a distinct question — cwd-vs-`--repo-dir`
+  > separation is covered by `config-validation-wiring`'s isolating e2e,
+  > `TestSgd_RepoDirIndependentOfCwd_RealSgd` (`internal/delta/generate_e2e_test.go`),
+  > which bypasses `delta.Service` and sets the two to deliberately
+  > different directories.
 - [x] 7.3 VERIFY: `internal/app/boundary_test.go` passes with no allow-list change.
 - [x] 7.4 GREEN: `internal/runs/writer.go` — doc-only correction: `baseDir` is the ARTIFACTS root, not the repository root.
 

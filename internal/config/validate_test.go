@@ -304,6 +304,26 @@ func TestConfig_Validate_Gates_DeterministicErrorTarget(t *testing.T) {
 	}
 }
 
+// TestConfig_Validate_BareLiteralRejectsUnDefaultedPollFields is
+// config-validation-wiring task 5.1 (ADR-6 regression pin): a bare
+// config.Config{} literal — never routed through config.Load/applyDefaults
+// — MUST fail Validate() naming pollIntervalSeconds. This behavior is
+// ALREADY true today (PollIntervalSeconds' zero value already fails the
+// "> 0" rule above); the pin exists so a future change to Validate() or
+// applyDefaults cannot silently make a bare literal pass, which would let
+// internal/prereq's CheckConfig (config-validation-wiring) report OK for a
+// Config the app then runs with a zero poll interval (prereq-check spec:
+// "Bare struct literal is rejected (regression pin)").
+func TestConfig_Validate_BareLiteralRejectsUnDefaultedPollFields(t *testing.T) {
+	err := (config.Config{}).Validate()
+	if err == nil {
+		t.Fatal("expected a bare config.Config{} literal to fail Validate(), got nil")
+	}
+	if !strings.Contains(err.Error(), "pollIntervalSeconds") {
+		t.Fatalf("expected the error to name pollIntervalSeconds, got: %v", err)
+	}
+}
+
 // TestConfig_Validate_RunsBoundsIdentifyField is task 2.1 (RED): the
 // run-retention spec requires each bounds error to identify the offending
 // field (run-retention spec: "KeepLast/KeepDays Config Bounds Are

@@ -29,9 +29,14 @@ func (c *Checker) CheckAliases(ctx context.Context) ([]PrereqCheck, error) {
 		name := fmt.Sprintf("sandbox alias (%s)", branch)
 
 		if sandbox.Alias == "" {
-			// config.Validate() already rejects a missing alias; skip
-			// defensively rather than reporting a confusing empty-alias
-			// check here.
+			// config.Validate() already rejects a missing alias, and
+			// Checker.CheckConfig now actually calls it FIRST in Check()
+			// (config-validation-wiring ADR-1) — so this branch is
+			// unreachable via that path today, not merely defensive. It
+			// stays as a guard for any future direct construction of a
+			// Checker bypassing CheckConfig, and skipping here (rather than
+			// reporting a confusing empty-alias check) avoids double-
+			// reporting the same violation CheckConfig already surfaced.
 			continue
 		}
 

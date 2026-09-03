@@ -7,8 +7,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/exec"
 )
+
+// loadMinimalConfig writes body as deploydeck.yaml into a FRESH t.TempDir()
+// — NEVER the repo dir under test, since an uncommitted config file would
+// dirty the working tree and trip CheckWorkingTree, breaking the very test
+// this helper exists to fix (config-validation-wiring R3) — and returns the
+// LOADED, defaulted Config plus its path. Loading (rather than building a
+// literal) is deliberate: it is the only fixture shape that actually
+// exercises applyDefaults, the invariant CheckConfig depends on (ADR-6).
+func loadMinimalConfig(t *testing.T, body string) (config.Config, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, config.FileName)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatalf("config.Load(%s): %v", dir, err)
+	}
+
+	return cfg, path
+}
 
 func runGit(t *testing.T, runner exec.Runner, dir string, args ...string) exec.CommandResult {
 	t.Helper()
