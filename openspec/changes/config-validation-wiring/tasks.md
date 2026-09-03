@@ -82,7 +82,7 @@ Chain strategy: pending
 
 ## Phase 11: Secondary — README Update section (separate commit)
 
-- [ ] 11.1 `README.md` — add `## Update` after `## Install`: `brew upgrade --cask deploydeck` / `scoop update deploydeck` / `go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest`; flag that DeployDeck is a cask, not a formula.
+- [x] 11.1 `README.md` — add `## Update` after `## Install`: `brew upgrade --cask deploydeck` / `scoop update deploydeck` / `go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest`; flag that DeployDeck is a cask, not a formula.
 
 ---
 

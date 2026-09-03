@@ -51,6 +51,19 @@ Windows: `scoop bucket add deploydeck https://github.com/malavolta/scoop-bucket 
 Or grab a prebuilt binary from [Releases](https://github.com/malavolta/DeployDeck/releases).
 On Linux the Homebrew cask is unavailable — use `go install` or the tarball.
 
+## Update
+
+```sh
+brew upgrade --cask deploydeck                                     # macOS
+scoop update deploydeck                                            # Windows
+go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest   # Linux / any OS
+```
+
+DeployDeck is a **cask**, not a formula — `brew upgrade deploydeck` (without
+`--cask`) will not find it. The non-blocking "a new version is available"
+banner you see on startup tells you an update exists but does not upgrade
+for you; run one of the commands above.
+
 ## Configure
 
 Put `deploydeck.yaml` at your Salesforce project root (next to
