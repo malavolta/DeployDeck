@@ -78,7 +78,7 @@ Chain strategy: pending
 
 ## Phase 10: Secondary — S-4 archived note (separate commit)
 
-- [ ] 10.1 Append a `> Note (config-validation-wiring):` block under `openspec/changes/archive/project-dir-resolution/tasks.md:104`. Do NOT edit the existing `- [x]` item text.
+- [x] 10.1 Append a `> Note (config-validation-wiring):` block under `openspec/changes/archive/project-dir-resolution/tasks.md:104`. Do NOT edit the existing `- [x]` item text — confirmed via `git diff`: pure addition, the `7.2` line itself is byte-for-byte unchanged.
 
 ## Phase 11: Secondary — README Update section (separate commit)
 
