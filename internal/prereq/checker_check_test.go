@@ -77,6 +77,8 @@ func TestChecker_Check_AllPrerequisitesPass_AllCriticalChecksOK(t *testing.T) {
 // feeds CheckVersions and a malformed config must surface before the check
 // that consumes it (design.md ADR-2, prereq-check spec: "Config check
 // runs before CheckVersions").
+const nameConfigFileForTest = "config file"
+
 func TestChecker_Check_ConfigFileRunsFirstBeforeCheckVersions(t *testing.T) {
 	cfg, path := loadMinimalConfig(t, "branches:\n  integration: INT\n")
 
@@ -110,11 +112,29 @@ func TestChecker_Check_ConfigFileRunsFirstBeforeCheckVersions(t *testing.T) {
 	// AFTER index 0 — reordering is otherwise free (Check() has no
 	// status-based short-circuit, and findCheck locates by name, never
 	// index), so this is the one ordering guarantee worth pinning.
+	// Compare INDICES rather than re-testing index 0: the assertion above
+	// already fatals unless checks[0] is the config file, so an "is it at
+	// index 0" loop here could never fail on its own and would read as a
+	// second guarantee while being none. This form fails independently if
+	// the two ever cross.
 	versionNames := map[string]bool{"git version": true, "sf version": true, "sfdx-git-delta version": true, "sfdx-git-delta plugin": true}
+	cfgIdx, firstVersionIdx := -1, -1
 	for i, c := range checks {
-		if versionNames[c.Name] && i == 0 {
-			t.Fatalf("%q must not be at index 0 — config file must run before it", c.Name)
+		if c.Name == nameConfigFileForTest && cfgIdx == -1 {
+			cfgIdx = i
 		}
+		if versionNames[c.Name] && firstVersionIdx == -1 {
+			firstVersionIdx = i
+		}
+	}
+	if cfgIdx == -1 {
+		t.Fatal("no config file check in the report")
+	}
+	if firstVersionIdx == -1 {
+		t.Fatal("no version check in the report — the ordering pin would be vacuous")
+	}
+	if cfgIdx >= firstVersionIdx {
+		t.Fatalf("config file is at index %d but the first version check is at %d — config must come first", cfgIdx, firstVersionIdx)
 	}
 }
 
