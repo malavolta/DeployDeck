@@ -68,8 +68,8 @@ Chain strategy: pending
 
 ## Phase 8: Secondary — W-3 partial coverage (separate commit)
 
-- [ ] 8.1 RED: new `internal/app/discover_roots_test.go` — `TestModel_DiscoverCmd_NestedDeps_RunsGitAtGitRoot`; reuse `candidateFakeRunner`/`run`; assert every `fr.Calls[i].Dir == gitRoot`. Label explicitly partial (1 of ~13 git-backed sites).
-- [ ] 8.2 Verify: passes against existing `discoverCmd` (no prod change expected); if red, stop — out-of-scope defect.
+- [x] 8.1 RED: new `internal/app/discover_roots_test.go` — `TestModel_DiscoverCmd_NestedDeps_RunsGitAtGitRoot`; reuse `candidateFakeRunner`/`run`; assert every `fr.Calls[i].Dir == gitRoot`. Label explicitly partial (1 of ~13 git-backed sites).
+- [x] 8.2 Verify: passes against existing `discoverCmd` (no prod change expected) — confirmed green on first run, as design predicted; `TestNoDirReadsOutsideNormalizeRoots` and `TestApp_NeverImportsExecSeam` stay green too.
 
 ## Phase 9: Secondary — S-2 isolating e2e (separate commit)
 
