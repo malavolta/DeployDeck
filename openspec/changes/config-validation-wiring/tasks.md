@@ -73,8 +73,8 @@ Chain strategy: pending
 
 ## Phase 9: Secondary — S-2 isolating e2e (separate commit)
 
-- [ ] 9.1 RED: append `TestSgd_RepoDirIndependentOfCwd_RealSgd` to `generate_e2e_test.go` — bypass `delta.Service`, call `exec.NewOSRunner().Run` with `Dir=<gitRoot>/project` and explicit `--repo-dir <gitRoot>`; assert exit 0, `package.xml` has `<types>` and `AccountService`.
-- [ ] 9.2 Verify: real `sf`/`sgd` locally; confirm `-short`-skip elsewhere.
+- [x] 9.1 RED: append `TestSgd_RepoDirIndependentOfCwd_RealSgd` to `generate_e2e_test.go` — bypass `delta.Service`, call `exec.NewOSRunner().Run` with `Dir=<gitRoot>/project` and explicit `--repo-dir <gitRoot>`; assert exit 0, `package.xml` has `<types>` and `AccountService`.
+- [x] 9.2 Verify: ran against real `sf`/`sgd` locally — PASS (3.16s); confirmed `-short`-skip via `seedNestedSgdRepo`'s `testing.Short()` guard.
 
 ## Phase 10: Secondary — S-4 archived note (separate commit)
 

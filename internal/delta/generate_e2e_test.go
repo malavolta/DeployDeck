@@ -261,6 +261,73 @@ func TestService_Generate_RealSgd_NestedRepo(t *testing.T) {
 	}
 }
 
+// TestSgd_RepoDirIndependentOfCwd_RealSgd is config-validation-wiring task
+// 9.1 (S-2): proves the ADR-7 (directory-resolution) separation is real —
+// sgd's --repo-dir flag genuinely drives repository discovery
+// independently of the child process's cwd, not merely "in addition to"
+// it. It BYPASSES delta.Service entirely: Request.Dir drives both the
+// child cwd AND the emitted --repo-dir from ONE field (ADR-7), so Service
+// structurally cannot separate the two — TestService_Generate_RealSgd_NestedRepo
+// above would still pass green even if --repo-dir were silently dropped
+// from buildArgs, as long as cwd alone happened to be correct. This test
+// sets the child cwd to the NESTED project dir while passing --repo-dir as
+// the GIT root explicitly (a combination Service can never produce) — a
+// passing result is explainable ONLY by sgd genuinely honoring --repo-dir
+// over any cwd-based default.
+func TestSgd_RepoDirIndependentOfCwd_RealSgd(t *testing.T) {
+	gitRoot, runner := seedNestedSgdRepo(t)
+	project := filepath.Join(gitRoot, "project")
+
+	outputDir := filepath.Join(t.TempDir(), "delta")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatalf("creating output dir: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, err := runner.Run(ctx, exec.CommandRequest{
+		Name: "sf",
+		Args: []string{
+			"sgd", "source", "delta",
+			"--from", "origin/UAT",
+			"--to", "HEAD",
+			"--output-dir", outputDir,
+			"--generate-delta",
+			"--repo-dir", gitRoot,
+			"--source-dir", "project/force-app",
+		},
+		// Dir is the NESTED project dir — deliberately DIFFERENT from
+		// --repo-dir above, and never something delta.Service itself could
+		// produce (its Request.Dir feeds both).
+		Dir: project,
+	})
+	if err != nil {
+		t.Fatalf("running sf sgd source delta directly: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("sf sgd source delta exited %d: %s", result.ExitCode, string(result.Stderr))
+	}
+
+	pkgData, err := os.ReadFile(filepath.Join(outputDir, "package", "package.xml"))
+	if err != nil {
+		t.Fatalf("reading generated package.xml: %v", err)
+	}
+	pkg, err := delta.ParsePackage(pkgData)
+	if err != nil {
+		t.Fatalf("ParsePackage() on real sgd output: %v", err)
+	}
+	// NON-EMPTY is the load-bearing assertion, same as the nested Service
+	// test above: an empty package here means sgd silently scanned the
+	// wrong repo root (fell back to cwd) rather than honoring --repo-dir.
+	if len(pkg.Types) == 0 {
+		t.Fatal("expected a NON-EMPTY package.xml — an empty package means sgd silently scanned the wrong repo root, ignoring --repo-dir")
+	}
+	if !memberOfType(pkg, "ApexClass", "AccountService") {
+		t.Fatalf("expected package.xml to list AccountService under ApexClass, got %+v", pkg.Types)
+	}
+}
+
 func TestService_Generate_RealSgd_TempRepo(t *testing.T) {
 	dir, runner := seedSgdRepo(t)
 
