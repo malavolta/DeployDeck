@@ -126,9 +126,10 @@ Updated `openspec/specs/delta-generation/spec.md`, requirement "Single Multi-Sou
 - **W-3** — No test binds a `commands.go` git call to `GitRoot` specifically in nested layout (ADR-6 guard proves no site reads `deps.Dir`, but would pass if a git site read `ProjectDir`; residual gap created by budget lever 2)
 - **W-4** — No `apply-progress` artifact (pipeline-artifact gap, not evidence gap; `tasks.md` labels every task RED/GREEN/VERIFY and all were confirmed to exist and pass)
 - **S-2** — Nested delta e2e does not isolate the effect of `--repo-dir` vs. child cwd; a variant with cwd at `projectDir` would close the gap
-- **S-3** — No README/ARQUITECTURA note that adding `projectDir` to a config at the git root relocates `.deploydeck/`
 - **S-4** — Task 7.2 overstates: nested e2e does not itself assert `--repo-dir` (only `service_test.go` does)
 - **W-5** — Stale comment at `internal/prereq/checker_aliases.go:32` carried into the `config-validation-wiring` follow-up
+
+**Also closed after the archive report was first written**: S-3 (the `projectDir` relocates `.deploydeck/` note) — stated in README.md alongside the `projectDir` key, together with the warning that `delta.sourceDirs` stays git-root-relative.
 
 ## Deferred Follow-Up
 
