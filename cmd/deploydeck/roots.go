@@ -14,15 +14,23 @@ import (
 	"github.com/malavolta/DeployDeck/internal/salesforce"
 )
 
-// roots is the immutable triple design.md's Resolution Sequence produces:
-// the true git repository top level, the SFDX project root, and the
-// artifacts root .deploydeck/ actually lives under. Every downstream
-// consumer (app.Deps, prereq.Checker) reads the ONE root it semantically
-// needs from this triple instead of a single conflated directory.
+// roots is the immutable quadruple design.md's Resolution Sequence
+// produces: the true git repository top level, the SFDX project root, the
+// artifacts root .deploydeck/ actually lives under, and the directory
+// deploydeck.yaml was actually LOCATED in. Every downstream consumer
+// (app.Deps, prereq.Checker) reads the ONE root it semantically needs from
+// this quadruple instead of a single conflated directory.
+//
+// ConfigDir (config-validation-wiring ADR-3) is a genuinely distinct fact,
+// not a redundant alias for one of the other three: config.Locate searches
+// UPWARD from cwd, so in a nested layout with an explicit projectDir,
+// ConfigDir can differ in VALUE from GitRoot, ProjectDir and ArtifactsRoot
+// all at once.
 type roots struct {
 	GitRoot       string
 	ProjectDir    string
 	ArtifactsRoot string
+	ConfigDir     string
 }
 
 // resolveRoots implements design.md's Resolution Sequence, always called
@@ -88,6 +96,7 @@ func resolveRoots(ctx context.Context, g *git.Service, cwd string) (roots, confi
 		GitRoot:       gitRoot,
 		ProjectDir:    projectDir,
 		ArtifactsRoot: projectDir, // ADR-2: .deploydeck/ must never relocate
+		ConfigDir:     configDir,  // config-validation-wiring ADR-3: computed above, now returned instead of discarded
 	}, cfg, nil
 }
 
@@ -114,7 +123,13 @@ func newChecker(cfg config.Config, r roots) (*prereq.Checker, error) {
 		Git:           git.New(runner),
 		SF:            salesforce.New(runner),
 		Config:        cfg,
-		Lock:          lock,
+		// ConfigPath composes from r.ConfigDir (config-validation-wiring
+		// ADR-3), never GitRoot or ProjectDir, so CheckConfig's FixCommand
+		// names the file config.Locate actually found — a bare filename
+		// would be ambiguous the moment ConfigDir diverges from the other
+		// roots (nested layout with an explicit projectDir).
+		ConfigPath: filepath.Join(r.ConfigDir, config.FileName),
+		Lock:       lock,
 		// GH backs the informative, non-blocking gh doctor check (HU-014).
 		GH: github.New(runner),
 		// AI backs the informative, non-blocking AI model doctor check

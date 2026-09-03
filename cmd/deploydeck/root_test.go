@@ -160,8 +160,12 @@ func TestNewRootCmd_Doctor_AllChecksPass_ExitsZero(t *testing.T) {
 				ArtifactsRoot: root,
 				Git:           git.New(fr),
 				SF:            salesforce.New(fr),
-				Config:        config.Config{},
-				Lock:          prereq.NewLock(lockPath, prereq.LockInfo{PID: 1, PName: "deploydeck"}, fakeAliveProber{}),
+				// baselineConfig() (config-validation-wiring R2), not a
+				// bare config.Config{} literal: the new "config file"
+				// check blocks on pollIntervalSeconds otherwise, and this
+				// test's whole point is that EVERY check passes.
+				Config: baselineConfig(),
+				Lock:   prereq.NewLock(lockPath, prereq.LockInfo{PID: 1, PName: "deploydeck"}, fakeAliveProber{}),
 			}, nil
 		},
 	}

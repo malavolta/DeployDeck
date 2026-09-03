@@ -63,6 +63,29 @@ func baselineSandboxes() map[string]config.SandboxConfig {
 	return map[string]config.SandboxConfig{"UAT": {Alias: "uat", TestLevel: "RunLocalTests"}}
 }
 
+// baselineConfig returns the Config config.Load produces for a minimal
+// deploydeck.yaml — i.e. applyDefaults' output (config-validation-wiring
+// R1). doctorVariant builds its Config as a struct literal, bypassing
+// Load, so without this the new "config file" check blocks on
+// pollIntervalSeconds in every variant, including "all prerequisites
+// pass". Only the two poll fields are load-bearing today; BranchFormat and
+// Runs are included so the helper is a faithful mirror of applyDefaults
+// and a future defaults-dependent Validate() rule cannot silently re-break
+// all 10 variants. Referencing the exported Default* constants (not
+// literal numbers) means the fixture tracks a changed default
+// automatically.
+func baselineConfig() config.Config {
+	return config.Config{
+		BranchFormat:        config.DefaultBranchFormat,
+		PollIntervalSeconds: config.DefaultPollIntervalSeconds,
+		PollTimeoutSeconds:  config.DefaultPollTimeoutSeconds,
+		Runs: config.RunsConfig{
+			KeepLast: config.DefaultRunsKeepLast,
+			KeepDays: config.DefaultRunsKeepDays,
+		},
+	}
+}
+
 func TestHU001_Doctor_E2E_ConsolidatedVariants(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping HU-001 doctor E2E: it shells out to a real git binary")
@@ -213,7 +236,9 @@ func TestHU001_Doctor_E2E_ConsolidatedVariants(t *testing.T) {
 		t.Run(v.name, func(t *testing.T) {
 			dir := newDoctorRepo(t, v)
 			sfRunner := newSFRunner(v)
-			cfg := config.Config{MinVersions: v.minVersions, Sandboxes: v.sandboxes}
+			cfg := baselineConfig()
+			cfg.MinVersions = v.minVersions
+			cfg.Sandboxes = v.sandboxes
 
 			// A pre-seeded, live-owned lock for the lock-taken variant; a
 			// fresh free lock path otherwise. Kept OUTSIDE the repo working

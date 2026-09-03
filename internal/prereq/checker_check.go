@@ -8,8 +8,8 @@ import "context"
 // to run at all.
 const nameGitRepository = "git repository"
 
-// Check runs every configured local-prerequisite check — git/sf/
-// sfdx-git-delta versions, repo membership + origin, working tree,
+// Check runs every configured local-prerequisite check — config validity,
+// git/sf/sfdx-git-delta versions, repo membership + origin, working tree,
 // .deploydeck/ gitignore, git hooks, commit.gpgsign, Salesforce aliases, the
 // informative gh CLI check (HU-014), and the single-instance lock —
 // aggregating them into one report (HU-001: "Prerequisite Check Execution
@@ -22,6 +22,15 @@ const nameGitRepository = "git repository"
 // does not itself degrade gracefully (unlike CheckVersions).
 func (c *Checker) Check(ctx context.Context) ([]PrereqCheck, error) {
 	var all []PrereqCheck
+
+	// CheckConfig runs FIRST (config-validation-wiring ADR-2): MinVersions
+	// and Sandboxes below are read straight off c.Config, so a malformed
+	// config must surface before any check that depends on it.
+	cfgCheck, err := c.CheckConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, cfgCheck)
 
 	versionChecks, err := c.CheckVersions(ctx)
 	if err != nil {

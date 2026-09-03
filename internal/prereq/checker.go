@@ -43,9 +43,25 @@ type Checker struct {
 	// deliberately no ProjectDir field here (ADR-4).
 	ArtifactsRoot string
 
-	Git    *git.Service
-	SF     salesforce.Client
+	Git *git.Service
+	SF  salesforce.Client
+
+	// Config MUST have been produced by config.Load, i.e. applyDefaults has
+	// already run (config-validation-wiring ADR-6). CheckConfig calls
+	// Config.Validate(), whose pollIntervalSeconds/pollTimeoutSeconds rules
+	// reject the ZERO value — and omitting both keys is the normal way to
+	// author deploydeck.yaml, so an un-defaulted Config fails spuriously on
+	// EVERY real config (verified by execution against three of them).
+	// Never assign a bare config.Config{} literal here outside a test that
+	// intends the block.
 	Config config.Config
+
+	// ConfigPath is the absolute path of the deploydeck.yaml Config was
+	// loaded from, used only to build CheckConfig's FixCommand
+	// (config-validation-wiring ADR-3). config.Locate searches UPWARD, so a
+	// bare filename would be ambiguous in a nested layout. The zero value
+	// degrades to config.FileName — never an empty path, never a panic.
+	ConfigPath string
 
 	// Lock is the single-instance lock to acquire as part of Check(). A nil
 	// Lock skips lock acquisition entirely (useful for tests/dry runs of
