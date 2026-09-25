@@ -48,7 +48,9 @@ go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest   # Linux / any
 ```
 
 Windows: `scoop bucket add deploydeck https://github.com/malavolta/scoop-bucket && scoop install deploydeck`.
-Or grab a prebuilt binary from [Releases](https://github.com/malavolta/DeployDeck/releases).
+See the [Windows installation and first-run guide](docs/GUIA-WINDOWS.md) for a
+complete setup, including Salesforce and GitHub Enterprise authentication. Or
+grab a prebuilt binary from [Releases](https://github.com/malavolta/DeployDeck/releases).
 On Linux the Homebrew cask is unavailable — use `go install` or the tarball.
 
 ## Update
