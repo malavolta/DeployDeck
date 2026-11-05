@@ -582,6 +582,16 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.state = entry.target
 		return m, nil
+	case "u":
+		if !m.updateAvailable || !m.deps.CanUpgrade {
+			return m, nil
+		}
+		if m.repoState.InProgress {
+			m.notice = "termina la operación en curso antes de actualizar DeployDeck"
+			return m, nil
+		}
+		m.upgradeRequested = true
+		return m, m.quitCmd()
 	case "q", "esc":
 		// The menu is the top-level landing: there is no back target, so both
 		// keys quit (reusing quitCmd's restore/delete choreography like every

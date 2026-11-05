@@ -335,6 +335,10 @@ type Deps struct {
 	// startup update check entirely (same nil-degrades convention as
 	// NewChecker/Delta/Runs/Edit above).
 	CheckUpdate func(ctx context.Context) (hasUpdate bool, latest string, err error)
+	// CanUpgrade gates the main-menu `u` key; ReleasesURL is the banner hint
+	// for installs that cannot upgrade themselves.
+	CanUpgrade  bool
+	ReleasesURL string
 	// GenerateSummary drafts a PR title/description suggestion from an
 	// OPTIONAL local model (ai-pr-summary, closing HU-014's deferred "Idea
 	// Futura"). It is a plain-typed SCALAR seam (design ADR-1, mirrors
@@ -602,6 +606,8 @@ type Model struct {
 	// Deps.CheckUpdate is nil or the check fails/finds nothing newer.
 	updateAvailable bool
 	updateLatest    string
+	// upgradeRequested is set by `u`; main runs the upgrade after the TUI quits.
+	upgradeRequested bool
 
 	// StandaloneModes (HU-018): menuCursor indexes the FILTERED
 	// visibleMenuEntries slice on StateMainMenu; standaloneMode ("" /"delta"/
@@ -860,3 +866,9 @@ func deltaBaseDir(cfg config.Config) string {
 	}
 	return config.DefaultDeltaOutputDir
 }
+
+// UpgradeRequested reports whether `u` asked for an upgrade on the main menu.
+func (m Model) UpgradeRequested() bool { return m.upgradeRequested }
+
+// UpdateLatest returns the latest release tag found, "" when none.
+func (m Model) UpdateLatest() string { return m.updateLatest }

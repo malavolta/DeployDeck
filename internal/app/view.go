@@ -29,7 +29,15 @@ func (m Model) updateBanner() string {
 	if !m.updateAvailable {
 		return ""
 	}
-	return fmt.Sprintf("A newer DeployDeck (%s) is available\n", m.updateLatest)
+	line := fmt.Sprintf("Nueva versión de DeployDeck disponible: %s", m.updateLatest)
+	if m.state == StateMainMenu {
+		if m.deps.CanUpgrade {
+			line += " · pulsa u para actualizar"
+		} else if m.deps.ReleasesURL != "" {
+			line += " · descárgala en " + m.deps.ReleasesURL
+		}
+	}
+	return line + "\n"
 }
 
 // viewBody renders the current screen. Each branch mirrors a pane in
@@ -202,7 +210,11 @@ func (m Model) viewMainMenu() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q salir"))
+	if m.updateAvailable && m.deps.CanUpgrade {
+		b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   u actualizar   q salir"))
+	} else {
+		b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q salir"))
+	}
 	return b.String()
 }
 
