@@ -1,0 +1,70 @@
+change: tui-bubbles-adoption
+branch: feat/tui-self-update  # shipped in PR #4 with the earlier changes, per user
+stacked_on: feat/tui-self-update  # PR #4
+artifact_store: openspec
+mode: auto
+delivery_strategy: single-pr
+review_budget_lines: 1000  # target (original review target)
+size_exception_lines: 1428  # user-approved 2026-11-05 (superseded the 1200 ceiling); U3+U4 cut to B2
+strict_tdd: true
+delivery_phase: "Fase 5 Productizacion (TUI bubbles adoption, change B of 2, core)"
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done  # PASS WITH WARNINGS; C1 and W3 fixed in 360d0d6
+  archive: done  # archive-report.md written; folder move performed by orchestrator
+artifacts:
+  explore: openspec/changes/tui-bubbles-adoption/exploration.md
+  proposal: openspec/changes/tui-bubbles-adoption/proposal.md
+  design: openspec/changes/tui-bubbles-adoption/design.md
+  spec:
+    - openspec/changes/tui-bubbles-adoption/specs/tui-presentation/spec.md
+    - openspec/changes/tui-bubbles-adoption/specs/branch-cleanup/spec.md
+  tasks: openspec/changes/tui-bubbles-adoption/tasks.md
+  apply_progress: openspec/changes/tui-bubbles-adoption/apply-progress.md
+  verify_report: openspec/changes/tui-bubbles-adoption/verify-report.md
+  archive_report: openspec/changes/tui-bubbles-adoption/archive-report.md
+capabilities:
+  new: []
+  modified: [tui-presentation, branch-cleanup]  # run-history and commit-selection removed: U3/U4 CUT to B2
+work_units:
+  shipped: [U2-wrong-word-notice, U5-adaptive-color, U1-keymap-footers-handlers-parity]
+  cut: [U3-windowsize-history-windowing, U4-commit-selection-windowing-truncation]
+  cut_to: B2
+cut_units: [U3, U4]  # windowing/truncation moved to B2 (user decision 2026-11-05)
+commits:
+  U2: d0ebf0b  # fix(app): show the wrong-word notice in the strong delete prompt
+  U5: 16f577f  # feat(app): use darker status colors on light terminals
+  U1: 14da889  # refactor(app): derive footers and handlers from one keymap
+  verify_fixes: 360d0d6  # C1 footer and W3 empty-cleanup prune prompt
+size_forecast_lines: 1428  # actual at 4.1 for U1+U2+U5 (adds plus deletes, excluding openspec); 360d0d6 adds a few lines, not re-measured
+cut_plan: "U3 and U4 CUT to B2 (user decision 2026-11-05). Measured 1,428 for U1+U2+U5 exceeded the 1,200 ceiling; the user approved 1,428 instead of the cut-and-keep plan. U5 shipped (the earlier text saying U3-U5 was stale)."
+open_issues:
+  - "user review: overflow indicator copy 'N más' (assumed Spanish); moot until B2 windowing"
+  - "user review: AdaptiveColor light-background shades shipped as base palette 2/3/1; confirm on a real light terminal"
+  - "W2 (verify): history Enter reanudar on terminal runs (keymap.go:180) and push-ready a acting after PR exists while footer shows only q salir (keymap.go:222-223, keys.go:451-466) are not caught by parity fixtures; carried to B2"
+  - "W4 (verify): ticket b is a guarded printable binding, conflicting with the no-printable-binding MUST; carried to B2"
+  - "W5 (verify): lenient rule 'a notice counts as acting' is load-bearing (9 fixtures); carried to B2"
+  - "W6 (verify): sub-phase coverage relies on a hand-picked fixture list; carried to B2"
+  - "W7 (verify): enablement predicates are duplicated between keymap.go and keys.go; carried to B2"
+  - "W8 (verify): tasks 7.1 and 7.2 were open at verify time; ticked by the archive step"
+resolved_issues:
+  - "BLOCKER (resolved 2026-11-05): bubbles v0.21.0 resolved from the module cache (GOPROXY=off go get, then go mod tidy); go.mod +1 line, go.sum +2 lines"
+  - "C1 (verify CRITICAL): queue-review error footer 'r refrescar' vs 'r reintentar' fixed in 360d0d6 with pin row 'queue failed'"
+  - "W3 (verify): empty cleanup list p opened an invisible prune confirmation; fixed in 360d0d6 (TestCleanup_EmptyListPruneConfirmIsVisible)"
+  - "W1 (verify): stale artifacts after the U3/U4 cut; fixed in the archive step"
+  - "Size ceiling 1200 exceeded at 1428; user approved 1428 on 2026-11-05"
+follow_up_changes:
+  - "B2: windowing and truncation (cut U3/U4: window(), overflow(), truncate(), history and commit-selection windowing, WindowSizeMsg), the ? help overlay, phase-aware shared spinner, elapsed and last-poll time, plus verify W2, W4 and suggestions S1-S4 (S1 stateCount sentinel, S2 strict parity with valid buffers, S3 speed up quit-detector tests, S4 fixtures for W2/W3 cases)"
+  - "B3: error screen redesign, cleanup and queue windowing, status badges"
+  - "English conflict continue-gate pending reasons still English (internal/git/continue_gate.go:26,29); unassigned, to be picked up with B2 or a copy change"
+  - "verify W5/W6/W7 (notice-counts-as-acting rule, hand-picked fixture list, duplicated enablement predicates) carried to B2"
+tasks_artifact: openspec/changes/tui-bubbles-adoption/tasks.md
+apply_order: "OBSOLETE (2026-11-05): executed as U2 -> U5 -> U1 (dependency resolved). U3 and U4 CUT to B2."
+tasks_summary: "OBSOLETE (2026-11-05): 7 phases, 46 tasks. Shipped: phases 1-3 and 7 (U2, U5, U1, final verification). Phases 5 and 6 (U3, U4) are CUT to B2. Tasks 1.6, 2.5, 3.14, 7.1 and 7.2 are done."
+next: [none]
+updated: 2026-11-05
