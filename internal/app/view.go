@@ -1273,9 +1273,13 @@ func (m Model) viewRunHistory() string {
 	b.WriteString(m.screenHeader("Historial"))
 	b.WriteString("\n\n")
 
+	if m.runsLoadErr != nil {
+		b.WriteString("  no se pudo cargar el historial: " + m.runsLoadErr.Error() + "\n\n")
+	}
+
 	if len(m.runs) == 0 {
 		b.WriteString("  (sin runs registrados)\n")
-		b.WriteString(footer("q salir"))
+		b.WriteString(footer("q volver"))
 		return b.String()
 	}
 
@@ -1342,8 +1346,27 @@ func (m Model) viewRunHistory() string {
 		}
 	}
 
-	b.WriteString(footer("Enter reanudar   d detalle   ↑/↓ navegar   q salir"))
+	b.WriteString(footer(m.runHistoryFooter()))
 	return b.String()
+}
+
+// runHistoryFooter advertises x (quick deploy) and r (re-promote) only when
+// the selected row passes the same eligibility predicates keyRunHistory
+// enforces, so the footer never shows a key that would be a silent no-op.
+// q/esc return to the main menu, hence "q volver".
+func (m Model) runHistoryFooter() string {
+	parts := []string{"Enter reanudar", "d detalle"}
+	if m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
+		rec := m.runs[m.runsCursor]
+		if ok, _ := runs.QuickDeployEligible(rec, m.now()); ok {
+			parts = append(parts, "x quick deploy")
+		}
+		if isRePromoteEligible(rec) {
+			parts = append(parts, "r re-promocionar")
+		}
+	}
+	parts = append(parts, "↑/↓ navegar", "q volver")
+	return strings.Join(parts, "   ")
 }
 
 // runProgressLabel is a history row's progress cell: a run WITH a jobId shows

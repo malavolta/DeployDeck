@@ -563,6 +563,22 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.standaloneMode = "validate"
+		case StateRunHistory:
+			// Run history is a non-standalone entry: clear standaloneMode
+			// so a stale "delta"/"validate" flag never reaches its
+			// Enter-resume / r / x paths. Deliberately NOT gated by D1's
+			// repoState.InProgress block — an in-progress cherry-pick is
+			// exactly when resume is needed. The list is reloaded fresh
+			// (m.runs may be stale or never loaded), mirroring
+			// StateBranchCleanup's load-on-entry; the cursor starts on the
+			// newest run.
+			m.standaloneMode = ""
+			m.notice = ""
+			m.runsCursor = 0
+			m.runDetail = false
+			m.runsLoadErr = nil
+			m.state = entry.target
+			return m, m.runHistoryLoadCmd()
 		default:
 			m.standaloneMode = ""
 			// Ticket-from-branch auto-suggest: only the full-flow entry
