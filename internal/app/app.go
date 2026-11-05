@@ -459,6 +459,11 @@ type Model struct {
 	runs       []runs.Record
 	runsCursor int
 	runDetail  bool
+	// runsLoadErr is a failed fresh run-list load fired by the "Historial de
+	// runs" menu entry (onRunHistoryLoaded). A DEDICATED field rendered only
+	// by viewRunHistory — never the shared m.notice — so a stale load error
+	// can never bleed onto another screen. Cleared on entry and on success.
+	runsLoadErr error
 
 	// RePromote (HU-016): sourceRunID links a completed re-promotion run back
 	// to the prior run it was re-promoted from — seeded synchronously by
@@ -662,8 +667,11 @@ type menuEntry struct {
 }
 
 // menuEntries is HU-018's compile-time main-menu surface (design ADR-1
-// "Hide-unimplemented"): the three modes in display order. All three are
-// implemented in this change; the mechanism still hides any future entry
+// "Hide-unimplemented"): the modes in display order. "Historial de runs" is
+// kept LAST so the original three entries' indices never shift; it is the
+// only way to reach StateRunHistory (and its x quick deploy / r re-promote)
+// once every run is terminal, since startup resume detection only opens the
+// history for a non-terminal run. The mechanism still hides any future entry
 // added with implemented:false.
 var menuEntries = []menuEntry{
 	{
@@ -682,6 +690,12 @@ var menuEntries = []menuEntry{
 		label:       "Validar package contra sandbox",
 		description: "Valida un package.xml existente contra una sandbox configurada",
 		target:      StatePackageSelect,
+		implemented: true,
+	},
+	{
+		label:       "Historial de runs",
+		description: "Revisa runs anteriores, reanuda, re-promociona o despliega una validación",
+		target:      StateRunHistory,
 		implemented: true,
 	},
 }

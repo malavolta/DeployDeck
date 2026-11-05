@@ -68,10 +68,15 @@ func TestModel_MainMenu_CursorAndEnterRouting(t *testing.T) {
 		if m.menuCursor != 2 {
 			t.Fatalf("j should move cursor to 2, got %d", m.menuCursor)
 		}
-		if advance(t, m, keyPress("down")).menuCursor != 2 {
-			t.Error("down at the last entry should clamp at 2")
+		m = advance(t, m, keyPress("down"))
+		if m.menuCursor != 3 {
+			t.Fatalf("down should move cursor to 3 (Historial de runs), got %d", m.menuCursor)
+		}
+		if advance(t, m, keyPress("down")).menuCursor != 3 {
+			t.Error("down at the last entry should clamp at 3")
 		}
 		// up walks back to the first entry then clamps.
+		m = advance(t, m, keyPress("up"))
 		m = advance(t, m, keyPress("up"))
 		if m.menuCursor != 1 {
 			t.Fatalf("up should move cursor to 1, got %d", m.menuCursor)
@@ -117,13 +122,13 @@ func TestModel_MainMenu_CursorAndEnterRouting(t *testing.T) {
 }
 
 // TestViewMainMenu_RendersEntriesAndCursor is task 2.7 (RED): the menu screen
-// renders all three implemented entry labels, marks the selected row with the
+// renders all four implemented entry labels, marks the selected row with the
 // cursor, and shows a quit footer.
 func TestViewMainMenu_RendersEntriesAndCursor(t *testing.T) {
 	m := mainMenuModel(1) // cursor on "Generar delta package"
 	v := m.View()
 
-	for _, want := range []string{"Promocionar ticket", "Generar delta package", "Validar package contra sandbox"} {
+	for _, want := range []string{"Promocionar ticket", "Generar delta package", "Validar package contra sandbox", "Historial de runs"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("main menu view missing entry %q:\n%s", want, v)
 		}

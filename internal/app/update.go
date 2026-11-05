@@ -47,6 +47,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onAISuggestDone(msg)
 	case resumeDetectMsg:
 		return m.onResumeDetect(msg)
+	case runHistoryLoadedMsg:
+		return m.onRunHistoryLoaded(msg)
 	case originalBranchMsg:
 		return m.onOriginalBranch(msg)
 	case unpushedMsg:
@@ -360,6 +362,32 @@ func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
 	}
 	m.runsCursor = idx
 	m.state = StateRunHistory
+	return m, nil
+}
+
+// onRunHistoryLoaded lands the fresh run-list load fired by the "Historial de
+// runs" menu entry. A load that arrives after the user already left the
+// history is a strict no-op. On success the list is replaced (newest-first,
+// cursor on the newest run); when the live repo state was read, the same
+// stale cherry-pick reconciliation as onResumeDetect is applied and the state
+// is recorded. A listing failure is surfaced on the history screen and keeps
+// whatever list was already in memory.
+func (m Model) onRunHistoryLoaded(msg runHistoryLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.state != StateRunHistory {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.runsLoadErr = msg.err
+		return m, nil
+	}
+	records := msg.records
+	if msg.stateKnown {
+		records = m.reconcileStaleRuns(records, msg.state)
+		m.repoState = msg.state
+	}
+	m.runs = records
+	m.runsCursor = 0
+	m.runsLoadErr = nil
 	return m, nil
 }
 
