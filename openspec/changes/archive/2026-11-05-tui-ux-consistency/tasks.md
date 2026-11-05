@@ -46,7 +46,7 @@ Order is strictly sequential (single writer). Unit 3 needs Unit 2 (`enterBranchC
 - [x] 1.6 RED: files a,b,c, `down`, `e`, stub `Edit` receives `b`; with stale `m.cursor`=2 and conflict cursor 0, `e` gets file 1. Satisfies [Edit Key: e opens the highlighted file], [e does not follow a stale commit-selection cursor].
 - [x] 1.7 RED: conflict footer with 2 files contains `↑/↓` and `e `. Satisfies [Conflict Footer: Footer names navigation and edit].
 - [x] 1.8 GREEN (`app.go`, `keys.go`, `view.go`, `update.go`): add `conflictIdx`, `conflictCursor()` clamp, reset to 0 at both entry sites, `up/k/down/j` in the conflict handler, `e` uses `conflictCursor()`, `>` marker column, footer `↑/↓ elegir   e editor ...   q salir (el run queda reanudable)`. Run focused tests green.
-- [ ] 1.9 Commit Unit 1.
+- [x] 1.9 Commit Unit 1 (landed in squashed commit 4d2c81e; units interleave in keys.go/view.go).
 
 ## Phase 2: Menu entry, ticket esc, cleanup navigation (Unit 2)
 
@@ -60,7 +60,7 @@ Order is strictly sequential (single writer). Unit 3 needs Unit 2 (`enterBranchC
 - [x] 2.8 RED: BORRAR prompt for `deploy/DD-7` contains `deploy/DD-7` and `BORRAR`. Satisfies [BORRAR Prompt Names The Branch: Prompt shows the branch name].
 - [x] 2.9 RED: BORRAR gate table (wrong word + Enter keeps the branch; exact `BORRAR` deletes); non-empty buffer `q` appends and does not quit. Satisfies [Gate unchanged], [Esc and q inside the prompt] (q half).
 - [x] 2.10 GREEN (`keys.go`, `app.go`, `view.go`): extract `enterBranchCleanup()` used by the menu entry and ticket `b`; add the menu entry; ticket esc goes to `StateMainMenu`; cleanup list/result esc to menu, `q` to `quitCmd()`; confirm views esc/q to list; BORRAR prompt names the branch and gets guarded `q`.
-- [ ] 2.11 Commit Unit 2.
+- [x] 2.11 Commit Unit 2 (landed in squashed commit 4d2c81e; units interleave in keys.go/view.go).
 
 ## Phase 3: Esc/q rule matrix (Unit 3)
 
@@ -73,7 +73,7 @@ Order is strictly sequential (single writer). Unit 3 needs Unit 2 (`enterBranchC
 - [x] 3.7 RED: `ctrl+c` returns the interrupt cmd in `StateCherryPicking` and in a typed state with text (buffer unchanged). Pins existing behavior. Satisfies [Ctrl+C Remains A Hard Interrupt: both scenarios].
 - [x] 3.8 RED (`internal/app/subphase_test.go`, `TestSubPhase_DeclinedResumeIsOfferedAgain`): resume offer shown through history: `esc` declines, `q` quits, the run record is neither deleted nor terminal, and the next startup offers resume again. Satisfies [run-history: Declining with esc, then q, keeps the run resumable].
 - [x] 3.9 GREEN (`keys.go`): edit each handler in place per the design table. `quitCmd()` is reused and unchanged. Run the matrix green.
-- [ ] 3.10 Commit Unit 3.
+- [x] 3.10 Commit Unit 3 (landed in squashed commit 4d2c81e; units interleave in keys.go/view.go).
 
 ## Phase 4: Notices, reasons, history (Unit 4)
 
@@ -88,7 +88,7 @@ Order is strictly sequential (single writer). Unit 3 needs Unit 2 (`enterBranchC
 - [x] 4.9 RED: history notice cleared by moving the selection and by leaving the screen. Satisfies [Notice clears on movement].
 - [x] 4.10 RED: table over every former English notice site (keys.go:550, 562, 868, 908, 1053, 1088, 1124, 1208; update.go:570, 970), each trigger yields a Spanish notice. Satisfies [Correct Spanish Copy: Former English notices are Spanish].
 - [x] 4.11 GREEN: add `noticeLine()` (ADR-7, new sites only), `quickDeployReasonES`, the new notices in `keys.go`/`update.go`, and Spanish text for the former sites. Delta `e` gate. Run focused tests green.
-- [ ] 4.12 Commit Unit 4.
+- [x] 4.12 Commit Unit 4 (landed in squashed commit 4d2c81e; units interleave in keys.go/view.go).
 
 ## Phase 5: Footer normalization and parity (Unit 5)
 
@@ -97,7 +97,7 @@ Order is strictly sequential (single writer). Unit 3 needs Unit 2 (`enterBranchC
 - [x] 5.3 RED: in-flight footers (discovery, branch creation, cherry-picking, cleanup loading) contain `ctrl+c interrumpe` and neither `q salir` nor `esc`; main-flow states past the point of no return have no `esc`. Satisfies [In-flight footer states the exit affordance], [In-flight footer replaces the quit affordance].
 - [x] 5.4 RED: history, cleanup list, confirm and result footers contain `Esc volver` and `q salir` (confirms: `n/Esc/q cancelar`); none mentions q returning to ticket input. Satisfies [run-history: Footer pins both keys], [branch-cleanup: Footer matches handlers].
 - [x] 5.5 GREEN (`view.go`): normalize every `footer("...")` to `<keys> <label>` segments with three-space separators, keys joined by `/`, per the design's footer-delta column. Run `FooterParity` green and fix any handler/footer mismatch found.
-- [ ] 5.6 Commit Unit 5.
+- [x] 5.6 Commit Unit 5 (landed in squashed commit 4d2c81e; units interleave in keys.go/view.go).
 
 ## Phase 6: Size check, then Spanish copy and conflict labels (Unit 6)
 

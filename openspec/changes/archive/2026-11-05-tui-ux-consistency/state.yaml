@@ -16,7 +16,7 @@ phases:
   tasks: done
   apply: done
   verify: done  # re-verify after corrective round 1
-  archive: pending
+  archive: done
 artifacts:
   explore: openspec/changes/tui-ux-consistency/exploration.md
   proposal: openspec/changes/tui-ux-consistency/proposal.md
@@ -43,5 +43,5 @@ follow_up_changes:
 resolved_issues:
   - "branch-cleanup confirm esc/q -> back to list; y/n q cancels instead of quitting (orchestrator, 2026-11-05)"
   - "design ADR-6: runs.QuickDeployEligible reasons translated via app-side map quickDeployReasonES; runs strings unchanged"
-next: [archive]
+next: [none]
 updated: 2026-11-05
