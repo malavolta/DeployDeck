@@ -184,6 +184,7 @@ func (m Model) keyDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q":
 			if m.deleteConfirm != "" {
 				m.deleteConfirm += "q"
+				m.notice = ""
 				return m, nil
 			}
 			fallthrough
@@ -196,10 +197,12 @@ func (m Model) keyDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if n := len(m.deleteConfirm); n > 0 {
 				m.deleteConfirm = m.deleteConfirm[:n-1]
 			}
+			m.notice = ""
 			return m, nil
 		default:
 			if msg.Type == tea.KeyRunes {
 				m.deleteConfirm += string(msg.Runes)
+				m.notice = ""
 			}
 			return m, nil
 		}
@@ -272,6 +275,7 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q":
 			if m.deleteConfirm != "" {
 				m.deleteConfirm += "q"
+				m.cleanupNotice = ""
 				return m, nil
 			}
 			fallthrough
@@ -286,10 +290,12 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if n := len(m.deleteConfirm); n > 0 {
 				m.deleteConfirm = m.deleteConfirm[:n-1]
 			}
+			m.cleanupNotice = ""
 			return m, nil
 		default:
 			if msg.Type == tea.KeyRunes {
 				m.deleteConfirm += string(msg.Runes)
+				m.cleanupNotice = ""
 			}
 			return m, nil
 		}

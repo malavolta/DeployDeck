@@ -1082,7 +1082,7 @@ func (m Model) deleteConfirmView() (string, bool) {
 			footer("y confirmar   n/Esc/q cancelar"), true
 	case cleanupStrongConfirm:
 		return fmt.Sprintf("\n  La rama %s tiene commits sin pushear. Escribe BORRAR para confirmar:\n", m.plan.PromotionBranch) +
-			"  " + m.deleteConfirm + "_\n" + footer("Enter confirmar   Esc cancelar"), true
+			"  " + m.deleteConfirm + "_\n" + m.noticeLine() + footer("Enter confirmar   Esc cancelar"), true
 	}
 	return "", false
 }
