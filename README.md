@@ -60,9 +60,12 @@ go install github.com/malavolta/DeployDeck/cmd/deploydeck@latest   # Linux / any
 ```
 
 DeployDeck is a **cask**, not a formula — `brew upgrade deploydeck` (without
-`--cask`) will not find it. The non-blocking "a new version is available"
-banner you see on startup tells you an update exists but does not upgrade
-for you; run one of the commands above.
+`--cask`) will not find it.
+
+When a newer release exists, the main menu shows a banner; press `u` there to
+quit and run the matching command (Windows prints it instead, since the running
+`.exe` is locked). The check is cached for 24 hours; set
+`DEPLOYDECK_NO_UPDATE_CHECK=1` to disable it.
 
 ## Configure
 
