@@ -1,0 +1,47 @@
+change: tui-ux-consistency
+branch: feat/tui-self-update  # shipped in PR #4 with tui-self-update, per user
+stacked_on: feat/tui-self-update  # PR #4
+artifact_store: openspec
+mode: auto
+delivery_strategy: single-pr
+review_budget_lines: 800
+size_exception_lines: 1505  # user-approved 2026-11-05 (was 800 -> 970 -> 1150)  # user-approved 2026-11-05 (raised from 970); ADR-9 stays cut, ADR-8 replaced by a targeted width fix
+strict_tdd: true
+delivery_phase: "Fase 5 Productizacion (TUI UX consistency, change A of 2)"
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done  # re-verify after corrective round 1
+  archive: pending
+artifacts:
+  explore: openspec/changes/tui-ux-consistency/exploration.md
+  proposal: openspec/changes/tui-ux-consistency/proposal.md
+  spec:
+    - openspec/changes/tui-ux-consistency/specs/tui-presentation/spec.md
+    - openspec/changes/tui-ux-consistency/specs/cherry-pick/spec.md
+    - openspec/changes/tui-ux-consistency/specs/standalone-modes/spec.md
+    - openspec/changes/tui-ux-consistency/specs/branch-cleanup/spec.md
+    - openspec/changes/tui-ux-consistency/specs/run-history/spec.md
+  design: openspec/changes/tui-ux-consistency/design.md
+  tasks: openspec/changes/tui-ux-consistency/tasks.md
+capabilities:
+  new: []
+  modified: [tui-presentation, cherry-pick, standalone-modes, branch-cleanup, run-history]
+size_forecast_lines: 1505  # actual after corrective round; original forecast 790. ADR-9 cut, ADR-8 replaced by a targeted fix
+open_issues:
+  - "user review: q in pickers/history now quits (was back); esc declines resume (proceeding with the proposal rule unless the user objects)"
+  - "user review: esc on pushConfirm returns to Succeeded; pushReady esc unbound"
+follow_up_changes:
+  - "conflict continue-gate pending reasons still English (internal/git/continue_gate.go:26,29) — ADR-9 cut; translate in a follow-up"
+  - "strong delete confirm on Succeeded/Aborted does not render the wrong-word notice (keys.go:177, view.go:1078) — fold into tui-bubbles-adoption"
+  - "footer parity full-key probe only over 12 sub-phases; B replaces footers with key.Binding"
+  - tui-bubbles-adoption  # change B
+resolved_issues:
+  - "branch-cleanup confirm esc/q -> back to list; y/n q cancels instead of quitting (orchestrator, 2026-11-05)"
+  - "design ADR-6: runs.QuickDeployEligible reasons translated via app-side map quickDeployReasonES; runs strings unchanged"
+next: [archive]
+updated: 2026-11-05
