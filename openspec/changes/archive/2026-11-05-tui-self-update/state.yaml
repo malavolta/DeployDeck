@@ -14,7 +14,7 @@ phases:
   tasks: done
   apply: done
   verify: done
-  archive: pending
+  archive: done
 artifacts:
   explore: openspec/changes/tui-self-update/exploration.md
   proposal: openspec/changes/tui-self-update/proposal.md
@@ -37,5 +37,5 @@ resolved_issues:
   - "design ADR-5 Windows deviation: spec delta amended with a Windows print-only scenario (2026-11-05)"
   - "ADR-7 build-info fallback CUT for size during apply; requirement removed from the update-notification delta (2026-11-05)"
   - "verify CRITICAL-1 (untested pre-release scenario) fixed with a TestHasNewer row (2026-11-05)"
-next: [sdd-archive]
+next: [none]
 updated: 2026-11-05

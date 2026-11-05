@@ -55,7 +55,7 @@ Order is strictly sequential. Units 1 and 2 touch disjoint files in `internal/up
   
   Satisfies: Brew argv, Go install uses the tag, Manual has no command; threat-matrix PR-argument composition.
 - [x] 1.6 GREEN (`method.go`): `UpgradeArgs` with the `^v?\d+\.\d+\.\d+$` check (ADR-6).
-- [ ] 1.7 Commit unit 1; `go test ./internal/update/...` green.
+- [x] 1.7 Commit unit 1; `go test ./internal/update/...` green.
 
 ## Phase 3: 24-hour cache (Unit 2)
 
@@ -71,7 +71,7 @@ Order is strictly sequential. Units 1 and 2 touch disjoint files in `internal/up
   - unwritable dir (a regular file placed where the dir should be): result still `v1.3.0`, no error. Satisfies: Unwritable cache directory does not break the check.
   - `Dir == ""`: always live, nothing written.
 - [x] 3.2 GREEN (`internal/update/cache.go`, new): `CacheTTL`, `Cache{Dir, Now}`, `Latest` (fresh means `0 <= Now-checked_at < 24h`; read or parse errors fall through to live; atomic write via `MkdirAll` 0o755, `CreateTemp` in the same dir, `Rename`, temp file removed on error; write errors ignored; only the tag is cached).
-- [ ] 3.3 Commit unit 2; `go test ./internal/update/...` green.
+- [x] 3.3 Commit unit 2; `go test ./internal/update/...` green.
 
 ## Phase 4: App port, key, guard, banner (Unit 3)
 
@@ -93,7 +93,7 @@ Tests drive `Model.Update` with `updateCheckDoneMsg` and then `tea.KeyMsg`. Exis
   - the old English banner text is gone.
 - [x] 4.4 GREEN (`view.go`): Spanish banner with a state-aware suffix, conditional main-menu footer (copy table in design).
 - [x] 4.5 Verify `internal/app/boundary_test.go` passes unchanged. Satisfies: Boundary preserved.
-- [ ] 4.6 Commit unit 3; `go test ./internal/app/...` green.
+- [x] 4.6 Commit unit 3; `go test ./internal/app/...` green.
 
 ## Phase 5: runUpgrade (Unit 4)
 
@@ -104,7 +104,7 @@ Tests drive `Model.Update` with `updateCheckDoneMsg` and then `tea.KeyMsg`. Exis
   - nil argv (Manual or invalid tag): manual text, no call. Satisfies: Manual install never runs a command (post-run half); threat-matrix nil-argv case.
   - `goos == "windows"` with `["scoop","update","deploydeck"]`: run function never called, stdout contains `Para completar la actualización ejecuta: scoop update deploydeck`, no error. Satisfies: Windows prints the command instead of running it.
 - [x] 5.2 GREEN (`cmd/deploydeck/selfupdate.go`, new): `runFunc`, `runUpgrade` (before message, success message, failure message to stderr, Windows print-only, returns nothing so exit status is unchanged), `runInherited` (`osexec.Command` with Stdin/Stdout/Stderr = `os.*`).
-- [ ] 5.3 Commit unit 4; `go test ./cmd/deploydeck/...` green.
+- [x] 5.3 Commit unit 4; `go test ./cmd/deploydeck/...` green.
 
 ## Phase 6: Composition and post-run step (Unit 5)
 
@@ -114,7 +114,7 @@ Tests drive `Model.Update` with `updateCheckDoneMsg` and then `tea.KeyMsg`. Exis
   - Manual method or a `lookPath` miss: `CanUpgrade == false`; Brew with the tool found: true.
 - [x] 6.2 RED (`cmd/deploydeck/main_test.go`): rewrite the `defaultCheckUpdate` cancellation test to target `newCheckUpdate(baseURL, cacheDir, current)` with a pre-canceled ctx and a `t.TempDir()` cache, so a real cache file cannot hide the error. Add a post-run test: final model with `UpgradeRequested()` false never calls the run function. Satisfies: No request means no run, Failed check is not cached (end to end).
 - [x] 6.3 GREEN: `selfupdate.go` adds `composeUpdate` (opt-out, `Cache{Dir,Now}.Latest(ctx, Checker.Latest)`, `DetectMethod` plus `lookPath`, `os.UserCacheDir` failure gives `Dir ""`) and `resolveExePath` (`os.Executable` plus `EvalSymlinks`, error gives `""`). `main.go` replaces `defaultCheckUpdate` with `newCheckUpdate`, `defaultRunTUI` wires `composeUpdate`, keeps the final model from `program.Run()`, and calls `runUpgrade(UpgradeArgs(Method, UpdateLatest()), goos, os.Stdout, os.Stderr, runInherited)` only when `UpgradeRequested()`.
-- [ ] 6.4 Commit unit 5; `go test ./cmd/deploydeck/...` green. Then run `git diff --stat main` against the 800-line budget and decide whether to apply the ADR-7 cut.
+- [x] 6.4 Commit unit 5; `go test ./cmd/deploydeck/...` green. Then run `git diff --stat main` against the 800-line budget and decide whether to apply the ADR-7 cut.
 
 ## Phase 7: Build-info version fallback, ADR-7 (Unit 6) - CUT, not implemented
 
