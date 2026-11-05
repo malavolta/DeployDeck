@@ -1106,3 +1106,26 @@ func TestViewBranchCleanup_ConfirmPrompts(t *testing.T) {
 		}
 	})
 }
+
+// TestCleanup_EmptyListPruneConfirmIsVisible pins that `p` on an empty
+// cleanup list shows the retention prompt and an honest y/n footer. Before,
+// the empty-list branch returned early: the prompt never rendered and `y`
+// pruned run directories without a visible confirmation.
+func TestCleanup_EmptyListPruneConfirmIsVisible(t *testing.T) {
+	m := cleanupListModel()
+	m.cleanupBranches = nil
+	m = advance(t, m, keyPress("p"))
+	if m.cleanupPhase != cleanupPruneConfirm {
+		t.Fatalf("p on an empty list should open the prune confirmation, phase=%v", m.cleanupPhase)
+	}
+	v := m.View()
+	if !strings.Contains(v, "¿Aplicar retención de runs") {
+		t.Errorf("empty-list prune confirmation must render its prompt:\n%s", v)
+	}
+	if !strings.Contains(v, "[ y confirmar   n/Esc/q cancelar ]") {
+		t.Errorf("empty-list prune confirmation must show the y/n footer:\n%s", v)
+	}
+	if strings.Contains(v, "p retención de runs") {
+		t.Errorf("the browsing footer must not show while the prompt is up:\n%s", v)
+	}
+}

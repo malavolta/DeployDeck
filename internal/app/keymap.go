@@ -131,7 +131,11 @@ func (m Model) bindings() []key.Binding {
 		return []key.Binding{hint(keys.Override, "o", "override", !delta && m.summary.Empty),
 			hint(keys.Enter, "Enter", "validar", !delta), hint(keys.EditAny, "e", "editar selección", !delta), bQuit()}
 	case StateQueueReview:
-		return []key.Binding{on(keys.Retry, "r", "refrescar"), bEnter("continuar validación"), bEsc("volver"), bQuit()}
+		retry := "refrescar"
+		if m.queueErr != nil {
+			retry = "reintentar"
+		}
+		return []key.Binding{on(keys.Retry, "r", retry), bEnter("continuar validación"), bEsc("volver"), bQuit()}
 	case StateValidationStart:
 		return []key.Binding{hint(keys.Retry, "r", "reintentar", m.validateErr != nil), bQuit()}
 	case StateValidationPolling:
@@ -187,7 +191,7 @@ func (m Model) cleanupBindings() []key.Binding {
 	switch {
 	case m.cleanupPhase == cleanupLoading:
 		return []key.Binding{on(keys.Interrupt, "ctrl+c", "interrumpe")}
-	case len(m.cleanupBranches) == 0:
+	case len(m.cleanupBranches) == 0 && m.cleanupPhase != cleanupPruneConfirm:
 		return []key.Binding{prune, bEsc("volver"), bQuit()}
 	}
 	switch m.cleanupPhase {

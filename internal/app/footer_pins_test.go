@@ -70,6 +70,7 @@ func TestFooterPins_BytesAreUnchanged(t *testing.T) {
 			"o override   Enter validar   e editar selección   q salir"},
 		{"package review delta", func(m *Model) { m.state, m.standaloneMode = StatePackageReview, "delta" }, "q salir"},
 		{"queue", st(StateQueueReview), "r refrescar   Enter continuar validación   Esc volver   q salir"},
+		{"queue failed", func(m *Model) { m.state, m.queueErr = StateQueueReview, errStub }, "r reintentar   Enter continuar validación   Esc volver   q salir"},
 		{"validation start failed", func(m *Model) { m.state, m.validateErr = StateValidationStart, errStub }, "r reintentar   q salir"},
 		{"validation start", st(StateValidationStart), "q salir"},
 		{"polling", st(StateValidationPolling), "r refrescar   c cancelar mi job   q salir (el job sigue activo)"},

@@ -1431,7 +1431,7 @@ func (m Model) viewBranchCleanup() string {
 		b.WriteString("\n  " + m.cleanupNotice + "\n")
 	}
 
-	if len(m.cleanupBranches) == 0 {
+	if len(m.cleanupBranches) == 0 && m.cleanupPhase != cleanupPruneConfirm {
 		if m.cleanupNotice == "" {
 			b.WriteString("\n  (sin ramas huerfanas)\n")
 		}
