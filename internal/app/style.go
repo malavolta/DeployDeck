@@ -59,9 +59,9 @@ func isControlRune(r rune) bool {
 // BRIGHT ANSI palette (design D2) rather than the base palette — muted base
 // colors are hard to read on dark-theme terminals.
 var (
-	styleOK   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green
-	styleWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // bright yellow
-	styleErr  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // bright red
+	styleOK   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "2", Dark: "10"}) // green: base on light, bright on dark
+	styleWarn = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "3", Dark: "11"}) // yellow: base on light, bright on dark
+	styleErr  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "1", Dark: "9"})  // red: base on light, bright on dark
 	styleBold = lipgloss.NewStyle().Bold(true)
 	styleDim  = lipgloss.NewStyle().Faint(true)
 )
