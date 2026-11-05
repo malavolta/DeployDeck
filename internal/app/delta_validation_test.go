@@ -527,7 +527,7 @@ func TestModel_ValidationPolling_HardTimeout(t *testing.T) {
 	if !nm2.timedOut {
 		t.Error("a timeout should be flagged so the view can explain it")
 	}
-	if !strings.Contains(nm2.View(), "timeout") && !strings.Contains(nm2.View(), "timed out") {
+	if !strings.Contains(nm2.View(), "Timeout") {
 		t.Errorf("a timed-out failure view should mention the timeout, got:\n%s", nm2.View())
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 // handleKey routes a key press to the current-state handler.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.notice = "" // a notice lives until the next key press
 	switch m.state {
 	case StatePrereqCheck:
 		return m.keyPrereq(msg)
@@ -95,6 +96,7 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// origin ""` is an invalid refspec (adversarial-review Finding 3). Only
 		// offer push when a promotion branch actually exists.
 		if m.plan.PromotionBranch == "" {
+			m.notice = noBranchNotice
 			return m, nil
 		}
 		m.pushErr = nil
@@ -109,6 +111,7 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// standalone validate has no branch to delete, so never fire the
 		// inline delete gate on it.
 		if m.plan.PromotionBranch == "" {
+			m.notice = noBranchNotice
 			return m, nil
 		}
 		// Gate the confirmation strength on the CURRENT run's real
@@ -134,7 +137,10 @@ func (m Model) keyAborted(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "d":
-		m.notice = ""
+		if m.plan.PromotionBranch == "" {
+			m.notice = noBranchNotice
+			return m, nil
+		}
 		return m, m.unpushedCountCmd(m.plan.PromotionBranch)
 	case "q", "enter", "esc":
 		return m, m.quitCmd()
@@ -162,11 +168,9 @@ func (m Model) keyDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "y":
 			return m.confirmDeleteCurrent()
-		case "n", "esc":
+		case "n", "esc", "q":
 			m.cleanupPhase = cleanupIdle
 			return m, nil
-		case "q":
-			return m, m.quitCmd()
 		}
 	case cleanupStrongConfirm:
 		switch msg.String() {
@@ -177,6 +181,12 @@ func (m Model) keyDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.notice = ""
 			return m.confirmDeleteCurrent()
+		case "q":
+			if m.deleteConfirm != "" {
+				m.deleteConfirm += "q"
+				return m, nil
+			}
+			fallthrough
 		case "esc":
 			m.deleteConfirm = ""
 			m.notice = ""
@@ -243,7 +253,7 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "y":
 			return m.confirmDeleteOrphan()
-		case "n", "esc":
+		case "n", "esc", "q":
 			m.cleanupPhase = cleanupBrowsing
 			m.cleanupDeleteTarget = ""
 			m.cleanupDeleteTargetPushed = false
@@ -259,6 +269,12 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.cleanupNotice = ""
 			return m.confirmDeleteOrphan()
+		case "q":
+			if m.deleteConfirm != "" {
+				m.deleteConfirm += "q"
+				return m, nil
+			}
+			fallthrough
 		case "esc":
 			m.deleteConfirm = ""
 			m.cleanupNotice = ""
@@ -282,7 +298,7 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			m.cleanupPhase = cleanupBrowsing
 			return m, m.pruneRunsCmd()
-		case "n", "esc":
+		case "n", "esc", "q":
 			m.cleanupPhase = cleanupBrowsing
 			return m, nil
 		}
@@ -317,8 +333,10 @@ func (m Model) keyBranchCleanup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cleanupNotice = ""
 			m.cleanupPhase = cleanupPruneConfirm
 			return m, nil
-		case "q", "esc":
-			m.state = StateTicketInput
+		case "q":
+			return m, m.quitCmd()
+		case "esc":
+			m.state = StateMainMenu
 			m.cleanupPhase = cleanupIdle
 			m.cleanupDeleteTarget = ""
 			m.cleanupDeleteTargetPushed = false
@@ -377,6 +395,8 @@ func (m Model) keyBranchCollision(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.state = StatePlanPreview
 		return m, nil
+	case "q":
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -402,7 +422,11 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pushErr = nil
 			m.pushPhase = pushPushing
 			return m, m.pushCmd()
-		case "q", "esc":
+		case "esc":
+			// Nothing was pushed yet: back to the result screen.
+			m.state = StateSucceeded
+			return m, nil
+		case "q":
 			return m, m.quitCmd()
 		}
 	case pushReady:
@@ -437,7 +461,7 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.aiSuggestCmd()
 			}
 			return m, nil
-		case "q", "esc":
+		case "q":
 			return m, m.quitCmd()
 		}
 	case pushPRConfirm:
@@ -454,11 +478,9 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// aiTitle stays "", so the next press falls into the
 			// no-suggestion case below.
 			switch msg.String() {
-			case "n", "N", "esc":
+			case "n", "N", "esc", "q":
 				m.pushPhase = pushReady
 				return m, nil
-			case "q":
-				return m, m.quitCmd()
 			}
 			return m, nil
 		case m.aiTitle != "" && !m.aiAccepted:
@@ -478,11 +500,9 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// formula title and empty body (aiAccepted stays false).
 				m.pushPhase = pushPRCreating
 				return m, m.createPRCmd()
-			case "n", "N", "esc":
+			case "n", "N", "esc", "q":
 				m.pushPhase = pushReady
 				return m, nil
-			case "q":
-				return m, m.quitCmd()
 			}
 			return m, nil
 		default:
@@ -493,11 +513,9 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// The single, explicit confirmation that fires gh pr create.
 				m.pushPhase = pushPRCreating
 				return m, m.createPRCmd()
-			case "n", "esc":
+			case "n", "esc", "q":
 				m.pushPhase = pushReady
 				return m, nil
-			case "q":
-				return m, m.quitCmd()
 			}
 		}
 	case pushPushing, pushPRCreating:
@@ -547,7 +565,7 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// onResumeDetect, design's D1 decision) — InProgress==false
 			// falls through unchanged.
 			if m.repoState.InProgress {
-				m.notice = "resolve the in-progress cherry-pick before starting a standalone delta"
+				m.notice = "resuelve el cherry-pick en curso antes de iniciar un delta independiente"
 				return m, nil
 			}
 			// Group 3: the delta base-branch picker needs a live branch list
@@ -559,10 +577,13 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case StatePackageSelect:
 			// D1 guard, same rationale as the delta case above.
 			if m.repoState.InProgress {
-				m.notice = "resolve the in-progress cherry-pick before starting a standalone validation"
+				m.notice = "resuelve el cherry-pick en curso antes de iniciar una validación independiente"
 				return m, nil
 			}
 			m.standaloneMode = "validate"
+		case StateBranchCleanup:
+			m.standaloneMode = ""
+			return m.enterBranchCleanup()
 		case StateRunHistory:
 			// Run history is a non-standalone entry: clear standaloneMode
 			// so a stale "delta"/"validate" flag never reaches its
@@ -637,7 +658,9 @@ func (m Model) keyDeltaSourceSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.confirmDeltaSourceSelect()
-	case "q", "esc":
+	case "q":
+		return m, m.quitCmd()
+	case "esc":
 		m.state = StateMainMenu
 		return m, nil
 	}
@@ -797,7 +820,9 @@ func (m Model) keySandboxSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.confirmSandboxSelect()
-	case "q", "esc":
+	case "q":
+		return m, m.quitCmd()
+	case "esc":
 		m.notice = ""
 		m.state = StatePackageSelect
 		return m, nil
@@ -865,7 +890,7 @@ func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// (design ADR-1): this `c`-continue is the 4th post-prereq landing site
 		// and must land on the main menu, symmetric with onPrereqDone.
 		if prereqHasBlocking(m.checks) {
-			m.notice = "cannot continue: resolve blocking prerequisites first"
+			m.notice = "no se puede continuar: resuelve primero los prerrequisitos bloqueantes"
 			return m, nil
 		}
 		m.notice = ""
@@ -877,10 +902,21 @@ func (m Model) keyPrereq(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// degrade to nil without their deps and tea.Batch drops nils cleanly, so
 		// this stays a plain advance for callers without those deps.
 		return m, tea.Batch(m.resumeDetectCmd(), m.originalBranchCmd())
-	case "q":
+	case "q", "esc":
 		return m, m.quitCmd()
 	}
 	return m, nil
+}
+
+// enterBranchCleanup opens the branch-cleanup screen from the main menu entry
+// or the ticket-input `b` shortcut; esc returns to the main menu from both.
+func (m Model) enterBranchCleanup() (tea.Model, tea.Cmd) {
+	m.cleanupPhase = cleanupLoading
+	m.cleanupNotice = ""
+	m.cleanupBranches = nil
+	m.cleanupCursor = 0
+	m.state = StateBranchCleanup
+	return m, m.listDeployBranchesCmd()
 }
 
 func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -897,15 +933,10 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ticket += "b"
 			return m, nil
 		}
-		m.cleanupPhase = cleanupLoading
-		m.cleanupNotice = ""
-		m.cleanupBranches = nil
-		m.cleanupCursor = 0
-		m.state = StateBranchCleanup
-		return m, m.listDeployBranchesCmd()
+		return m.enterBranchCleanup()
 	case "enter":
 		if m.ticket == "" {
-			m.notice = "enter a ticket to search"
+			m.notice = "ingresa un ticket para buscar"
 			return m, nil
 		}
 		m.notice = ""
@@ -931,11 +962,11 @@ func (m Model) keyTicket(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.notice = ""
-		m.state = StatePrereqCheck
+		m.state = StateMainMenu
 		return m, nil
 	case "esc":
 		m.notice = ""
-		m.state = StatePrereqCheck
+		m.state = StateMainMenu
 		return m, nil
 	case "backspace":
 		if n := len(m.ticket); n > 0 {
@@ -971,6 +1002,8 @@ func (m Model) keySourceConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.state = StateTicketInput
 		return m, nil
+	case "q":
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -996,6 +1029,8 @@ func (m Model) keySelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.state = StateTicketInput
 		return m, nil
+	case "q":
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -1044,13 +1079,15 @@ func (m Model) keyTarget(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.state = StateCommitSelection
 		return m, nil
+	case "q":
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
 
 func (m Model) confirmTarget() (tea.Model, tea.Cmd) {
 	if len(m.destinations) == 0 {
-		m.notice = "no destinations configured"
+		m.notice = "no hay destinos configurados"
 		return m, nil
 	}
 	dest := m.destinations[m.targetCursor]
@@ -1077,6 +1114,8 @@ func (m Model) keyPlanPreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.state = StateTargetSelection
 		return m, nil
+	case "q":
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -1085,7 +1124,7 @@ func (m Model) keyConflict(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "c":
 		if !m.continueEnabled {
-			m.notice = "continue is disabled: resolve every conflict first"
+			m.notice = "continuar está deshabilitado: resuelve todos los conflictos primero"
 			return m, nil
 		}
 		m.notice = ""
@@ -1094,6 +1133,18 @@ func (m Model) keyConflict(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.skipCmd()
 	case "a":
 		return m, m.abortCmd()
+	case "up", "k":
+		m.conflictIdx = m.conflictCursor()
+		if m.conflictIdx > 0 {
+			m.conflictIdx--
+		}
+		return m, nil
+	case "down", "j":
+		m.conflictIdx = m.conflictCursor()
+		if m.conflictIdx < len(m.repoState.Unmerged)-1 {
+			m.conflictIdx++
+		}
+		return m, nil
 	case "e":
 		// Interactive editor handoff (injected by main via tea.ExecProcess).
 		if m.deps.Edit != nil && len(m.repoState.Unmerged) > 0 {
@@ -1108,10 +1159,10 @@ func (m Model) keyConflict(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // conflictCursor clamps the selection cursor into the current unmerged set.
 func (m Model) conflictCursor() int {
-	if m.cursor < 0 || m.cursor >= len(m.repoState.Unmerged) {
+	if m.conflictIdx < 0 || m.conflictIdx >= len(m.repoState.Unmerged) {
 		return 0
 	}
-	return m.cursor
+	return m.conflictIdx
 }
 
 func (m Model) keyVerification(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1121,7 +1172,7 @@ func (m Model) keyVerification(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// "entry gated by post-pick verification"): a failed/aborted run never
 		// enters delta generation.
 		if !m.DeltaAllowed() {
-			m.notice = "delta and validation blocked: the cherry-pick did not complete cleanly"
+			m.notice = "delta y validación bloqueados: el cherry-pick no terminó limpiamente"
 			return m, nil
 		}
 		m.notice = ""
@@ -1152,6 +1203,9 @@ func (m Model) keyDeltaGeneration(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "e":
+		if m.deltaErr == nil { // only the failure screen offers edit (ADR-10)
+			return m, nil
+		}
 		m.state = StateCommitSelection
 		return m, nil
 	case "q":
@@ -1174,6 +1228,7 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.standaloneMode == "delta" {
 			// Standalone delta never ran cherry-picks: there is nothing to
 			// queue or validate, so the summary IS the terminal screen.
+			m.notice = "modo delta: no hay validación; pulsa q para salir"
 			return m, nil
 		}
 		return m.confirmPackageReview()
@@ -1205,7 +1260,7 @@ func (m Model) keyPackageReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // DeployRequest queue).
 func (m Model) confirmPackageReview() (tea.Model, tea.Cmd) {
 	if m.summary.Empty && !m.emptyConfirmed {
-		m.notice = "empty package blocks validation: press o to override, or e to edit the selection"
+		m.notice = "un package vacío bloquea la validación: pulsa o para forzar, o e para editar la selección"
 		return m, nil
 	}
 	m.notice = ""
@@ -1232,6 +1287,8 @@ func (m Model) keyQueueReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		m.state = StatePackageReview
 		return m, nil
+	case "q":
+		return m, m.quitCmd()
 	}
 	return m, nil
 }
@@ -1330,6 +1387,7 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		rec := m.runs[m.runsCursor]
 		if !isRePromoteEligible(rec) {
+			m.notice = "re-promoción disponible solo para runs exitosos con commits"
 			return m, nil
 		}
 		return m.startRePromoteInto(rec)
@@ -1343,15 +1401,18 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		rec := m.runs[m.runsCursor]
-		eligible, _ := runs.QuickDeployEligible(rec, m.now())
+		eligible, reason := runs.QuickDeployEligible(rec, m.now())
 		if !eligible {
+			m.notice = "quick deploy no disponible: " + quickDeployReasonES(reason)
 			return m, nil
 		}
 		m.state = StateQuickDeploy
 		m.quickConfirm = ""
 		m.quickErr = nil
 		return m, nil
-	case "q", "esc":
+	case "q":
+		return m, m.quitCmd()
+	case "esc":
 		// Decline the offer: return to the HU-018 main menu (design ADR-1
 		// refinement) rather than StateTicketInput, so the hub stays reachable
 		// after a declined resume.
@@ -1563,7 +1624,9 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // (spec: "No override exists"): every other key press is a strict no-op.
 func (m Model) keyDeployGateBlocked(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc":
+	case "q":
+		return m, m.quitCmd()
+	case "esc":
 		m.gateConditions = nil
 		m.gateCheckingRunID = ""
 		m.state = StateRunHistory
@@ -1571,3 +1634,21 @@ func (m Model) keyDeployGateBlocked(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+// quickDeployReasonES maps runs.QuickDeployEligible's English reasons to
+// Spanish display text; an unknown reason gets a generic Spanish fallback.
+func quickDeployReasonES(reason string) string {
+	switch reason {
+	case "not a successful validation":
+		return "la validación no fue exitosa"
+	case "required tests not run":
+		return "no se ejecutaron los tests requeridos"
+	case "older than 10 days":
+		return "tiene más de 10 días"
+	case "already quick-deployed":
+		return "ya se desplegó con quick deploy"
+	}
+	return "el run no cumple los requisitos"
+}
+
+const noBranchNotice = "este run no tiene rama de promoción"

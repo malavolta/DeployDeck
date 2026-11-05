@@ -449,6 +449,7 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 		m.plan.SelectedCommits = rehydrateSelectedCommits(rec.Commits)
 		m.pickTotal = rec.PickTotal
 		m.pickIndex = derivePickIndex(rec.PickTotal, m.repoState)
+		m.conflictIdx = 0
 		m.state = StateCherryPickConflict
 		return m, tea.Batch(m.repoStateCmd(), tickCmd())
 	case rec.JobID != "" && !salesforce.IsTerminal(rec.Status):
@@ -567,7 +568,7 @@ func (m Model) startRePromoteInto(rec runs.Record) (tea.Model, tea.Cmd) {
 	next, ok := git.NextEnvironmentBranch(m.deps.Config, rec.Target)
 	if !ok {
 		m.ticket = rec.Ticket
-		m.notice = "no next environment configured after " + rec.Target + "; continuing manually"
+		m.notice = "no hay siguiente entorno configurado después de " + rec.Target + "; continúa manualmente"
 		m.prelim = preliminaryTarget(m.deps.Config)
 		m.state = StateCommitDiscovery
 		return m, m.discoverCmd()
@@ -812,6 +813,7 @@ func (m Model) onPickDone(msg pickDoneMsg) (tea.Model, tea.Cmd) {
 			rec.Phase = "git-conflict"
 			rec.UpdatedAt = m.now()
 		})
+		m.conflictIdx = 0
 		m.state = StateCherryPickConflict
 		return m, tea.Batch(m.repoStateCmd(), tickCmd())
 	}
@@ -967,7 +969,7 @@ func (m Model) onQueueDone(msg queueDoneMsg) (tea.Model, tea.Cmd) {
 		if errors.Is(msg.err, salesforce.ErrQueuePermission) {
 			m.queue = nil
 			m.queueErr = nil
-			m.notice = "no Tooling API permission to view the deploy queue; continuing without it"
+			m.notice = "sin permiso de Tooling API para ver la cola de deploys; se continúa sin ella"
 			m.validateErr = nil
 			m.state = StateValidationStart
 			m, spin := m.startSpinner()

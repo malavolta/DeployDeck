@@ -429,20 +429,20 @@ func resolveMergeTarget(records []runs.Record, format, name string) (string, boo
 	return "", false
 }
 
-// mergedLabel classifies an orphan branch's best-effort "likely merged" vs
-// "abandoned" advisory label from IsMergedInto's result (branch-cleanup spec:
+// mergedLabel classifies an orphan branch's best-effort "probablemente fusionada" vs
+// "abandonada" advisory label from IsMergedInto's result (branch-cleanup spec:
 // "Merged-Vs-Abandoned Is A Best-Effort Label Only" — this label NEVER gates
 // deletion, see keyBranchCleanup's unconditional unpushedCountCmd gate). An
 // unresolved target (ok==false) or an ancestor-check error both degrade to
-// "unknown" rather than guessing.
+// "desconocida" rather than guessing.
 func mergedLabel(ok, merged bool, err error) string {
 	if !ok || err != nil {
-		return "unknown"
+		return "desconocida"
 	}
 	if merged {
-		return "likely merged"
+		return "probablemente fusionada"
 	}
-	return "abandoned"
+	return "abandonada"
 }
 
 // shouldRestore is the pure HU-017 restore-on-quit guard (design.md "Quit-

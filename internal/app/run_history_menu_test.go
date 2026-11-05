@@ -56,7 +56,7 @@ func enterRunHistoryFromMenu(t *testing.T, m Model) Model {
 // position: LAST, so the three pre-existing menu indices never shift.
 func TestMainMenu_HasRunHistoryEntryLast(t *testing.T) {
 	entries := visibleMenuEntries(menuEntries)
-	last := entries[len(entries)-1]
+	last := entries[len(entries)-2] // cleanup now follows history (menu_cleanup_test.go)
 	if last.label != "Historial de runs" {
 		t.Errorf("last menu entry label = %q, want %q", last.label, "Historial de runs")
 	}
@@ -132,9 +132,9 @@ func TestRunHistoryMenu_EmptyHistory(t *testing.T) {
 		_ = m.View()
 	}
 
-	m = advance(t, m, keyPress("q"))
+	m = advance(t, m, keyPress("esc"))
 	if m.State() != StateMainMenu {
-		t.Errorf("q from the history should return to StateMainMenu, got %v", m.State())
+		t.Errorf("esc from the history should return to StateMainMenu, got %v", m.State())
 	}
 }
 
@@ -270,13 +270,10 @@ func TestRunHistoryFooter_ReflectsSelectedRowActions(t *testing.T) {
 
 	m.runsCursor = 0
 	v := m.View()
-	for _, want := range []string{"x quick deploy", "r re-promocionar", "q volver"} {
+	for _, want := range []string{"x quick deploy", "r re-promocionar", "Esc volver", "q salir"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("footer on an eligible row should contain %q:\n%s", want, v)
 		}
-	}
-	if strings.Contains(v, "q salir") {
-		t.Errorf("q returns to the menu, footer must not say \"q salir\":\n%s", v)
 	}
 
 	m.runsCursor = 1
@@ -288,7 +285,7 @@ func TestRunHistoryFooter_ReflectsSelectedRowActions(t *testing.T) {
 	}
 
 	m.runs = nil
-	if v := m.View(); !strings.Contains(v, "q volver") || strings.Contains(v, "q salir") {
-		t.Errorf("empty history footer should say \"q volver\":\n%s", v)
+	if v := m.View(); !strings.Contains(v, "Esc volver") || !strings.Contains(v, "q salir") {
+		t.Errorf("empty history footer should say \"Esc volver\" and \"q salir\":\n%s", v)
 	}
 }

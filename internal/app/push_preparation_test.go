@@ -437,7 +437,7 @@ func TestModel_PushPreparation_FallbackShowsCompareURL(t *testing.T) {
 // push-preparation phase (the screen is terminal-adjacent; the user can always
 // leave), and that a late tea.Quit is a real quit command.
 func TestModel_PushPreparation_QuitFromSubScreens(t *testing.T) {
-	for _, phase := range []pushPhase{pushConfirm, pushReady, pushPRConfirm} {
+	for _, phase := range []pushPhase{pushConfirm, pushReady} { // PR confirm: q cancels
 		m := New(Deps{Dir: "/repo", Config: testConfig()})
 		m.state = StatePushPreparation
 		m.pushPhase = phase

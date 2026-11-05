@@ -458,7 +458,7 @@ func TestModel_PushPreparation_PRConfirm_ViewMatchesAIState(t *testing.T) {
 		if !strings.Contains(v, "Esperando sugerencia IA") {
 			t.Errorf("pending pushPRConfirm should show the waiting indicator\n%s", v)
 		}
-		if !strings.Contains(v, "n volver") || !strings.Contains(v, "q salir") {
+		if !strings.Contains(v, "n/Esc/q volver") {
 			t.Errorf("pending pushPRConfirm footer should offer n/q only\n%s", v)
 		}
 		if strings.Contains(v, "Confirmar creación del PR con gh?") {

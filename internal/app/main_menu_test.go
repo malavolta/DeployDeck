@@ -72,9 +72,11 @@ func TestModel_MainMenu_CursorAndEnterRouting(t *testing.T) {
 		if m.menuCursor != 3 {
 			t.Fatalf("down should move cursor to 3 (Historial de runs), got %d", m.menuCursor)
 		}
-		if advance(t, m, keyPress("down")).menuCursor != 3 {
-			t.Error("down at the last entry should clamp at 3")
+		m = advance(t, m, keyPress("down")) // Limpieza de ramas
+		if advance(t, m, keyPress("down")).menuCursor != 4 {
+			t.Error("down at the last entry should clamp at 4")
 		}
+		m = advance(t, m, keyPress("up"))
 		// up walks back to the first entry then clamps.
 		m = advance(t, m, keyPress("up"))
 		m = advance(t, m, keyPress("up"))
@@ -136,8 +138,8 @@ func TestViewMainMenu_RendersEntriesAndCursor(t *testing.T) {
 	if !strings.Contains(v, "> Generar delta package") {
 		t.Errorf("the cursor marker should point at the selected entry (cursor 1):\n%s", v)
 	}
-	if !strings.Contains(v, "q salir") {
-		t.Errorf("main menu view should show a quit footer (q salir):\n%s", v)
+	if !strings.Contains(v, "q/Esc salir") {
+		t.Errorf("main menu view should show a quit footer (q/Esc salir):\n%s", v)
 	}
 }
 

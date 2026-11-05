@@ -123,7 +123,7 @@ func TestSelectOrphans_TerminalValidationRunStaysListed(t *testing.T) {
 // --- resolveMergeTarget / mergedLabel: merge-label target resolution -------
 
 // TestResolveMergeTarget is a unit test for the pure correlation resolveMergeTarget
-// uses to find a "likely merged" ancestor-check target for an orphan branch: it
+// uses to find a "probablemente fusionada" ancestor-check target for an orphan branch: it
 // looks up the run whose Ticket/Target renders (via the SAME git.RenderBranchName)
 // to the branch's name, and reports ok=false when no run correlates (branch-cleanup
 // spec: "or 'unknown' when target can't be determined").
@@ -143,9 +143,9 @@ func TestResolveMergeTarget(t *testing.T) {
 }
 
 // TestMergedLabel is a unit test for the pure mergedLabel classifier: ok=false
-// or a non-nil err both degrade to "unknown" (never a delete gate — spec:
+// or a non-nil err both degrade to "desconocida" (never a delete gate — spec:
 // "Merged-Vs-Abandoned Is A Best-Effort Label Only"); otherwise the ancestor
-// check's boolean result maps to "likely merged"/"abandoned".
+// check's boolean result maps to "probablemente fusionada"/"abandonada".
 func TestMergedLabel(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -154,10 +154,10 @@ func TestMergedLabel(t *testing.T) {
 		err    error
 		want   string
 	}{
-		{"resolved + merged", true, true, nil, "likely merged"},
-		{"resolved + not merged", true, false, nil, "abandoned"},
-		{"unresolved target", false, false, nil, "unknown"},
-		{"ancestor check errored", true, false, errStub, "unknown"},
+		{"resolved + merged", true, true, nil, "probablemente fusionada"},
+		{"resolved + not merged", true, false, nil, "abandonada"},
+		{"unresolved target", false, false, nil, "desconocida"},
+		{"ancestor check errored", true, false, errStub, "desconocida"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -208,10 +208,11 @@ func TestKeyTicket_B_EntersBranchCleanupAndLoads(t *testing.T) {
 
 // --- 4.5/4.6: q/esc from the cleanup screen returns to StateTicketInput ----
 
-// TestKeyBranchCleanup_QEsc_ReturnsToTicketInput is task 4.5 (RED): q/esc
-// from StateBranchCleanup (browsing) return to StateTicketInput.
-func TestKeyBranchCleanup_QEsc_ReturnsToTicketInput(t *testing.T) {
-	for _, key := range []string{"q", "esc"} {
+// TestKeyBranchCleanup_Esc_ReturnsToMenu: esc from StateBranchCleanup
+// (browsing) returns to the main menu (tui-ux-consistency; q quits, see
+// menu_cleanup_test.go).
+func TestKeyBranchCleanup_Esc_ReturnsToMenu(t *testing.T) {
+	for _, key := range []string{"esc"} {
 		t.Run(key, func(t *testing.T) {
 			m := New(Deps{Dir: "/repo", Config: testConfig()})
 			m.state = StateBranchCleanup
@@ -219,8 +220,8 @@ func TestKeyBranchCleanup_QEsc_ReturnsToTicketInput(t *testing.T) {
 
 			next, cmd := m.Update(keyPress(key))
 			nm := next.(Model)
-			if nm.State() != StateTicketInput {
-				t.Fatalf("%q should return to StateTicketInput, got %v", key, nm.State())
+			if nm.State() != StateMainMenu {
+				t.Fatalf("%q should return to StateMainMenu, got %v", key, nm.State())
 			}
 			if cmd != nil {
 				t.Errorf("%q should not fire a command", key)
@@ -821,13 +822,13 @@ func TestOnDeleteDone_ErrorSurfacesNotice_NoReload(t *testing.T) {
 // --- 4.15/4.16: the merged-label NEVER bypasses the delete confirm ---------
 
 // TestMergedLabel_NeverBypassesConfirm is task 4.15 (RED, MANDATORY safety
-// gate): a "likely merged" (or "abandoned", or "unknown") row still requires
+// gate): a "probablemente fusionada" (or "abandonada", or "desconocida") row still requires
 // the EXACT SAME unpushedCountCmd gate as any other row — the label is
 // display-only and never shortcuts, weakens, or skips confirmation (spec:
 // "Merged-Vs-Abandoned Is A Best-Effort Label Only" / "Label never bypasses
 // confirmation").
 func TestMergedLabel_NeverBypassesConfirm(t *testing.T) {
-	for _, label := range []string{"likely merged", "abandoned", "unknown"} {
+	for _, label := range []string{"probablemente fusionada", "abandonada", "desconocida"} {
 		t.Run(label, func(t *testing.T) {
 			branch := "deploy/PROJ-2-to-UAT"
 			fr := execpkg.NewFakeRunner()
@@ -857,8 +858,8 @@ func TestMergedLabel_NeverBypassesConfirm(t *testing.T) {
 
 // TestListDeployBranchesCmd_LabelsMergedAndNotMerged is task 4.16 (RED):
 // listDeployBranchesCmd labels an orphan whose correlating run's target it
-// IS an ancestor of as "likely merged", one it is NOT as "abandoned", and one
-// with no correlating run at all as "unknown" — proving the label is wired
+// IS an ancestor of as "probablemente fusionada", one it is NOT as "abandonada", and one
+// with no correlating run at all as "desconocida" — proving the label is wired
 // for DISPLAY only (4.15 already proves the delete path is unconditional).
 func TestListDeployBranchesCmd_LabelsMergedAndNotMerged(t *testing.T) {
 	dir := t.TempDir()
@@ -890,14 +891,14 @@ func TestListDeployBranchesCmd_LabelsMergedAndNotMerged(t *testing.T) {
 	for _, row := range dmsg.branches {
 		labels[row.Name] = row.MergedLabel
 	}
-	if labels["deploy/PROJ-1-to-UAT"] != "likely merged" {
-		t.Errorf("PROJ-1 label = %q, want %q", labels["deploy/PROJ-1-to-UAT"], "likely merged")
+	if labels["deploy/PROJ-1-to-UAT"] != "probablemente fusionada" {
+		t.Errorf("PROJ-1 label = %q, want %q", labels["deploy/PROJ-1-to-UAT"], "probablemente fusionada")
 	}
-	if labels["deploy/PROJ-2-to-UAT"] != "abandoned" {
-		t.Errorf("PROJ-2 label = %q, want %q", labels["deploy/PROJ-2-to-UAT"], "abandoned")
+	if labels["deploy/PROJ-2-to-UAT"] != "abandonada" {
+		t.Errorf("PROJ-2 label = %q, want %q", labels["deploy/PROJ-2-to-UAT"], "abandonada")
 	}
-	if labels["deploy/PROJ-3-to-UAT"] != "unknown" {
-		t.Errorf("PROJ-3 (no correlating run) label = %q, want %q", labels["deploy/PROJ-3-to-UAT"], "unknown")
+	if labels["deploy/PROJ-3-to-UAT"] != "desconocida" {
+		t.Errorf("PROJ-3 (no correlating run) label = %q, want %q", labels["deploy/PROJ-3-to-UAT"], "desconocida")
 	}
 	if calledWith(fr, "git", "merge-base", "--is-ancestor", "deploy/PROJ-3-to-UAT", "origin/UAT") {
 		t.Error("an uncorrelated branch must never fire an ancestor check at all")
@@ -1014,14 +1015,14 @@ func TestViewBranchCleanup_RendersAgeAndPushStatus(t *testing.T) {
 	m.state = StateBranchCleanup
 	m.cleanupPhase = cleanupBrowsing
 	m.cleanupBranches = []cleanupRow{
-		{DeployBranch: git.DeployBranch{Name: "deploy/DD-2", LastCommit: now.AddDate(0, 0, -10), Pushed: true}, MergedLabel: "abandoned"},
-		{DeployBranch: git.DeployBranch{Name: "deploy/DD-3", LastCommit: now.AddDate(0, 0, -2), Pushed: false}, MergedLabel: "likely merged"},
+		{DeployBranch: git.DeployBranch{Name: "deploy/DD-2", LastCommit: now.AddDate(0, 0, -10), Pushed: true}, MergedLabel: "abandonada"},
+		{DeployBranch: git.DeployBranch{Name: "deploy/DD-3", LastCommit: now.AddDate(0, 0, -2), Pushed: false}, MergedLabel: "probablemente fusionada"},
 	}
 
 	v := m.View()
 	for _, want := range []string{
-		"deploy/DD-2", "10d", "pushed", "abandoned",
-		"deploy/DD-3", "2d", "local", "likely merged",
+		"deploy/DD-2", "10d", "pusheada", "abandonada",
+		"deploy/DD-3", "2d", "sin push", "probablemente fusionada",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("branch cleanup view missing %q:\n%s", want, v)

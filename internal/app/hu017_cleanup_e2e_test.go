@@ -310,7 +310,7 @@ func TestHU017_E2E_FullCleanupFlow(t *testing.T) {
 	}
 
 	view := m2.View()
-	for _, want := range []string{"deploy/DD-2", "pushed", "deploy/DD-3", "local"} {
+	for _, want := range []string{"deploy/DD-2", "pusheada", "deploy/DD-3", "sin push"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("branch cleanup view missing %q:\n%s", want, view)
 		}

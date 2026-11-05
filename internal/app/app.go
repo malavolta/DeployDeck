@@ -382,6 +382,7 @@ type Model struct {
 	prelim      string // preliminary target used for discovery/classification
 	items       []git.CommitSelectionItem
 	cursor      int
+	conflictIdx int // conflict-screen selection, independent of the commit cursor
 	depWarnings []git.DependencyWarning
 
 	// TargetSelection
@@ -702,6 +703,12 @@ var menuEntries = []menuEntry{
 		label:       "Historial de runs",
 		description: "Revisa runs anteriores, reanuda, re-promociona o despliega una validación",
 		target:      StateRunHistory,
+		implemented: true,
+	},
+	{
+		label:       "Limpieza de ramas",
+		description: "Lista y borra ramas deploy/* huérfanas y aplica la retención de runs",
+		target:      StateBranchCleanup,
 		implemented: true,
 	},
 }
