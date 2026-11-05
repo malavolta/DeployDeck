@@ -52,14 +52,14 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.17.1"  # pinned: v2.20 deprecates homebrew_casks.hooks.post.install (check fails); migrate the quarantine hook, then unpin
           args: check
 
       - name: Snapshot dry-run (no publish)
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.17.1"  # pinned: v2.20 deprecates homebrew_casks.hooks.post.install (check fails); migrate the quarantine hook, then unpin
           args: release --snapshot --clean
 
       - name: Assert dist/ artifacts
