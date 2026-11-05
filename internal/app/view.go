@@ -60,7 +60,7 @@ func (m Model) viewBody() string {
 	case StateSourceConfirm:
 		return m.viewSourceConfirm()
 	case StateCommitDiscovery:
-		return m.screenHeader("Buscando commits") + fmt.Sprintf("\n  Ticket: %s\n  Buscando...\n", m.ticket) + "  " + spinnerView(m.spinnerFrame) + "\n" + footer("ctrl+c interrumpe")
+		return m.screenHeader("Buscando commits") + fmt.Sprintf("\n  Ticket: %s\n  Buscando...\n", m.ticket) + "  " + spinnerView(m.spinnerFrame) + "\n" + m.footerLine()
 	case StateCommitSelection:
 		return m.viewSelection()
 	case StateTargetSelection:
@@ -68,7 +68,7 @@ func (m Model) viewBody() string {
 	case StatePlanPreview:
 		return m.viewPlanPreview()
 	case StateBranchCreation:
-		return m.screenHeader("Creando rama de promoción") + fmt.Sprintf("\n  %s\n", m.branchName) + "  " + spinnerView(m.spinnerFrame) + "\n" + footer("ctrl+c interrumpe")
+		return m.screenHeader("Creando rama de promoción") + fmt.Sprintf("\n  %s\n", m.branchName) + "  " + spinnerView(m.spinnerFrame) + "\n" + m.footerLine()
 	case StateCherryPicking:
 		return m.viewCherryPicking()
 	case StateCherryPickConflict:
@@ -104,7 +104,7 @@ func (m Model) viewBody() string {
 	case StateSucceeded, StateFailed, StateCanceled:
 		return m.viewValidationResult()
 	case StateError:
-		return m.screenHeader("Error") + fmt.Sprintf("\n  %v\n", m.err) + footer("Enter/q/Esc salir")
+		return m.screenHeader("Error") + fmt.Sprintf("\n  %v\n", m.err) + m.footerLine()
 	}
 	return ""
 }
@@ -151,18 +151,11 @@ func (m Model) abortedTail() string {
 	if v, ok := m.deleteConfirmView(); ok {
 		return v
 	}
-	return m.noticeLine() + m.abortedFooter()
+	return m.noticeLine() + m.footerLine()
 }
 
-func (m Model) abortedFooter() string {
-	if m.plan.PromotionBranch != "" {
-		return footer("d borrar rama   Enter/q/Esc salir")
-	}
-	return footer("Enter/q/Esc salir")
-}
-
-func footer(keys string) string {
-	return "\n[ " + keys + " ]\n"
+func footer(text string) string {
+	return "\n[ " + text + " ]\n"
 }
 
 // spinnerFrames are the animated progress-spinner glyphs (design D5), cycled
@@ -196,7 +189,7 @@ func (m Model) viewPrereq() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("r reintentar   c continuar con warnings   q/Esc salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -235,11 +228,7 @@ func (m Model) viewMainMenu() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	if m.updateAvailable && m.deps.CanUpgrade {
-		b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   u actualizar   q/Esc salir"))
-	} else {
-		b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   q/Esc salir"))
-	}
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -264,7 +253,7 @@ func (m Model) viewDeltaSourceSelect() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   Esc volver   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -281,7 +270,7 @@ func (m Model) viewPackageSelect() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter continuar   q/Esc volver"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -307,7 +296,7 @@ func (m Model) viewSandboxSelect() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   Esc volver   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -329,7 +318,7 @@ func (m Model) viewTicket() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter buscar   Esc volver"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -338,7 +327,7 @@ func (m Model) viewSourceConfirm() string {
 	var b strings.Builder
 	b.WriteString(m.screenHeader("Confirmar Rama Origen"))
 	b.WriteString(fmt.Sprintf("\n  ¿Usar la rama actual '%s' como origen? [s/N]\n", m.source.Name))
-	b.WriteString(footer("s confirmar   n/N/Enter declinar   Esc volver   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -390,14 +379,9 @@ func (m Model) viewSelection() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	if len(m.items) == 0 {
-		// Empty state (spec: "Actionable Empty States"): no rows to mark, so
-		// the footer must not advertise "Space marcar" — mirrors
-		// viewRunHistory's empty/populated footer-switch precedent.
-		b.WriteString(footer("Esc volver   q salir"))
-	} else {
-		b.WriteString(footer("↑/↓ navegar   Space/x marcar   Enter continuar   Esc volver   q salir"))
-	}
+	// Empty state (spec: "Actionable Empty States"): bindings() drops the row
+	// keys when there are no rows.
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -469,7 +453,7 @@ func (m Model) viewTarget() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter seleccionar   ↑/↓ navegar   Esc volver   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -496,7 +480,7 @@ func (m Model) viewPlanPreview() string {
 		// shape — "shown == executed".
 		b.WriteString("  git cherry-pick -x " + c.ShortSHA + "\n")
 	}
-	b.WriteString(footer("Enter ejecutar   Esc volver   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -508,7 +492,7 @@ func (m Model) viewCherryPicking() string {
 		b.WriteString(fmt.Sprintf("  [..] %s %s\n", c.ShortSHA, c.Subject))
 	}
 	b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
-	b.WriteString(footer("ctrl+c interrumpe"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -549,7 +533,7 @@ func (m Model) viewConflict() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("↑/↓ elegir   e editor   c continuar   s saltar   a abortar   q salir (el run queda reanudable)"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -571,12 +555,12 @@ func (m Model) viewDeltaGeneration() string {
 		b.WriteString("\n  " + mark("XX") + " sfdx-git-delta falló. No se ejecuta validación.\n\n")
 		b.WriteString("  Salida:\n")
 		b.WriteString("  " + m.deltaErr.Error() + "\n")
-		b.WriteString(footer("r reintentar   e editar selección   q salir"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 	b.WriteString(fmt.Sprintf("\n  Comparando origin/%s..HEAD\n  Generando package.xml...\n", m.plan.TargetBranch))
 	b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
-	b.WriteString(footer("q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -620,17 +604,8 @@ func (m Model) viewPackageReview() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	switch {
-	case m.standaloneMode == "delta":
-		// HU-018 standalone delta (design ADR-3): the summary is terminal —
-		// enter/e are neutralized no-ops (keyPackageReview) — so the footer
-		// never advertises "Enter validar" or "e editar seleccion".
-		b.WriteString(footer("q salir"))
-	case m.summary.Empty:
-		b.WriteString(footer("o override   Enter validar   e editar selección   q salir"))
-	default:
-		b.WriteString(footer("Enter validar   e editar selección   q salir"))
-	}
+	// HU-018 standalone delta: enter/e are neutralized, so bindings() drops them.
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -646,7 +621,7 @@ func (m Model) viewQueueReview() string {
 	if m.queueErr != nil {
 		b.WriteString("\n  " + mark("XX") + " No se pudo consultar la cola de despliegues (el flujo sigue vivo):\n\n")
 		b.WriteString("  " + m.queueErr.Error() + "\n")
-		b.WriteString(footer("r reintentar   Enter continuar validación   Esc volver   q salir"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 
@@ -702,7 +677,7 @@ func (m Model) viewQueueReview() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("r refrescar   Enter continuar validación   Esc volver   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -752,12 +727,12 @@ func (m Model) viewValidationStart() string {
 		if m.validateRawPath != "" {
 			b.WriteString("\n  " + styleDim.Render("Detalle completo: "+m.validateRawPath) + "\n")
 		}
-		b.WriteString(footer("r reintentar   q salir"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 	b.WriteString(fmt.Sprintf("\n  Target org: %s\n  Test level: %s\n  Validando (async)...\n", m.plan.SandboxAlias, m.plan.TestLevel))
 	b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
-	b.WriteString(footer("q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -768,7 +743,7 @@ func (m Model) viewValidationPolling() string {
 	if m.reportErr != nil {
 		b.WriteString("\n  (error transitorio, reintentando: " + m.reportErr.Error() + ")\n")
 	}
-	b.WriteString(footer("r refrescar   c cancelar mi job   q salir (el job sigue activo)"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -795,7 +770,7 @@ func (m Model) viewCancelConfirm() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter confirmar   Esc volver"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -815,7 +790,7 @@ func (m Model) viewQuickDeploy() string {
 
 	if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
 		b.WriteString("\n  (sin run seleccionado)\n")
-		b.WriteString(footer("q/Esc volver"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 	rec := m.runs[m.runsCursor]
@@ -852,7 +827,7 @@ func (m Model) viewQuickDeploy() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("Enter confirmar   q/Esc volver"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -896,7 +871,7 @@ func (m Model) viewDeployGateBlocked() string {
 		b.WriteString(fmt.Sprintf("  %s %s: %s\n", mark("XX"), conditionLabelES(c.Name), c.Detail))
 	}
 	b.WriteString("\n  " + styleDim.Render("No hay ninguna opción para omitir este bloqueo desde la app.") + "\n")
-	b.WriteString(footer("Esc volver al historial   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -926,11 +901,7 @@ func (m Model) viewValidationResult() string {
 		return b.String()
 	}
 	b.WriteString(m.noticeLine())
-	if m.state == StateSucceeded && m.plan.PromotionBranch != "" {
-		b.WriteString(footer("p preparar push   d borrar rama   Enter/q/Esc salir"))
-	} else {
-		b.WriteString(footer("Enter/q/Esc salir"))
-	}
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -957,14 +928,14 @@ func (m Model) viewPushPreparation() string {
 			b.WriteString("\n  " + mark("XX") + " El push falló (el flujo sigue vivo):\n")
 			b.WriteString("  " + m.pushErr.Error() + "\n")
 		}
-		b.WriteString(footer("p ejecutar push   Esc volver   q salir"))
+		b.WriteString(m.footerLine())
 	case pushPushing:
 		b.WriteString("\n  Ejecutando push...\n")
-		b.WriteString(footer("q salir"))
+		b.WriteString(m.footerLine())
 	case pushReady, pushPRConfirm, pushPRCreating:
 		b.WriteString(m.viewPRData())
 	default:
-		b.WriteString(footer("q salir"))
+		b.WriteString(m.footerLine())
 	}
 	return b.String()
 }
@@ -1001,34 +972,34 @@ func (m Model) viewPRData() string {
 			// already updated it (spec: "the existing PR URL is shown").
 			b.WriteString("\n  " + mark("OK") + " PR existente (ya actualizado con el push):\n")
 			b.WriteString("  " + m.prURL + "\n")
-			b.WriteString(footer("q salir"))
+			b.WriteString(m.footerLine())
 		case m.prURL != "":
 			b.WriteString("\n  " + mark("OK") + " PR creado:\n")
 			b.WriteString("  " + m.prURL + "\n")
-			b.WriteString(footer("q salir"))
+			b.WriteString(m.footerLine())
 		case m.pushPhase == pushPRConfirm && m.aiPending:
 			// A suggestion is still generating: never-silently-skip fix
 			// blocks creation until it lands or the user backs out.
 			b.WriteString("\n  Esperando sugerencia IA...\n")
-			b.WriteString(footer("n/Esc/q volver"))
+			b.WriteString(m.footerLine())
 		case m.pushPhase == pushPRConfirm && m.aiTitle != "" && !m.aiAccepted:
 			// A suggestion is ready but unaccepted: the AI title/description
 			// are already shown by viewAIBlock above — ask explicitly instead
 			// of defaulting to the formula title (never-silently-skip fix).
 			b.WriteString("\n  ¿Crear la PR con la sugerencia IA?\n")
-			b.WriteString(footer("y con IA   d título default   n/Esc/q cancelar"))
+			b.WriteString(m.footerLine())
 		case m.pushPhase == pushPRConfirm:
 			b.WriteString("\n  ¿Confirmar creación del PR con gh?\n")
-			b.WriteString(footer("y confirmar crear PR   n/Esc/q cancelar"))
+			b.WriteString(m.footerLine())
 		case m.pushPhase == pushPRCreating:
 			b.WriteString("\n  Creando PR...\n")
-			b.WriteString(footer("q salir"))
+			b.WriteString(m.footerLine())
 		default: // pushReady
 			if m.prErr != nil {
 				b.WriteString("\n  " + mark("XX") + " La creación del PR falló (crea el PR manualmente con los datos de arriba):\n")
 				b.WriteString("  " + m.prErr.Error() + "\n")
 			}
-			b.WriteString(footer("g crear PR con gh" + m.aiFooterPart() + "   q salir"))
+			b.WriteString(m.footerLine())
 		}
 		return b.String()
 	}
@@ -1050,25 +1021,8 @@ func (m Model) viewPRData() string {
 		}
 		b.WriteString("  Crea el PR manualmente con base/compare/título de arriba.\n")
 	}
-	if m.pushPhase == pushReady && m.aiFooterPart() != "" {
-		b.WriteString(footer(strings.TrimPrefix(m.aiFooterPart(), "   ") + "   q salir"))
-	} else {
-		b.WriteString(footer("q salir"))
-	}
+	b.WriteString(m.footerLine())
 	return b.String()
-}
-
-// aiFooterPart is the push-ready footer segment for the `a` key, with its
-// leading separator, or "" when `a` does nothing: AI not wired, a request
-// pending, or the suggestion already accepted (keys.go pushReady `a`).
-func (m Model) aiFooterPart() string {
-	switch {
-	case m.deps.GenerateSummary == nil || m.aiPending || m.aiAccepted:
-		return ""
-	case m.aiTitle != "":
-		return "   a aceptar sugerencia"
-	}
-	return "   a sugerir título"
 }
 
 // deleteConfirmView renders the inline current-branch delete confirmation
@@ -1079,10 +1033,10 @@ func (m Model) deleteConfirmView() (string, bool) {
 	switch m.cleanupPhase {
 	case cleanupConfirm:
 		return fmt.Sprintf("\n  ¿Borrar la rama %s?\n", m.plan.PromotionBranch) +
-			footer("y confirmar   n/Esc/q cancelar"), true
+			m.footerLine(), true
 	case cleanupStrongConfirm:
 		return fmt.Sprintf("\n  La rama %s tiene commits sin pushear. Escribe BORRAR para confirmar:\n", m.plan.PromotionBranch) +
-			"  " + m.deleteConfirm + "_\n" + m.noticeLine() + footer("Enter confirmar   Esc cancelar"), true
+			"  " + m.deleteConfirm + "_\n" + m.noticeLine() + m.footerLine(), true
 	}
 	return "", false
 }
@@ -1346,7 +1300,7 @@ func (m Model) viewRunHistory() string {
 
 	if len(m.runs) == 0 {
 		b.WriteString("  (sin runs registrados)\n")
-		b.WriteString(footer("Esc volver   q salir"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 
@@ -1414,27 +1368,8 @@ func (m Model) viewRunHistory() string {
 	}
 
 	b.WriteString(m.noticeLine())
-	b.WriteString(footer(m.runHistoryFooter()))
+	b.WriteString(m.footerLine())
 	return b.String()
-}
-
-// runHistoryFooter advertises x (quick deploy) and r (re-promote) only when
-// the selected row passes the same eligibility predicates keyRunHistory
-// enforces, so the footer never shows a key that would be a silent no-op.
-// q/esc return to the main menu, hence "q volver".
-func (m Model) runHistoryFooter() string {
-	parts := []string{"Enter reanudar", "d detalle"}
-	if m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
-		rec := m.runs[m.runsCursor]
-		if ok, _ := runs.QuickDeployEligible(rec, m.now()); ok {
-			parts = append(parts, "x quick deploy")
-		}
-		if isRePromoteEligible(rec) {
-			parts = append(parts, "r re-promocionar")
-		}
-	}
-	parts = append(parts, "↑/↓ navegar", "Esc volver", "q salir")
-	return strings.Join(parts, "   ")
 }
 
 // phaseLabelES maps the persisted run Phase values to their Spanish display
@@ -1488,7 +1423,7 @@ func (m Model) viewBranchCleanup() string {
 
 	if m.cleanupPhase == cleanupLoading {
 		b.WriteString("\n  Cargando ramas deploy/*...\n")
-		b.WriteString(footer("ctrl+c interrumpe"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 
@@ -1500,7 +1435,7 @@ func (m Model) viewBranchCleanup() string {
 		if m.cleanupNotice == "" {
 			b.WriteString("\n  (sin ramas huerfanas)\n")
 		}
-		b.WriteString(footer("p retención de runs   Esc volver   q salir"))
+		b.WriteString(m.footerLine())
 		return b.String()
 	}
 
@@ -1526,20 +1461,20 @@ func (m Model) viewBranchCleanup() string {
 		// Review H-1: the unpushed-count query for the captured target is in
 		// flight; cursor-move keys are inert until it lands.
 		b.WriteString(fmt.Sprintf("\n  Comprobando commits sin pushear en %s...\n", m.cleanupDeleteTarget))
-		b.WriteString(footer("Esc cancelar"))
+		b.WriteString(m.footerLine())
 	case cleanupConfirm:
 		b.WriteString(fmt.Sprintf("\n  ¿Borrar la rama %s?\n", m.cleanupDeleteTarget))
-		b.WriteString(footer("y confirmar   n/Esc/q cancelar"))
+		b.WriteString(m.footerLine())
 	case cleanupStrongConfirm:
 		b.WriteString(fmt.Sprintf("\n  La rama %s tiene commits sin pushear. Escribe BORRAR para confirmar:\n", m.cleanupDeleteTarget))
 		b.WriteString("  " + m.deleteConfirm + "_\n")
-		b.WriteString(footer("Enter confirmar   Esc cancelar"))
+		b.WriteString(m.footerLine())
 	case cleanupPruneConfirm:
 		b.WriteString(fmt.Sprintf("\n  ¿Aplicar retención de runs (keepLast=%d, keepDays=%d)?\n",
 			m.deps.Config.Runs.KeepLast, m.deps.Config.Runs.KeepDays))
-		b.WriteString(footer("y confirmar   n/Esc/q cancelar"))
+		b.WriteString(m.footerLine())
 	default:
-		b.WriteString(footer("d borrar   p retención de runs   ↑/↓ navegar   Esc volver   q salir"))
+		b.WriteString(m.footerLine())
 	}
 	return b.String()
 }
@@ -1572,7 +1507,7 @@ func (m Model) viewBranchCollision() string {
 	if m.notice != "" {
 		b.WriteString("\n  " + m.notice + "\n")
 	}
-	b.WriteString(footer("r reusar   d borrar y recrear   c/Esc cancelar   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }
 
@@ -1588,6 +1523,6 @@ func (m Model) viewVerification() string {
 		}
 		b.WriteString("\n  El estado resultante de los ficheros marcados no existe en ninguna\n  rama y no ha sido probado. Revisa antes de generar el delta.\n")
 	}
-	b.WriteString(footer("Enter continuar igualmente   e editar selección   q salir"))
+	b.WriteString(m.footerLine())
 	return b.String()
 }

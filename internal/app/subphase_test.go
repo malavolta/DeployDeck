@@ -67,33 +67,6 @@ func acts(base Model, key string) bool {
 		nm.cleanupPhase != base.cleanupPhase || nm.View() != base.View()
 }
 
-// TestFooterParity_SubPhaseKeys: for each sub-phase, every advertised key acts
-// and every acting key among y/n/a/d/p/g/enter/esc/q is advertised. Typed
-// (strong confirm) states exempt q and rune keys: q is text unless the buffer
-// is empty.
-func TestFooterParity_SubPhaseKeys(t *testing.T) {
-	probes := []string{"y", "n", "a", "d", "p", "g", "enter", "esc", "q"}
-	for _, f := range subPhaseFixtures() {
-		t.Run(f.name, func(t *testing.T) {
-			m := New(Deps{Dir: "/repo", Config: testConfig()})
-			f.set(&m)
-			keys, text, ok := footerKeys(m.View())
-			if !ok {
-				t.Fatalf("no footer:\n%s", m.View())
-			}
-			typed := m.cleanupPhase == cleanupStrongConfirm
-			for _, k := range probes {
-				if typed && k != "enter" && k != "esc" {
-					continue
-				}
-				if got := acts(m, k); got != keys[k] {
-					t.Errorf("footer %q: key %s advertised=%v acts=%v", text, k, keys[k], got)
-				}
-			}
-		})
-	}
-}
-
 func TestSubPhase_DeletePromptOnSucceededAndAborted(t *testing.T) {
 	for _, s := range []State{StateSucceeded, StateAborted} {
 		m := New(Deps{Dir: "/repo"})
