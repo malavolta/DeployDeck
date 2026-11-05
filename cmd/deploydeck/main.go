@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	osexec "os/exec"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,7 +33,7 @@ import (
 	"github.com/malavolta/DeployDeck/internal/version"
 )
 
-// githubAPIBaseURL is the production GitHub API root defaultCheckUpdate
+// githubAPIBaseURL is the production GitHub API root newCheckUpdate
 // queries for the latest release tag.
 const githubAPIBaseURL = "https://api.github.com"
 
@@ -260,6 +262,14 @@ func defaultRunTUI(dir string) error {
 		return err
 	}
 
+	// Cache dir failure leaves cacheDir "" so every check is live.
+	cacheDir, _ := os.UserCacheDir()
+	if cacheDir != "" {
+		cacheDir = filepath.Join(cacheDir, "deploydeck")
+	}
+	exe := resolveExePath()
+	uw := composeUpdate(githubAPIBaseURL, cacheDir, version.Version, exe, runtime.GOOS, os.Getenv, osexec.LookPath)
+
 	deps := app.Deps{
 		Git:   g,
 		SF:    salesforce.New(runner),
@@ -280,7 +290,9 @@ func defaultRunTUI(dir string) error {
 		// or re-choose — a directory itself.
 		NewChecker:  func() (*prereq.Checker, error) { return newChecker(cfg, r) },
 		Edit:        editHandoff,
-		CheckUpdate: defaultCheckUpdate,
+		CheckUpdate: uw.CheckUpdate,
+		CanUpgrade:  uw.CanUpgrade,
+		ReleasesURL: update.ReleasesURL,
 		// GenerateSummary backs the optional ai-pr-summary suggestion
 		// affordance; nil (composeGenerateSummary's degrade) when cfg.AI is
 		// disabled/absent.
@@ -289,31 +301,22 @@ func defaultRunTUI(dir string) error {
 	}
 
 	program := tea.NewProgram(app.New(deps))
-	_, err = program.Run()
-	return err
+	final, err := program.Run()
+	if err != nil {
+		return err
+	}
+	postRun(final, uw.Method, runtime.GOOS, os.Stdout, os.Stderr, runInherited)
+	return nil
 }
 
-// defaultCheckUpdate composes the real internal/update.Checker against the
-// production GitHub API and internal/version.Version, mirroring
-// defaultChecker/defaultRunTUI's composition-root pattern (HU-019). It is the
-// real service wired into app.Deps.CheckUpdate; internal/app never imports
-// net/http/internal/update/internal/version directly (ADR-2).
-func defaultCheckUpdate(ctx context.Context) (bool, string, error) {
-	checker := update.Checker{BaseURL: githubAPIBaseURL, HTTPClient: &http.Client{}}
-	latest, err := checker.Latest(ctx)
-	return decideUpdate(latest, err)
-}
-
-// decideUpdate is the pure decision logic defaultCheckUpdate delegates to
-// after fetching the latest release tag: a fetch error degrades silently
-// (update-notification: Silent Skip on Check Failure), otherwise it defers
-// to update.HasNewer comparing the current internal/version.Version against
-// latest (which also no-nags on a "dev" build or a malformed tag).
-func decideUpdate(latest string, fetchErr error) (bool, string, error) {
+// decideUpdate is the pure decision newCheckUpdate delegates to: a fetch error
+// degrades silently (Silent Skip on Check Failure), otherwise update.HasNewer
+// compares current against latest (no-nag on "dev" or a malformed tag).
+func decideUpdate(current, latest string, fetchErr error) (bool, string, error) {
 	if fetchErr != nil {
 		return false, "", fetchErr
 	}
-	return update.HasNewer(version.Version, latest), latest, nil
+	return update.HasNewer(current, latest), latest, nil
 }
 
 // editHandoff returns a tea.Cmd that suspends the TUI and opens $EDITOR on
