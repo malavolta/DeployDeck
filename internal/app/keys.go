@@ -16,6 +16,14 @@ import (
 // handleKey routes a key press to the current-state handler.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.notice = "" // a notice lives until the next key press
+	if m.helpOpen {
+		m.helpOpen = !key.Matches(msg, keys.HelpClose)
+		return m, nil
+	}
+	if key.Matches(msg, keys.Help) && m.helpEnabled() {
+		m.helpOpen = true
+		return m, nil
+	}
 	switch m.state {
 	case StatePrereqCheck:
 		return m.keyPrereq(msg)

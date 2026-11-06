@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 
@@ -19,7 +21,7 @@ type keyMap struct {
 	Yes, YesAny, No, NoAny, DeclineAny, Decline, ConfirmSrc     key.Binding
 	Retry, Continue, Skip, Abort, Edit, EditAny, Delete, Push   key.Binding
 	PR, AI, Update, Quick, Mark, Override, Interrupt, CancelEsc key.Binding
-	Cleanup                                                     key.Binding
+	Cleanup, Help, HelpClose                                    key.Binding
 }
 
 var keys = keyMap{
@@ -31,7 +33,7 @@ var keys = keyMap{
 	Retry: kb("r"), Continue: kb("c"), Skip: kb("s"), Abort: kb("a"), Edit: kb("e"), EditAny: kb("e", "E"),
 	Delete: kb("d"), Push: kb("p"), PR: kb("g"), AI: kb("a"), Update: kb("u"), Quick: kb("x"),
 	Mark: kb(" ", "space", "x"), Override: kb("o", "O"), Interrupt: kb("ctrl+c"), CancelEsc: kb("c", "esc"),
-	Cleanup: kb("b"),
+	Cleanup: kb("b"), Help: kb("?"), HelpClose: kb("?", "esc"),
 }
 
 // hint returns a copy of b with footer help and enablement, leaving the shared
@@ -97,8 +99,63 @@ func bEnter(d string) key.Binding {
 	return on(keys.Enter, "Enter", d)
 }
 
-// bindings is the footer/keymap of the current screen; it mirrors viewBody.
+// bindings is the footer/keymap of the current screen: the screen's own
+// bindings plus `? ayuda` last where the overlay can open, or only the close
+// key while it is open.
 func (m Model) bindings() []key.Binding {
+	if m.helpOpen {
+		return []key.Binding{on(keys.HelpClose, "?/Esc", "cerrar")}
+	}
+	bs := m.screenBindings()
+	if m.helpEnabled() {
+		bs = append(bs, on(keys.Help, "?", "ayuda"))
+	}
+	return bs
+}
+
+// textInput reports a state that consumes typed text, where `?` is a plain
+// character and never a binding.
+func (m Model) textInput() bool {
+	switch m.state {
+	case StateTicketInput, StatePackageSelect, StateCancelConfirm, StateQuickDeploy:
+		return true
+	}
+	return m.cleanupPhase == cleanupStrongConfirm
+}
+
+// interruptOnly reports an in-flight screen: its only binding is ctrl+c.
+func interruptOnly(bs []key.Binding) bool {
+	return len(bs) == 1 && bs[0].Keys()[0] == "ctrl+c"
+}
+
+func (m Model) helpEnabled() bool { return !m.textInput() && !interruptOnly(m.screenBindings()) }
+
+// overlayEntries lists every binding for the help overlay, including the
+// disabled ones (marked unavailable) and those with no footer help text.
+func overlayEntries(bs []key.Binding) []key.Binding {
+	out := make([]key.Binding, 0, len(bs))
+	for _, b := range bs {
+		h := b.Help()
+		if h.Key == "" {
+			h.Key = strings.Join(b.Keys(), "/")
+		}
+		if !b.Enabled() {
+			h.Desc += " (no disponible)"
+		}
+		b.SetHelp(h.Key, h.Desc)
+		b.SetEnabled(true)
+		out = append(out, b)
+	}
+	return out
+}
+
+func (m Model) viewHelp() string {
+	return m.screenHeader("Atajos") + "\n" + help.Model{}.FullHelpView([][]key.Binding{overlayEntries(m.screenBindings())}) +
+		"\n" + footerOf(m.bindings()...)
+}
+
+// screenBindings is the screen's own keymap; it mirrors viewBody.
+func (m Model) screenBindings() []key.Binding {
 	picker := []key.Binding{bEnter("seleccionar"), bNav("navegar"), bEsc("volver"), bQuit()}
 	exit := on(keys.Exit, "Enter/q/Esc", "salir")
 	switch m.state {

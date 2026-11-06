@@ -1122,7 +1122,7 @@ func TestCleanup_EmptyListPruneConfirmIsVisible(t *testing.T) {
 	if !strings.Contains(v, "¿Aplicar retención de runs") {
 		t.Errorf("empty-list prune confirmation must render its prompt:\n%s", v)
 	}
-	if !strings.Contains(v, "[ y confirmar   n/Esc/q cancelar ]") {
+	if !strings.Contains(v, "[ y confirmar   n/Esc/q cancelar   ? ayuda ]") {
 		t.Errorf("empty-list prune confirmation must show the y/n footer:\n%s", v)
 	}
 	if strings.Contains(v, "p retención de runs") {

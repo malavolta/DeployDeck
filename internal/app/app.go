@@ -470,7 +470,11 @@ type Model struct {
 	// width and height are the terminal size from tea.WindowSizeMsg; 0 means
 	// unknown and leaves every view unwindowed and untruncated.
 	width, height int
-	runDetail     bool
+
+	// helpOpen is the modal `?` overlay: it replaces the body and swallows
+	// every key but ?, Esc and ctrl+c.
+	helpOpen  bool
+	runDetail bool
 	// runsLoadErr is a failed fresh run-list load fired by the "Historial de
 	// runs" menu entry (onRunHistoryLoaded). A DEDICATED field rendered only
 	// by viewRunHistory — never the shared m.notice — so a stale load error

@@ -18,6 +18,9 @@ import (
 // View renders the update-notice banner (HU-019) followed by the current
 // screen (design's data flow: "View() = m.updateBanner() + m.viewBody()").
 func (m Model) View() string {
+	if m.helpOpen {
+		return m.viewHelp()
+	}
 	return m.updateBanner() + m.viewBody()
 }
 

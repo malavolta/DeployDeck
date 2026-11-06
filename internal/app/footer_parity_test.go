@@ -154,6 +154,7 @@ func parityFixtures() []struct {
 		{"pr confirm", push(pushPRConfirm, github.AuthAuthenticated, false, nil)},
 		{"pr confirm ai ready", push(pushPRConfirm, github.AuthAuthenticated, true, func(m *Model) { m.aiTitle = "t" })},
 		{"pr confirm ai pending", push(pushPRConfirm, github.AuthAuthenticated, true, func(m *Model) { m.aiPending = true })},
+		{"help open", set(StateMainMenu, func(m *Model) { m.helpOpen = true })},
 		{"queue failed", set(StateQueueReview, func(m *Model) { m.queueErr = errStub })},
 		{"history terminal row", set(StateRunHistory, func(m *Model) {
 			m.runs = []runs.Record{{RunID: "t", Status: "Succeeded", JobID: "J", CreatedAt: time.Now()}, m.runs[0]}
