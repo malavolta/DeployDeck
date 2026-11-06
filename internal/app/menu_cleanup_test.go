@@ -11,16 +11,6 @@ import (
 	"github.com/malavolta/DeployDeck/internal/git"
 )
 
-// isQuit reports whether cmd is the quit command (Deps.Git is nil in these
-// models, so quitCmd degrades to tea.Quit).
-func isQuit(cmd tea.Cmd) bool {
-	if cmd == nil {
-		return false
-	}
-	_, ok := cmd().(tea.QuitMsg)
-	return ok
-}
-
 // cmdName is the symbol of cmd's closure. Ticks and batches are told apart by
 // it without running them (a tick would block for its interval; closure code
 // pointers are not stable across inlined tea.Batch call sites).
@@ -33,6 +23,17 @@ func cmdName(cmd tea.Cmd) string {
 
 func isTick(cmd tea.Cmd) bool  { return strings.HasSuffix(cmdName(cmd), "bubbletea.Tick.func1") }
 func isBatch(cmd tea.Cmd) bool { return strings.Contains(cmdName(cmd), "Batch.compactCmds") }
+
+// isQuit reports whether cmd is a quit command (tea.Quit, or the guarded
+// quitCmd closure that restores the branch before quitting). It identifies the
+// command by code identity and never runs it: running a poll tick or a git
+// restore just to look at its message is what made the suite slow.
+func isQuit(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	return reflect.ValueOf(cmd).Pointer() == reflect.ValueOf(tea.Quit).Pointer() || strings.Contains(cmdName(cmd), "quitCmd.func")
+}
 
 // hasTick reports whether cmd is or batches a tick.
 func hasTick(cmd tea.Cmd) bool {
@@ -75,6 +76,20 @@ func cleanupListModel() Model {
 	m.cleanupPhase = cleanupBrowsing
 	m.cleanupBranches = []cleanupRow{{DeployBranch: git.DeployBranch{Name: "deploy/DD-7"}}}
 	return m
+}
+
+func TestIsQuit_IdentifiesWithoutRunning(t *testing.T) {
+	g := New(Deps{Dir: "/repo", Git: pushGit("/repo", "b", "u", true)})
+	g.originalBranch = "main"
+	if !isQuit(tea.Quit) || !isQuit(g.quitCmd()) || isQuit(nil) {
+		t.Error("tea.Quit and the quitCmd closure must count as quit")
+	}
+	if isQuit(func() tea.Msg { t.Fatal("isQuit must never run the command"); return nil }) || isQuit(spinnerCmd()) {
+		t.Error("other commands are not quit")
+	}
+	if !isTick(spinnerCmd()) || !isTick(tickCmd()) || isTick(tea.Quit) || !isBatch(tea.Batch(tea.Quit, spinnerCmd())) {
+		t.Error("tick and batch detection are off")
+	}
 }
 
 func TestMenuCleanup_EntryOrderAndDescription(t *testing.T) {
