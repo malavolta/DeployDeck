@@ -297,6 +297,19 @@ type resumeDetectMsg struct {
 	err     error
 }
 
+// runHistoryLoadedMsg is the fresh run-list load fired when the user opens
+// StateRunHistory from the main menu ("Historial de runs"). records is the
+// Runs.List snapshot (newest-first). state is the live RepoState, valid only
+// when stateKnown is true: the repo read is best-effort here (a nil Git or a
+// failed read must never hide the history), so stale-run reconciliation runs
+// only against a state that was actually read. err is a failed listing.
+type runHistoryLoadedMsg struct {
+	state      git.RepoState
+	stateKnown bool
+	records    []runs.Record
+	err        error
+}
+
 // cancelDoneMsg carries the HU-012 cancel outcome: the raw cancel response
 // (persisted verbatim as cancel.json on success) or an error. onCancelDone
 // marks the run Canceled + persists on success, or surfaces the error WITHOUT
@@ -416,20 +429,20 @@ func resolveMergeTarget(records []runs.Record, format, name string) (string, boo
 	return "", false
 }
 
-// mergedLabel classifies an orphan branch's best-effort "likely merged" vs
-// "abandoned" advisory label from IsMergedInto's result (branch-cleanup spec:
+// mergedLabel classifies an orphan branch's best-effort "probablemente fusionada" vs
+// "abandonada" advisory label from IsMergedInto's result (branch-cleanup spec:
 // "Merged-Vs-Abandoned Is A Best-Effort Label Only" — this label NEVER gates
 // deletion, see keyBranchCleanup's unconditional unpushedCountCmd gate). An
 // unresolved target (ok==false) or an ancestor-check error both degrade to
-// "unknown" rather than guessing.
+// "desconocida" rather than guessing.
 func mergedLabel(ok, merged bool, err error) string {
 	if !ok || err != nil {
-		return "unknown"
+		return "desconocida"
 	}
 	if merged {
-		return "likely merged"
+		return "probablemente fusionada"
 	}
-	return "abandoned"
+	return "abandonada"
 }
 
 // shouldRestore is the pure HU-017 restore-on-quit guard (design.md "Quit-
@@ -1110,6 +1123,35 @@ func (m Model) resumeDetectCmd() tea.Cmd {
 		}
 		records, err := writer.List()
 		return resumeDetectMsg{state: state, records: records, err: err}
+	}
+}
+
+// runHistoryLoadCmd reloads the run list for the "Historial de runs" menu
+// entry. It reuses the same injected dependencies as resumeDetectCmd
+// (Runs.List + Git.RepoState) but, unlike startup detection, the repo read is
+// best-effort: a nil Git or a failed RepoState still delivers the records
+// (stateKnown=false), because the history must stay browsable regardless. A
+// nil Runs writer disables the load (nil cmd), leaving m.runs as-is.
+func (m Model) runHistoryLoadCmd() tea.Cmd {
+	writer := m.deps.Runs
+	if writer == nil {
+		return nil
+	}
+	g := m.deps.Git
+	dir := m.deps.GitRoot
+	parent := m.ctx()
+	return func() tea.Msg {
+		var msg runHistoryLoadedMsg
+		if g != nil {
+			ctx, cancel := context.WithTimeout(parent, resumeDetectTimeout)
+			state, err := g.RepoState(ctx, dir)
+			cancel()
+			if err == nil {
+				msg.state, msg.stateKnown = state, true
+			}
+		}
+		msg.records, msg.err = writer.List()
+		return msg
 	}
 }
 

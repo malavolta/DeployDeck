@@ -99,7 +99,7 @@ func TestViewBranchCleanup_ColumnHeaders(t *testing.T) {
 	m.state = StateBranchCleanup
 	m.cleanupPhase = cleanupBrowsing
 	m.cleanupBranches = []cleanupRow{
-		{DeployBranch: git.DeployBranch{Name: "deploy/PROJ-1-to-UAT"}, MergedLabel: "unknown"},
+		{DeployBranch: git.DeployBranch{Name: "deploy/PROJ-1-to-UAT"}, MergedLabel: "desconocida"},
 	}
 
 	v := m.viewBranchCleanup()
@@ -265,7 +265,7 @@ func TestView_AI_UnacceptedSuggestion_ShowsTitleAndAcceptHint(t *testing.T) {
 		t.Errorf("the AI-generated description should be shown alongside the title for review, got:\n%s", v)
 	}
 	formulaTitle := github.SuggestedTitle("PROJ-1", "UAT")
-	if !strings.Contains(v, "title:   "+formulaTitle) {
+	if !strings.Contains(v, "título:  "+formulaTitle) {
 		t.Errorf("an unaccepted suggestion must NOT replace the effective title line, got:\n%s", v)
 	}
 }
@@ -303,7 +303,7 @@ func TestView_AI_Accepted_TitleReplacesFormulaEverywhere(t *testing.T) {
 	if strings.Contains(v, formulaTitle) {
 		t.Errorf("an accepted AI title must replace the formula title everywhere, formula still present:\n%s", v)
 	}
-	if !strings.Contains(v, "title:   PROJ-1 - AI drafted title") {
+	if !strings.Contains(v, "título:  PROJ-1 - AI drafted title") {
 		t.Errorf("accepted AI title should appear on the title line, got:\n%s", v)
 	}
 }
