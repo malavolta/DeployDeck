@@ -189,6 +189,9 @@ const (
 	// q/esc are the only live keys, backing out to StateRunHistory. Appended
 	// last so every prior State's value is never renumbered.
 	StateDeployGateBlocked
+	// stateCount is the number of states. It MUST stay last: the parity test
+	// ranges over every state below it and fails when a state has no fixture.
+	stateCount
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,

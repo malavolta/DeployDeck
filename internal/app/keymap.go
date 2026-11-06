@@ -70,6 +70,18 @@ func (m Model) aiAvailable() bool {
 	return m.deps.GenerateSummary != nil && !m.aiPending && !m.aiAccepted
 }
 
+// aiActionable reports whether `a` acts on push-ready: AI is wired and no PR
+// exists yet. The footer and the handler share it.
+func (m Model) aiActionable() bool {
+	return m.pushPhase == pushReady && m.prURL == "" && m.aiAvailable()
+}
+
+// canResume reports whether Enter acts on the selected history row.
+func (m Model) canResume() bool {
+	rec, ok := m.selectedRun()
+	return ok && isResumable(rec, m.repoState)
+}
+
 func (m Model) selectedRun() (runs.Record, bool) {
 	if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
 		return runs.Record{}, false
@@ -181,7 +193,7 @@ func typedConfirm() []key.Binding { return []key.Binding{bEnter("confirmar"), bE
 func (m Model) historyBindings() []key.Binding {
 	rec, sel := m.selectedRun()
 	quick, _ := runs.QuickDeployEligible(rec, m.now())
-	return []key.Binding{hint(keys.Enter, "Enter", "reanudar", len(m.runs) > 0), hint(keys.Delete, "d", "detalle", len(m.runs) > 0),
+	return []key.Binding{hint(keys.Enter, "Enter", "reanudar", m.canResume()), hint(keys.Delete, "d", "detalle", len(m.runs) > 0),
 		hint(keys.Quick, "x", "quick deploy", sel && quick), hint(keys.Retry, "r", "re-promocionar", sel && isRePromoteEligible(rec)),
 		hint(keys.Nav, "↑/↓", "navegar", len(m.runs) > 0), bEsc("volver"), bQuit()}
 }
@@ -211,7 +223,7 @@ func (m Model) pushBindings() []key.Binding {
 	if m.aiTitle != "" {
 		ai = "aceptar sugerencia"
 	}
-	aiKey := hint(keys.AI, "a", ai, m.aiAvailable())
+	aiKey := hint(keys.AI, "a", ai, m.aiActionable())
 	switch m.pushPhase {
 	case pushConfirm:
 		return []key.Binding{on(keys.Push, "p", "ejecutar push"), bEsc("volver"), q}
@@ -220,7 +232,7 @@ func (m Model) pushBindings() []key.Binding {
 		return []key.Binding{q}
 	}
 	if m.authState != github.AuthAuthenticated {
-		return []key.Binding{hint(aiKey, "a", ai, m.pushPhase == pushReady && m.aiAvailable()), q}
+		return []key.Binding{hint(aiKey, "a", ai, m.aiActionable()), q}
 	}
 	switch {
 	case m.prURL != "", m.pushPhase == pushPRCreating:

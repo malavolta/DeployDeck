@@ -54,6 +54,11 @@ func subPhaseFixtures() []struct {
 		{"cleanup prune", func(m *Model) { *m = cleanupListModel(); m.cleanupPhase = cleanupPruneConfirm }},
 		{"cleanup list", func(m *Model) { *m = cleanupListModel() }},
 		{"ready authed ai", ready(github.AuthAuthenticated, true)},
+		{"ready authed ai after PR", func(m *Model) { ready(github.AuthAuthenticated, true)(m); m.prURL = "https://pr/1" }},
+		{"cleanup empty prune", func(m *Model) {
+			*m = cleanupListModel()
+			m.cleanupBranches, m.cleanupPhase = nil, cleanupPruneConfirm
+		}},
 		{"ready authed no ai", ready(github.AuthAuthenticated, false)},
 		{"ready compare ai", ready(github.AuthUnauthenticated, true)},
 		{"ready compare no ai", ready(github.AuthUnauthenticated, false)},

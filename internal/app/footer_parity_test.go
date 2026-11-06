@@ -2,7 +2,10 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -151,14 +154,13 @@ func parityFixtures() []struct {
 		{"pr confirm", push(pushPRConfirm, github.AuthAuthenticated, false, nil)},
 		{"pr confirm ai ready", push(pushPRConfirm, github.AuthAuthenticated, true, func(m *Model) { m.aiTitle = "t" })},
 		{"pr confirm ai pending", push(pushPRConfirm, github.AuthAuthenticated, true, func(m *Model) { m.aiPending = true })},
+		{"queue failed", set(StateQueueReview, func(m *Model) { m.queueErr = errStub })},
+		{"history terminal row", set(StateRunHistory, func(m *Model) {
+			m.runs = []runs.Record{{RunID: "t", Status: "Succeeded", JobID: "J", CreatedAt: time.Now()}, m.runs[0]}
+		})},
 		{"ready authed accept", push(pushReady, github.AuthAuthenticated, true, func(m *Model) { m.aiTitle = "t" })},
 	}
-	for s := State(0); ; s++ {
-		probe := New(Deps{})
-		probe.state = s
-		if probe.viewBody() == "" {
-			break
-		}
+	for s := State(0); s < stateCount; s++ {
 		list = append(list, struct {
 			name string
 			set  func(*Model)
@@ -169,11 +171,76 @@ func parityFixtures() []struct {
 
 func fixtureModel(set func(*Model)) Model {
 	m := richModel()
+	m.ticket, m.packagePath, m.cancelInput, m.quickConfirm, m.deleteConfirm = "DD-1", validPackagePath(), "CANCELAR", "DESPLEGAR", "BORRAR"
 	set(&m)
 	if len(m.cleanupBranches) == 1 {
 		m.cleanupBranches = append(m.cleanupBranches, m.cleanupBranches[0])
 	}
 	return m
+}
+
+var (
+	pkgOnce sync.Once
+	pkgPath string
+)
+
+// validPackagePath writes (once) a minimal package.xml so Enter on the
+// package-path fixture acts without relying on a notice.
+func validPackagePath() string {
+	pkgOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "dd-pkg")
+		if err != nil {
+			panic(err)
+		}
+		pkgPath = filepath.Join(dir, "package.xml")
+		x := `<?xml version="1.0"?><Package xmlns="http://soap.sforce.com/2006/04/metadata"><types><members>A</members><name>ApexClass</name></types><version>60.0</version></Package>`
+		if err := os.WriteFile(pkgPath, []byte(x), 0o600); err != nil {
+			panic(err)
+		}
+	})
+	return pkgPath
+}
+
+// blockedNotice lists the (state, key) pairs that are enabled by design yet
+// only set a Spanish notice. Every entry must be used by some fixture.
+var blockedNotice = map[State][]string{}
+
+func isBlockedNotice(s State, k string) bool {
+	for _, b := range blockedNotice[s] {
+		if b == k {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStateCount_Sentinel(t *testing.T) {
+	for s := State(0); s < stateCount; s++ {
+		probe := New(Deps{})
+		probe.state = s
+		if probe.viewBody() == "" {
+			t.Errorf("state %d < stateCount has an empty view", s)
+		}
+	}
+	for _, s := range []State{stateCount, stateCount + 1} {
+		probe := New(Deps{})
+		probe.state = s
+		if probe.viewBody() != "" {
+			t.Errorf("state %d >= stateCount has a view: stateCount is stale", s)
+		}
+	}
+}
+
+func TestParityFixtures_NamedSubPhases(t *testing.T) {
+	have := map[string]bool{}
+	for _, f := range parityFixtures() {
+		have[f.name] = true
+	}
+	for _, n := range []string{"history terminal row", "ready authed ai after PR", "cleanup empty prune", "queue failed"} {
+		if !have[n] {
+			t.Errorf("missing parity fixture %q", n)
+		}
+	}
 }
 
 func isTyped(m Model) bool {
@@ -184,15 +251,15 @@ func isTyped(m Model) bool {
 	return m.cleanupPhase == cleanupStrongConfirm
 }
 
-// pressed reports whether k had any effect; lenient also counts a blocked-key
-// notice as an effect (enabled keys may explain why they cannot proceed).
-func pressed(base Model, k string, lenient bool) bool {
-	if !lenient {
-		return acts(base, k)
+// pressed reports whether k acts. A key on the explicit blocked-notice list
+// may satisfy parity by producing its notice; nothing else may.
+func pressed(base Model, k string, listed bool) bool {
+	if listed {
+		if nm, _ := press(base, k); nm.notice != "" {
+			return true
+		}
 	}
-	nm, cmd := press(base, k)
-	return cmd != nil || nm.notice != "" || nm.state != base.state || nm.cleanupPhase != base.cleanupPhase ||
-		nm.pushPhase != base.pushPhase || nm.View() != base.View()
+	return acts(base, k)
 }
 
 // TestFooterParity_Structural: every state has bindings, the footer is exactly
@@ -200,6 +267,7 @@ func pressed(base Model, k string, lenient bool) bool {
 // enabled binding names it.
 func TestFooterParity_Structural(t *testing.T) {
 	fixtures := parityFixtures()
+	usedBlocked := map[string]bool{}
 	universe := map[string]bool{}
 	covered := map[State]bool{}
 	for _, f := range fixtures {
@@ -215,14 +283,9 @@ func TestFooterParity_Structural(t *testing.T) {
 			}
 		}
 	}
-	for s := State(0); ; s++ {
-		probe := New(Deps{})
-		probe.state = s
-		if probe.viewBody() == "" {
-			break
-		}
+	for s := State(0); s < stateCount; s++ {
 		if !covered[s] {
-			t.Errorf("state %v has no fixture", s)
+			t.Errorf("state %d has no fixture", s)
 		}
 	}
 	for _, f := range fixtures {
@@ -259,5 +322,12 @@ func TestFooterParity_Structural(t *testing.T) {
 				}
 			}
 		})
+	}
+	for st, ks := range blockedNotice {
+		for _, k := range ks {
+			if !usedBlocked[fmt.Sprint(st, k)] {
+				t.Errorf("blockedNotice entry %v/%q is used by no fixture", st, k)
+			}
+		}
 	}
 }

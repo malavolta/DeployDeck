@@ -457,9 +457,10 @@ func (m Model) keyPushPreparation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// ACCEPTED by this second press — the only place aiAccepted is
 			// ever set. A nil dep (AI not configured) leaves 'a' inert
 			// entirely (spec: "No ai config leaves pushReady unchanged").
-			switch {
-			case m.aiPending || m.aiAccepted:
+			if !m.aiActionable() {
 				return m, nil
+			}
+			switch {
 			case m.aiTitle != "":
 				m.aiAccepted = true
 				return m, nil
@@ -1379,10 +1380,9 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.runDetail = !m.runDetail
 		return m, nil
 	case key.Matches(msg, keys.Enter):
-		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+		if !m.canResume() {
 			return m, nil
 		}
-		// resumeInto is a no-op for a terminal run, leaving the user on history.
 		return m.resumeInto(m.runs[m.runsCursor])
 	case key.Matches(msg, keys.Retry):
 		// HU-016: re-promote the selected row's ticket into the next
