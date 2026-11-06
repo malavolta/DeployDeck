@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,8 +22,39 @@ func cmdName(cmd tea.Cmd) string {
 	return runtime.FuncForPC(reflect.ValueOf(cmd).Pointer()).Name()
 }
 
-func isTick(cmd tea.Cmd) bool  { return strings.HasSuffix(cmdName(cmd), "bubbletea.Tick.func1") }
-func isBatch(cmd tea.Cmd) bool { return strings.Contains(cmdName(cmd), "Batch.compactCmds") }
+func rawTick(cmd tea.Cmd) bool { return strings.HasSuffix(cmdName(cmd), "bubbletea.Tick.func1") }
+
+// rawBatch runs the command to see whether it is a batch (a batch only returns
+// its slice, so this never blocks). Only commands that could be a batch are
+// run, never a tick or an app command such as a git call; the closure name is
+// a prefilter and the BatchMsg type is the actual proof, so it does not depend
+// on whether the compiler inlined tea.Batch.
+func rawBatch(cmd tea.Cmd) bool {
+	if cmd == nil || rawTick(cmd) {
+		return false
+	}
+	n := cmdName(cmd)
+	if !strings.Contains(n, "Batch") && !strings.Contains(n, "compactCmds") && !strings.Contains(n, "bubbletea.") {
+		return false
+	}
+	_, ok := cmd().(tea.BatchMsg)
+	return ok
+}
+
+var detectionOnce sync.Once
+
+// checkDetection is a canary that runs once under any -run filter: a broken
+// tick or batch detector would make negative assertions pass silently.
+func checkDetection() {
+	detectionOnce.Do(func() {
+		if !rawTick(spinnerCmd()) || !rawTick(tickCmd()) || rawTick(tea.Quit) || rawBatch(tea.Quit) || rawBatch(spinnerCmd()) || !rawBatch(tea.Batch(tea.Quit, spinnerCmd())) {
+			panic("tick/batch detection is broken")
+		}
+	})
+}
+
+func isTick(cmd tea.Cmd) bool  { checkDetection(); return rawTick(cmd) }
+func isBatch(cmd tea.Cmd) bool { checkDetection(); return rawBatch(cmd) }
 
 // isQuit reports whether cmd is a quit command (tea.Quit, or the guarded
 // quitCmd closure that restores the branch before quitting). It identifies the

@@ -20,7 +20,11 @@ func TestMain(m *testing.M) {
 	// Pin a dark background so AdaptiveColor never issues an OSC 11 terminal
 	// query under test and the bright palette stays deterministic.
 	lipgloss.SetHasDarkBackground(true)
-	os.Exit(m.Run())
+	code := m.Run()
+	if pkgDir != "" {
+		_ = os.RemoveAll(pkgDir)
+	}
+	os.Exit(code)
 }
 
 // withBackground forces the profile and background for one test and restores

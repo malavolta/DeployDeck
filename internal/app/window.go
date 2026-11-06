@@ -44,12 +44,13 @@ func truncate(s string, width int) string {
 func lines(s string) int { return strings.Count(s, "\n") }
 
 // listRows is how many data rows fit under height once chrome is drawn,
-// reserving two lines for the overflow indicators. Zero means unsized.
+// reserving two lines for the overflow indicators and one for the trailing
+// newline, which bubbletea counts as an extra line. Zero means unsized.
 func listRows(height int, chrome string) int {
 	if height <= 0 {
 		return 0
 	}
-	return max(3, height-lines(chrome)-2)
+	return max(3, height-lines(chrome)-3)
 }
 
 // windowedRows renders data rows (each already newline-free) between top and

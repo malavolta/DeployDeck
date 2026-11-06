@@ -1303,6 +1303,7 @@ func (m Model) keyQueueReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.queueCmd()
 	case key.Matches(msg, keys.Esc):
 		m.notice = ""
+		m.queueLoading = false
 		m.state = StatePackageReview
 		return m, nil
 	case key.Matches(msg, keys.Quit):

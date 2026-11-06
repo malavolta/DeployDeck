@@ -124,7 +124,6 @@ func parityFixtures() []struct {
 	set := func(s State, f func(*Model)) func(*Model) {
 		return func(m *Model) { m.state = s; f(m) }
 	}
-	none := func(*Model) {}
 	list := []struct {
 		name string
 		set  func(*Model)
@@ -138,7 +137,7 @@ func parityFixtures() []struct {
 			m.repoState.CurrentSHA = "a"
 			m.runs = []runs.Record{{RunID: "r", Status: "Succeeded", Phase: "cherry-pick", TestLevel: "RunLocalTests", JobID: "J", Commits: []string{"a"}, CreatedAt: time.Now()}, m.runs[0]}
 		})},
-		{"quick deploy", set(StateQuickDeploy, none)},
+		{"quick deploy", set(StateQuickDeploy, quickReady)},
 		{"quick deploy none", set(StateQuickDeploy, func(m *Model) { m.runs = nil })},
 		{"aborted no branch", set(StateAborted, func(m *Model) { m.plan.PromotionBranch = "" })},
 		{"succeeded no branch", set(StateSucceeded, func(m *Model) { m.plan.PromotionBranch = "" })},
@@ -165,9 +164,32 @@ func parityFixtures() []struct {
 		list = append(list, struct {
 			name string
 			set  func(*Model)
-		}{fmt.Sprintf("state %d", s), set(s, none)})
+		}{fmt.Sprintf("state %d", s), set(s, realistic(s))})
 	}
 	return append(list, subPhaseFixtures()...)
+}
+
+// quickReady gives the quick-deploy screen an eligible run and the execution
+// permission, so Enter (with DESPLEGAR typed) really dispatches.
+func quickReady(m *Model) {
+	m.deps.Config.QuickDeploy.AllowExecution = true
+	m.runs[0] = runs.Record{RunID: "q", Status: "Succeeded", Target: "UAT", TestLevel: "RunLocalTests", JobID: "J", CreatedAt: time.Now()}
+}
+
+// realistic returns the minimal valid setup so the primary Enter key of the
+// state acts instead of only raising a validation notice.
+func realistic(s State) func(*Model) {
+	switch s {
+	case StateCommitSelection:
+		return func(m *Model) { m.items[0].Selected = true }
+	case StateTargetSelection:
+		return func(m *Model) { m.targetCursor = 1 } // UAT has a sandbox, INT has none
+	case StatePickVerification:
+		return func(m *Model) { m.repoState.InProgress = false }
+	case StateQuickDeploy:
+		return quickReady
+	}
+	return func(*Model) {}
 }
 
 func fixtureModel(set func(*Model)) Model {
@@ -183,17 +205,18 @@ func fixtureModel(set func(*Model)) Model {
 var (
 	pkgOnce sync.Once
 	pkgPath string
+	pkgDir  string // removed by TestMain
 )
 
 // validPackagePath writes (once) a minimal package.xml so Enter on the
 // package-path fixture acts without relying on a notice.
 func validPackagePath() string {
 	pkgOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "dd-pkg")
-		if err != nil {
+		var err error
+		if pkgDir, err = os.MkdirTemp("", "dd-pkg"); err != nil {
 			panic(err)
 		}
-		pkgPath = filepath.Join(dir, "package.xml")
+		pkgPath = filepath.Join(pkgDir, "package.xml")
 		x := `<?xml version="1.0"?><Package xmlns="http://soap.sforce.com/2006/04/metadata"><types><members>A</members><name>ApexClass</name></types><version>60.0</version></Package>`
 		if err := os.WriteFile(pkgPath, []byte(x), 0o600); err != nil {
 			panic(err)
@@ -204,7 +227,10 @@ func validPackagePath() string {
 
 // blockedNotice lists the (state, key) pairs that are enabled by design yet
 // only set a Spanish notice. Every entry must be used by some fixture.
-var blockedNotice = map[State][]string{}
+var blockedNotice = map[State][]string{
+	// An empty package needs the explicit `o` override before Enter validates.
+	StatePackageReview: {"enter"},
+}
 
 func isBlockedNotice(s State, k string) bool {
 	for _, b := range blockedNotice[s] {
@@ -254,9 +280,10 @@ func isTyped(m Model) bool {
 
 // pressed reports whether k acts. A key on the explicit blocked-notice list
 // may satisfy parity by producing its notice; nothing else may.
-func pressed(base Model, k string, listed bool) bool {
+func pressed(base Model, k string, listed bool, used map[string]bool) bool {
 	if listed {
 		if nm, _ := press(base, k); nm.notice != "" {
+			used[fmt.Sprint(base.state, k)] = true
 			return true
 		}
 	}
@@ -308,7 +335,7 @@ func TestFooterParity_Structural(t *testing.T) {
 				}
 				ok := false
 				for _, k := range b.Keys() {
-					ok = ok || pressed(m, k, true)
+					ok = ok || pressed(m, k, isBlockedNotice(m.state, k), usedBlocked)
 				}
 				if !ok {
 					t.Errorf("enabled binding %q (%v) has no acting key", b.Help().Key, b.Keys())
@@ -318,7 +345,7 @@ func TestFooterParity_Structural(t *testing.T) {
 				if k == "ctrl+c" || (isTyped(m) && k != "enter" && k != "esc" && k != "backspace") {
 					continue
 				}
-				if !enabled[k] && pressed(m, k, false) {
+				if !enabled[k] && pressed(m, k, false, nil) {
 					t.Errorf("key %q acts but no enabled binding names it", k)
 				}
 			}
@@ -329,6 +356,16 @@ func TestFooterParity_Structural(t *testing.T) {
 			if !usedBlocked[fmt.Sprint(st, k)] {
 				t.Errorf("blockedNotice entry %v/%q is used by no fixture", st, k)
 			}
+		}
+	}
+}
+
+// TestIsTyped_MatchesProduction keeps the test-side typed-state predicate from
+// drifting away from the production one for every state and sub-phase.
+func TestIsTyped_MatchesProduction(t *testing.T) {
+	for _, f := range parityFixtures() {
+		if m := fixtureModel(f.set); isTyped(m) != m.textInput() {
+			t.Errorf("%s: isTyped=%v but textInput()=%v", f.name, isTyped(m), m.textInput())
 		}
 	}
 }

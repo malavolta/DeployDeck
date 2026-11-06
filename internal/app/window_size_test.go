@@ -158,3 +158,30 @@ func TestSelectionWindow_TruncatesWithStatusMark(t *testing.T) {
 		t.Errorf("selection rows must be cut to 60 cells (max %d):\n%s", maxWidth(v, "c00"), v)
 	}
 }
+
+// bubbletea splits the view on "\n", so a trailing newline is one more line and
+// a taller view loses its top row (title or banner). Both overflow indicators
+// are visible with the cursor mid-list.
+func TestWindow_MidListFitsLikeBubbletea(t *testing.T) {
+	h := manyRuns(50)
+	h.runsCursor = 25
+	s := manyCommits(60)
+	s.cursor = 30
+	for name, m := range map[string]Model{"history": h, "selection": s} {
+		v := sized(m, 100, 24).View()
+		if !strings.Contains(v, "↑ ") || !downIndicator.MatchString(v) {
+			t.Fatalf("%s: want both indicators:\n%s", name, v)
+		}
+		if n := len(strings.Split(v, "\n")); n > 24 {
+			t.Errorf("%s: bubbletea renders %d lines, want <= 24:\n%s", name, n, v)
+		}
+	}
+}
+
+func TestQueueReview_EscClearsLoading(t *testing.T) {
+	m := New(Deps{Dir: "/repo"})
+	m.state, m.queueLoading = StateQueueReview, true
+	if nm, _ := press(m, "esc"); nm.queueLoading {
+		t.Error("Esc must reset queueLoading")
+	}
+}

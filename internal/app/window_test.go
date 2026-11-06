@@ -48,8 +48,8 @@ func TestListRows(t *testing.T) {
 	if listRows(0, "a\nb\n") != 0 || listRows(-3, "") != 0 {
 		t.Error("unsized height must give 0 rows")
 	}
-	if got := listRows(24, "a\nb\nc\n"); got != 19 {
-		t.Errorf("listRows(24, 3 lines) = %d, want 19", got)
+	if got := listRows(24, "a\nb\nc\n"); got != 18 {
+		t.Errorf("listRows(24, 3 lines) = %d, want 18", got)
 	}
 	if got := listRows(5, strings.Repeat("x\n", 10)); got != 3 {
 		t.Errorf("listRows floors at 3, got %d", got)
