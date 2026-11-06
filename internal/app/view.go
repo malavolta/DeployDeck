@@ -354,6 +354,7 @@ func (m Model) viewSelection() string {
 		}
 	}
 
+	var rows []string
 	for i, it := range m.items {
 		cursor := " "
 		if i == m.cursor {
@@ -364,24 +365,22 @@ func (m Model) viewSelection() string {
 		if it.Disabled {
 			line += "  [" + it.Reason + "]"
 		}
-		b.WriteString(line + "\n")
+		rows = append(rows, line)
 	}
-
-	b.WriteString(fmt.Sprintf("\n  Seleccionados: %d\n", countSelected(m.items)))
-
-	warnings := m.selectionWarnings()
-	if len(warnings) > 0 {
-		b.WriteString("\n  Advertencias:\n")
+	var tail strings.Builder
+	tail.WriteString(fmt.Sprintf("\n  Seleccionados: %d\n", countSelected(m.items)))
+	if warnings := m.selectionWarnings(); len(warnings) > 0 {
+		tail.WriteString("\n  Advertencias:\n")
 		for _, w := range warnings {
-			b.WriteString("  - " + w + "\n")
+			tail.WriteString("  - " + w + "\n")
 		}
 	}
 	if m.notice != "" {
-		b.WriteString("\n  " + m.notice + "\n")
+		tail.WriteString("\n  " + m.notice + "\n")
 	}
-	// Empty state (spec: "Actionable Empty States"): bindings() drops the row
-	// keys when there are no rows.
-	b.WriteString(m.footerLine())
+	tail.WriteString(m.footerLine())
+	b.WriteString(m.windowedRows(b.String(), tail.String(), rows, m.cursor))
+	b.WriteString(tail.String())
 	return b.String()
 }
 
@@ -1308,6 +1307,7 @@ func (m Model) viewRunHistory() string {
 	// the SAME width specifiers as the data row directly below.
 	b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-10s %-12s %s\n", " ", "Fecha", "Ticket", "Destino", "Estado", "Job Id"))
 
+	var rows []string
 	for i, rec := range m.runs {
 		cursor := " "
 		if i == m.runsCursor {
@@ -1331,15 +1331,16 @@ func (m Model) viewRunHistory() string {
 		case "validate":
 			ticketCol, targetCol = "[validate] "+filepath.Base(rec.ManifestPath), ""
 		}
-		b.WriteString(fmt.Sprintf("  %s %-16s %-16s %-10s %-12s %s\n",
+		rows = append(rows, fmt.Sprintf("  %s %-16s %-16s %-10s %-12s %s",
 			cursor, date, ticketCol, targetCol, runProgressLabel(rec), rec.JobID))
 	}
 
+	var tail strings.Builder
 	if m.runsCursor >= 0 && m.runsCursor < len(m.runs) {
 		rec := m.runs[m.runsCursor]
-		b.WriteString("\n  Run seleccionado:\n")
-		b.WriteString(fmt.Sprintf("  Branch: %s\n", git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)))
-		b.WriteString(fmt.Sprintf("  Commits: %d\n", len(rec.Commits)))
+		tail.WriteString("\n  Run seleccionado:\n")
+		tail.WriteString(fmt.Sprintf("  Branch: %s\n", git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)))
+		tail.WriteString(fmt.Sprintf("  Commits: %d\n", len(rec.Commits)))
 		// D2: a Mode=="validate" run has no Ticket/Target (never seeded by
 		// standalone validation), so runPackagePath would render the
 		// meaningless blank "-to-" path; show rec.ManifestPath directly
@@ -1351,24 +1352,26 @@ func (m Model) viewRunHistory() string {
 		if rec.Mode == "validate" {
 			packageLine = rec.ManifestPath
 		}
-		b.WriteString(fmt.Sprintf("  Package: %s\n", packageLine))
+		tail.WriteString(fmt.Sprintf("  Package: %s\n", packageLine))
 		if m.runDetail {
-			b.WriteString("\n  Detalle:\n")
-			b.WriteString(fmt.Sprintf("  Estado: %s\n", runProgressLabel(rec)))
+			tail.WriteString("\n  Detalle:\n")
+			tail.WriteString(fmt.Sprintf("  Estado: %s\n", runProgressLabel(rec)))
 			if rec.JobID != "" {
-				b.WriteString(fmt.Sprintf("  Job Id: %s\n", rec.JobID))
+				tail.WriteString(fmt.Sprintf("  Job Id: %s\n", rec.JobID))
 			}
 			if rec.Phase != "" {
-				b.WriteString(fmt.Sprintf("  Fase: %s\n", rec.Phase))
+				tail.WriteString(fmt.Sprintf("  Fase: %s\n", rec.Phase))
 			}
 			if rec.PickTotal > 0 {
-				b.WriteString(fmt.Sprintf("  Pick: %d de %d\n", rec.PickIndex, rec.PickTotal))
+				tail.WriteString(fmt.Sprintf("  Pick: %d de %d\n", rec.PickIndex, rec.PickTotal))
 			}
 		}
 	}
 
-	b.WriteString(m.noticeLine())
-	b.WriteString(m.footerLine())
+	tail.WriteString(m.noticeLine())
+	tail.WriteString(m.footerLine())
+	b.WriteString(m.windowedRows(b.String(), tail.String(), rows, m.runsCursor))
+	b.WriteString(tail.String())
 	return b.String()
 }
 

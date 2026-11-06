@@ -466,7 +466,11 @@ type Model struct {
 	// runsCursor the selected row, runDetail the expanded-detail toggle.
 	runs       []runs.Record
 	runsCursor int
-	runDetail  bool
+
+	// width and height are the terminal size from tea.WindowSizeMsg; 0 means
+	// unknown and leaves every view unwindowed and untruncated.
+	width, height int
+	runDetail     bool
 	// runsLoadErr is a failed fresh run-list load fired by the "Historial de
 	// runs" menu entry (onRunHistoryLoaded). A DEDICATED field rendered only
 	// by viewRunHistory — never the shared m.notice — so a stale load error
