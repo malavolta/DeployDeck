@@ -29,6 +29,19 @@ const (
 // incoming message and, where a service call is needed, returns a command
 // that routes through the injected services (never an app-level exec).
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	was := m.spinnerActive()
+	next, cmd := m.update(msg)
+	nm, ok := next.(Model)
+	if !ok || was || !nm.spinnerActive() || nm.spinning {
+		return next, cmd
+	}
+	// Entering any spinner phase seeds exactly one tick loop, whatever the
+	// entry point was; the tick clears spinning when the phase is over.
+	nm.spinning = true
+	return nm, tea.Batch(cmd, spinnerCmd())
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -906,12 +919,32 @@ func isSpinnerState(state State) bool {
 	}
 }
 
+// spinnerActive reports whether the current phase animates: the long-running
+// states plus the push and PR phases, branch-cleanup and queue loading, the
+// quick-deploy gate check or execution, and polling (which only needs the tick
+// to refresh its clock and renders no glyph).
+func (m Model) spinnerActive() bool {
+	switch m.state {
+	case StatePushPreparation:
+		return m.pushPhase == pushPushing || m.pushPhase == pushPRCreating
+	case StateBranchCleanup:
+		return m.cleanupPhase == cleanupLoading
+	case StateQueueReview:
+		return m.queueLoading
+	case StateQuickDeploy:
+		return m.gateCheckingRunID != "" || m.quickDeployingRunID != ""
+	case StateValidationPolling:
+		return true
+	}
+	return isSpinnerState(m.state)
+}
+
 // onSpinnerTick bumps m.spinnerFrame and reschedules the next tick ONLY
 // while still in one of the 5 spinner states (mirrors onTick's own
 // state-scoped guard exactly) — so the animation stops the instant the flow
 // leaves those screens, never leaking a background tick past them.
 func (m Model) onSpinnerTick() (tea.Model, tea.Cmd) {
-	if !isSpinnerState(m.state) {
+	if !m.spinnerActive() {
 		// The single continuing loop dies here: clear the single-flight guard
 		// so the NEXT spinner-state entry (startSpinner) is free to reseed a
 		// fresh tick loop instead of being wrongly blocked by a stale true.
@@ -967,6 +1000,7 @@ func (m Model) onDeltaDone(msg deltaDoneMsg) (tea.Model, tea.Cmd) {
 // `esc` backs out). Success stores the parsed entries and the resolved
 // own-job identity for the view's highlight + approximate position.
 func (m Model) onQueueDone(msg queueDoneMsg) (tea.Model, tea.Cmd) {
+	m.queueLoading = false
 	m.identity = msg.identity
 	if msg.err != nil {
 		if errors.Is(msg.err, salesforce.ErrQueuePermission) {

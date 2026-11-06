@@ -201,8 +201,8 @@ func TestKeyTicket_B_EntersBranchCleanupAndLoads(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("b should fire the list-load command")
 	}
-	if _, ok := cmd().(deployBranchesMsg); !ok {
-		t.Fatalf("expected deployBranchesMsg, got %T", cmd())
+	if _, ok := withoutTicks(cmd)().(deployBranchesMsg); !ok {
+		t.Fatalf("expected deployBranchesMsg, got %T", withoutTicks(cmd)())
 	}
 }
 

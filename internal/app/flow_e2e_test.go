@@ -122,7 +122,9 @@ func flowConfig() config.Config {
 // commands so the linear happy-path driver stays explicit about each step.
 func run(t *testing.T, cmd tea.Cmd) tea.Msg {
 	t.Helper()
-	if cmd == nil {
+	// A phase that animates also seeds a spinner tick; the tick is never the
+	// command under test.
+	if cmd = withoutTicks(cmd); cmd == nil {
 		t.Fatal("expected a command, got nil")
 	}
 	return cmd()

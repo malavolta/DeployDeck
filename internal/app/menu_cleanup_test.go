@@ -1,6 +1,8 @@
 package app
 
 import (
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,6 +19,49 @@ func isQuit(cmd tea.Cmd) bool {
 	}
 	_, ok := cmd().(tea.QuitMsg)
 	return ok
+}
+
+// cmdName is the symbol of cmd's closure. Ticks and batches are told apart by
+// it without running them (a tick would block for its interval; closure code
+// pointers are not stable across inlined tea.Batch call sites).
+func cmdName(cmd tea.Cmd) string {
+	if cmd == nil {
+		return ""
+	}
+	return runtime.FuncForPC(reflect.ValueOf(cmd).Pointer()).Name()
+}
+
+func isTick(cmd tea.Cmd) bool  { return strings.HasSuffix(cmdName(cmd), "bubbletea.Tick.func1") }
+func isBatch(cmd tea.Cmd) bool { return strings.Contains(cmdName(cmd), "Batch.compactCmds") }
+
+// hasTick reports whether cmd is or batches a tick.
+func hasTick(cmd tea.Cmd) bool {
+	if isBatch(cmd) {
+		for _, c := range cmd().(tea.BatchMsg) {
+			if hasTick(c) {
+				return true
+			}
+		}
+	}
+	return isTick(cmd)
+}
+
+// withoutTicks strips ticks from cmd so entry-command assertions keep checking
+// the real command when a phase also seeds the spinner.
+func withoutTicks(cmd tea.Cmd) tea.Cmd {
+	if isTick(cmd) {
+		return nil
+	}
+	if !isBatch(cmd) {
+		return cmd
+	}
+	var rest []tea.Cmd
+	for _, c := range cmd().(tea.BatchMsg) {
+		if c = withoutTicks(c); c != nil {
+			rest = append(rest, c)
+		}
+	}
+	return tea.Batch(rest...)
 }
 
 func press(m Model, k string) (Model, tea.Cmd) {

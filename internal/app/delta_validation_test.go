@@ -468,7 +468,7 @@ func TestModel_ValidationStart_CLIError_FlowStaysAlive(t *testing.T) {
 	if nm.validateErr == nil {
 		t.Error("validate error should be recorded for display")
 	}
-	if cmd != nil {
+	if withoutTicks(cmd) != nil {
 		t.Error("a CLI validate error must not start polling")
 	}
 	if !strings.Contains(nm.View(), "malformed") {

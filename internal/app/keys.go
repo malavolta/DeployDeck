@@ -1281,6 +1281,7 @@ func (m Model) confirmPackageReview() (tea.Model, tea.Cmd) {
 	}
 	m.notice = ""
 	m.queueErr = nil
+	m.queueLoading = true
 	m.state = StateQueueReview
 	return m, m.queueCmd()
 }
@@ -1298,6 +1299,7 @@ func (m Model) keyQueueReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.validateCmd(), spin)
 	case key.Matches(msg, keys.Retry):
 		m.queueErr = nil
+		m.queueLoading = true
 		return m, m.queueCmd()
 	case key.Matches(msg, keys.Esc):
 		m.notice = ""

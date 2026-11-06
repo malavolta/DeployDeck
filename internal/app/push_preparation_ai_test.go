@@ -61,7 +61,7 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		if !nm.aiPending {
 			t.Fatal("first 'a' should set aiPending")
 		}
-		msg := cmd()
+		msg := withoutTicks(cmd)()
 		next2, _ := nm.Update(msg)
 		nm2 := next2.(Model)
 		if nm2.aiTitle != aiTitle || nm2.aiAccepted {
@@ -76,7 +76,7 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		if cmd4 == nil {
 			t.Fatal("confirming should fire createPRCmd")
 		}
-		cmd4()
+		withoutTicks(cmd4)()
 		_ = next4
 
 		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", footer) {
@@ -106,7 +106,7 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 
 		// First 'a': request.
 		next, cmd := m.Update(keyPress("a"))
-		msg := cmd()
+		msg := withoutTicks(cmd)()
 		next2, _ := next.(Model).Update(msg)
 		nm2 := next2.(Model)
 
@@ -131,7 +131,7 @@ func TestModel_PushPreparation_AITitle_ReachesGhOnlyAfterSecondAccept(t *testing
 		if cmd5 == nil {
 			t.Fatal("confirming should fire createPRCmd")
 		}
-		prMsg := cmd5()
+		prMsg := withoutTicks(cmd5)()
 		_, _ = next5.(Model).Update(prMsg)
 
 		if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", wantBody) {
@@ -167,9 +167,9 @@ func TestModel_PushPreparation_AISuggestion_AutoFiresOnPushReady(t *testing.T) {
 	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
 
 	next, cmd := m.Update(keyPress("p"))
-	pushMsg := cmd()
+	pushMsg := withoutTicks(cmd)()
 	next2, cmd2 := next.(Model).Update(pushMsg)
-	prepMsg := cmd2()
+	prepMsg := withoutTicks(cmd2)()
 	next3, cmd3 := next2.(Model).Update(prepMsg)
 	nm3 := next3.(Model)
 
@@ -187,7 +187,7 @@ func TestModel_PushPreparation_AISuggestion_AutoFiresOnPushReady(t *testing.T) {
 	}
 
 	// Land the auto-fired request's result.
-	aiMsg := cmd3()
+	aiMsg := withoutTicks(cmd3)()
 	next4, _ := nm3.Update(aiMsg)
 	nm4 := next4.(Model)
 
@@ -224,9 +224,9 @@ func TestModel_PushPreparation_AISuggestion_NoAutoFireWithoutConfig(t *testing.T
 	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
 
 	next, cmd := m.Update(keyPress("p"))
-	pushMsg := cmd()
+	pushMsg := withoutTicks(cmd)()
 	next2, cmd2 := next.(Model).Update(pushMsg)
-	prepMsg := cmd2()
+	prepMsg := withoutTicks(cmd2)()
 	next3, cmd3 := next2.(Model).Update(prepMsg)
 	nm3 := next3.(Model)
 
@@ -278,7 +278,7 @@ func TestModel_PushPreparation_PRConfirm_ReadyUnaccepted_YUsesAI(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("y should fire createPRCmd")
 	}
-	cmd()
+	withoutTicks(cmd)()
 
 	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", wantBody) {
 		t.Fatalf("gh pr create should use the AI title/body, calls: %v", fr.Calls)
@@ -318,7 +318,7 @@ func TestModel_PushPreparation_PRConfirm_ReadyUnaccepted_DUsesDefault(t *testing
 	if cmd == nil {
 		t.Fatal("d should fire createPRCmd")
 	}
-	cmd()
+	withoutTicks(cmd)()
 
 	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", footer) {
 		t.Fatalf("gh pr create should use the default formula title and a footer-only body, calls: %v", fr.Calls)
@@ -396,7 +396,7 @@ func TestModel_PushPreparation_PRConfirm_AlreadyAccepted_YUsesAI(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("y should fire createPRCmd")
 	}
-	cmd()
+	withoutTicks(cmd)()
 
 	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", aiTitle, "--body", wantBody) {
 		t.Fatalf("gh pr create should use the already-accepted AI title/body, calls: %v", fr.Calls)
@@ -429,7 +429,7 @@ func TestModel_PushPreparation_PRConfirm_NoAI_YUsesFormula(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("y should fire createPRCmd")
 	}
-	cmd()
+	withoutTicks(cmd)()
 
 	if !calledWith(fr, "gh", "pr", "create", "--base", "UAT", "--head", branch, "--title", formulaTitle, "--body", footer) {
 		t.Fatalf("gh pr create should use the formula title, calls: %v", fr.Calls)

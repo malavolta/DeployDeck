@@ -670,6 +670,10 @@ type Model struct {
 	// running. onSpinnerTick resets it to false the instant the flow
 	// leaves the spinner-state set, letting the next entry reseed.
 	spinning bool
+
+	// queueLoading is true from entering StateQueueReview (or its `r` refresh)
+	// until queueDoneMsg lands, so the queue screen can animate while it loads.
+	queueLoading bool
 }
 
 // menuEntry is one row of HU-018's StateMainMenu (design ADR-1): its display

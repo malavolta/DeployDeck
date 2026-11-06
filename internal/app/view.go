@@ -628,6 +628,9 @@ func (m Model) viewQueueReview() string {
 	}
 
 	b.WriteString("\n  Jobs activos\n\n")
+	if m.queueLoading {
+		b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
+	}
 	if len(m.queue) == 0 {
 		b.WriteString("  (sin jobs en cola)\n")
 	} else {
@@ -822,6 +825,10 @@ func (m Model) viewQuickDeploy() string {
 		b.WriteString("\n  " + styleDim.Render("Verificando gate (aprobaciones · threads · validación · firma)…") + "\n")
 	}
 
+	if m.gateCheckingRunID != "" || m.quickDeployingRunID != "" {
+		b.WriteString("  " + spinnerView(m.spinnerFrame) + "\n")
+	}
+
 	if m.quickErr != nil {
 		b.WriteString("\n  " + mark("XX") + " El quick deploy falló (el run NO se marca como desplegado):\n")
 		b.WriteString("  " + m.quickErr.Error() + "\n")
@@ -932,7 +939,7 @@ func (m Model) viewPushPreparation() string {
 		}
 		b.WriteString(m.footerLine())
 	case pushPushing:
-		b.WriteString("\n  Ejecutando push...\n")
+		b.WriteString("\n  Ejecutando push...\n  " + spinnerView(m.spinnerFrame) + "\n")
 		b.WriteString(m.footerLine())
 	case pushReady, pushPRConfirm, pushPRCreating:
 		b.WriteString(m.viewPRData())
@@ -994,7 +1001,7 @@ func (m Model) viewPRData() string {
 			b.WriteString("\n  ¿Confirmar creación del PR con gh?\n")
 			b.WriteString(m.footerLine())
 		case m.pushPhase == pushPRCreating:
-			b.WriteString("\n  Creando PR...\n")
+			b.WriteString("\n  Creando PR...\n  " + spinnerView(m.spinnerFrame) + "\n")
 			b.WriteString(m.footerLine())
 		default: // pushReady
 			if m.prErr != nil {
@@ -1428,7 +1435,7 @@ func (m Model) viewBranchCleanup() string {
 	b.WriteString(m.screenHeader("Limpieza De Ramas"))
 
 	if m.cleanupPhase == cleanupLoading {
-		b.WriteString("\n  Cargando ramas deploy/*...\n")
+		b.WriteString("\n  Cargando ramas deploy/*...\n  " + spinnerView(m.spinnerFrame) + "\n")
 		b.WriteString(m.footerLine())
 		return b.String()
 	}
