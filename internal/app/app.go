@@ -599,7 +599,11 @@ type Model struct {
 	reportPath   string
 	reportErr    error     // last transient report error, surfaced while polling
 	pollDeadline time.Time // hard poll timeout, from injected Now + PollTimeout
-	timedOut     bool      // true when StateFailed was reached via the deadline
+	// pollStart is when polling was armed (or re-attached) and lastReportAt the
+	// last successful report; the polling view derives elapsed time and the last
+	// poll age from them at render time.
+	pollStart, lastReportAt time.Time
+	timedOut                bool // true when StateFailed was reached via the deadline
 	// pollInFlight is true while a reportCmd is outstanding. It serializes the
 	// poll loop so at most ONE `sf project deploy report` runs at a time: a
 	// tick (or manual refresh) that arrives before the current report returns

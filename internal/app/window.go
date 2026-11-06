@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -63,4 +64,10 @@ func (m Model) windowedRows(top, bottom string, rows []string, cursor int) strin
 	}
 	b.WriteString(overflow(len(rows)-end, false))
 	return b.String()
+}
+
+// clock formats a duration as mm:ss; minutes keep counting past 59.
+func clock(d time.Duration) string {
+	d = max(d, 0)
+	return fmt.Sprintf("%02d:%02d", int(d/time.Minute), int(d%time.Minute/time.Second))
 }

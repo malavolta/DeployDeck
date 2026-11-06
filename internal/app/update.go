@@ -486,6 +486,7 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 			m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)
 		}
 		m.validateErr = nil
+		m.pollStart, m.lastReportAt = m.now(), time.Time{}
 		m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 		m.state = StateValidationPolling
 		// Arm the cancelable polling session exactly like onValidateDone: reportCmd
@@ -1048,6 +1049,7 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.validateErr = nil
+	m.pollStart, m.lastReportAt = m.now(), time.Time{}
 	m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 	m.state = StateValidationPolling
 	// Arm the cancelable polling session context; reportCmd derives each poll's
@@ -1218,6 +1220,7 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.reportErr = nil
 	m.report = msg.report
+	m.lastReportAt = m.now()
 
 	if salesforce.IsTerminal(msg.report.Status) {
 		// Leaving polling: cancel the session context so no read-only report

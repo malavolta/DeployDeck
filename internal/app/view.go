@@ -745,11 +745,22 @@ func (m Model) viewValidationPolling() string {
 	var b strings.Builder
 	b.WriteString(m.screenHeader("Validación En Vivo"))
 	b.WriteString(m.validationBody())
+	b.WriteString(m.pollingClock())
 	if m.reportErr != nil {
 		b.WriteString("\n  (error transitorio, reintentando: " + m.reportErr.Error() + ")\n")
 	}
 	b.WriteString(m.footerLine())
 	return b.String()
+}
+
+// pollingClock is the live elapsed / last-poll line, derived from the injected
+// clock at render time (the spinner tick refreshes it; no extra polling).
+func (m Model) pollingClock() string {
+	last := "pendiente"
+	if !m.lastReportAt.IsZero() {
+		last = fmt.Sprintf("hace %ds", int(max(m.now().Sub(m.lastReportAt), 0)/time.Second))
+	}
+	return fmt.Sprintf("  Transcurrido: %s · Último sondeo: %s\n", clock(m.now().Sub(m.pollStart)), last)
 }
 
 // viewCancelConfirm renders HU-012's typed-confirmation cancel screen (mockup
