@@ -189,6 +189,9 @@ const (
 	// q/esc are the only live keys, backing out to StateRunHistory. Appended
 	// last so every prior State's value is never renumbered.
 	StateDeployGateBlocked
+	// stateCount is the number of states. It MUST stay last: the parity test
+	// ranges over every state below it and fails when a state has no fixture.
+	stateCount
 )
 
 // cleanupPhase is HU-017 branch-cleanup's delete-confirmation sub-state,
@@ -335,6 +338,10 @@ type Deps struct {
 	// startup update check entirely (same nil-degrades convention as
 	// NewChecker/Delta/Runs/Edit above).
 	CheckUpdate func(ctx context.Context) (hasUpdate bool, latest string, err error)
+	// CanUpgrade gates the main-menu `u` key; ReleasesURL is the banner hint
+	// for installs that cannot upgrade themselves.
+	CanUpgrade  bool
+	ReleasesURL string
 	// GenerateSummary drafts a PR title/description suggestion from an
 	// OPTIONAL local model (ai-pr-summary, closing HU-014's deferred "Idea
 	// Futura"). It is a plain-typed SCALAR seam (design ADR-1, mirrors
@@ -378,6 +385,7 @@ type Model struct {
 	prelim      string // preliminary target used for discovery/classification
 	items       []git.CommitSelectionItem
 	cursor      int
+	conflictIdx int // conflict-screen selection, independent of the commit cursor
 	depWarnings []git.DependencyWarning
 
 	// TargetSelection
@@ -458,7 +466,20 @@ type Model struct {
 	// runsCursor the selected row, runDetail the expanded-detail toggle.
 	runs       []runs.Record
 	runsCursor int
-	runDetail  bool
+
+	// width and height are the terminal size from tea.WindowSizeMsg; 0 means
+	// unknown and leaves every view unwindowed and untruncated.
+	width, height int
+
+	// helpOpen is the modal `?` overlay: it replaces the body and swallows
+	// every key but ?, Esc and ctrl+c.
+	helpOpen  bool
+	runDetail bool
+	// runsLoadErr is a failed fresh run-list load fired by the "Historial de
+	// runs" menu entry (onRunHistoryLoaded). A DEDICATED field rendered only
+	// by viewRunHistory — never the shared m.notice — so a stale load error
+	// can never bleed onto another screen. Cleared on entry and on success.
+	runsLoadErr error
 
 	// RePromote (HU-016): sourceRunID links a completed re-promotion run back
 	// to the prior run it was re-promoted from — seeded synchronously by
@@ -578,7 +599,11 @@ type Model struct {
 	reportPath   string
 	reportErr    error     // last transient report error, surfaced while polling
 	pollDeadline time.Time // hard poll timeout, from injected Now + PollTimeout
-	timedOut     bool      // true when StateFailed was reached via the deadline
+	// pollStart is when polling was armed (or re-attached) and lastReportAt the
+	// last successful report; the polling view derives elapsed time and the last
+	// poll age from them at render time.
+	pollStart, lastReportAt time.Time
+	timedOut                bool // true when StateFailed was reached via the deadline
 	// pollInFlight is true while a reportCmd is outstanding. It serializes the
 	// poll loop so at most ONE `sf project deploy report` runs at a time: a
 	// tick (or manual refresh) that arrives before the current report returns
@@ -602,6 +627,8 @@ type Model struct {
 	// Deps.CheckUpdate is nil or the check fails/finds nothing newer.
 	updateAvailable bool
 	updateLatest    string
+	// upgradeRequested is set by `u`; main runs the upgrade after the TUI quits.
+	upgradeRequested bool
 
 	// StandaloneModes (HU-018): menuCursor indexes the FILTERED
 	// visibleMenuEntries slice on StateMainMenu; standaloneMode ("" /"delta"/
@@ -647,6 +674,10 @@ type Model struct {
 	// running. onSpinnerTick resets it to false the instant the flow
 	// leaves the spinner-state set, letting the next entry reseed.
 	spinning bool
+
+	// queueLoading is true from entering StateQueueReview (or its `r` refresh)
+	// until queueDoneMsg lands, so the queue screen can animate while it loads.
+	queueLoading bool
 }
 
 // menuEntry is one row of HU-018's StateMainMenu (design ADR-1): its display
@@ -662,8 +693,11 @@ type menuEntry struct {
 }
 
 // menuEntries is HU-018's compile-time main-menu surface (design ADR-1
-// "Hide-unimplemented"): the three modes in display order. All three are
-// implemented in this change; the mechanism still hides any future entry
+// "Hide-unimplemented"): the modes in display order. "Historial de runs" is
+// kept LAST so the original three entries' indices never shift; it is the
+// only way to reach StateRunHistory (and its x quick deploy / r re-promote)
+// once every run is terminal, since startup resume detection only opens the
+// history for a non-terminal run. The mechanism still hides any future entry
 // added with implemented:false.
 var menuEntries = []menuEntry{
 	{
@@ -682,6 +716,18 @@ var menuEntries = []menuEntry{
 		label:       "Validar package contra sandbox",
 		description: "Valida un package.xml existente contra una sandbox configurada",
 		target:      StatePackageSelect,
+		implemented: true,
+	},
+	{
+		label:       "Historial de runs",
+		description: "Revisa runs anteriores, reanuda, re-promociona o despliega una validación",
+		target:      StateRunHistory,
+		implemented: true,
+	},
+	{
+		label:       "Limpieza de ramas",
+		description: "Lista y borra ramas deploy/* huérfanas y aplica la retención de runs",
+		target:      StateBranchCleanup,
 		implemented: true,
 	},
 }
@@ -703,7 +749,9 @@ func visibleMenuEntries(entries []menuEntry) []menuEntry {
 // New builds the initial Model in StatePrereqCheck.
 func New(deps Deps) Model {
 	normalizeRoots(&deps)
-	return Model{deps: deps, state: StatePrereqCheck}
+	// With a checker wired the Doctor screen starts loading: arm the single
+	// spinner tick loop here (Init seeds its first tick).
+	return Model{deps: deps, state: StatePrereqCheck, spinning: deps.NewChecker != nil}
 }
 
 // normalizeRoots seeds GitRoot/ProjectDir/ArtifactsRoot from the
@@ -782,6 +830,9 @@ func (m Model) DeltaAllowed() bool {
 // runPrereqCmd(), checkUpdateCmd())"). tea.Batch drops nil cmds, so a nil
 // Deps.CheckUpdate degrades to the pre-existing prereq-only startup.
 func (m Model) Init() tea.Cmd {
+	if m.deps.NewChecker != nil {
+		return tea.Batch(m.runPrereqCmd(), m.checkUpdateCmd(), spinnerCmd())
+	}
 	return tea.Batch(m.runPrereqCmd(), m.checkUpdateCmd())
 }
 
@@ -860,3 +911,9 @@ func deltaBaseDir(cfg config.Config) string {
 	}
 	return config.DefaultDeltaOutputDir
 }
+
+// UpgradeRequested reports whether `u` asked for an upgrade on the main menu.
+func (m Model) UpgradeRequested() bool { return m.upgradeRequested }
+
+// UpdateLatest returns the latest release tag found, "" when none.
+func (m Model) UpdateLatest() string { return m.updateLatest }

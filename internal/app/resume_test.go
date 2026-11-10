@@ -378,7 +378,7 @@ func TestResumeInto_RehydratesPromotionBranchForPush(t *testing.T) {
 		if cmd == nil {
 			t.Fatal("confirming push should return the push command")
 		}
-		pushMsg := cmd()
+		pushMsg := withoutTicks(cmd)()
 		pd, ok := pushMsg.(pushDoneMsg)
 		if !ok || pd.err != nil {
 			t.Fatalf("push should succeed against the reconstructed branch, got %#v", pushMsg)

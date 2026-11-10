@@ -29,7 +29,23 @@ const (
 // incoming message and, where a service call is needed, returns a command
 // that routes through the injected services (never an app-level exec).
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	was := m.spinnerActive()
+	next, cmd := m.update(msg)
+	nm, ok := next.(Model)
+	if !ok || was || !nm.spinnerActive() || nm.spinning {
+		return next, cmd
+	}
+	// Entering any spinner phase seeds exactly one tick loop, whatever the
+	// entry point was; the tick clears spinning when the phase is over.
+	nm.spinning = true
+	return nm, tea.Batch(cmd, spinnerCmd())
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			// Cancel any in-flight poll so a read-only report subprocess is torn
@@ -47,6 +63,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onAISuggestDone(msg)
 	case resumeDetectMsg:
 		return m.onResumeDetect(msg)
+	case runHistoryLoadedMsg:
+		return m.onRunHistoryLoaded(msg)
 	case originalBranchMsg:
 		return m.onOriginalBranch(msg)
 	case unpushedMsg:
@@ -363,6 +381,32 @@ func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// onRunHistoryLoaded lands the fresh run-list load fired by the "Historial de
+// runs" menu entry. A load that arrives after the user already left the
+// history is a strict no-op. On success the list is replaced (newest-first,
+// cursor on the newest run); when the live repo state was read, the same
+// stale cherry-pick reconciliation as onResumeDetect is applied and the state
+// is recorded. A listing failure is surfaced on the history screen and keeps
+// whatever list was already in memory.
+func (m Model) onRunHistoryLoaded(msg runHistoryLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.state != StateRunHistory {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.runsLoadErr = msg.err
+		return m, nil
+	}
+	records := msg.records
+	if msg.stateKnown {
+		records = m.reconcileStaleRuns(records, msg.state)
+		m.repoState = msg.state
+	}
+	m.runs = records
+	m.runsCursor = 0
+	m.runsLoadErr = nil
+	return m, nil
+}
+
 // reconcileStaleRuns resyncs cherry-pick-phase records against the live repo:
 // when the repo shows NO in-progress cherry-pick, any record still claiming a
 // cherry-pick/git-conflict phase is stale (resolved or aborted outside
@@ -421,6 +465,7 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 		m.plan.SelectedCommits = rehydrateSelectedCommits(rec.Commits)
 		m.pickTotal = rec.PickTotal
 		m.pickIndex = derivePickIndex(rec.PickTotal, m.repoState)
+		m.conflictIdx = 0
 		m.state = StateCherryPickConflict
 		return m, tea.Batch(m.repoStateCmd(), tickCmd())
 	case rec.JobID != "" && !salesforce.IsTerminal(rec.Status):
@@ -441,6 +486,7 @@ func (m Model) resumeInto(rec runs.Record) (tea.Model, tea.Cmd) {
 			m.plan.PromotionBranch = git.RenderBranchName(m.deps.Config.BranchFormat, rec.Ticket, rec.Target)
 		}
 		m.validateErr = nil
+		m.pollStart, m.lastReportAt = m.now(), time.Time{}
 		m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 		m.state = StateValidationPolling
 		// Arm the cancelable polling session exactly like onValidateDone: reportCmd
@@ -539,7 +585,7 @@ func (m Model) startRePromoteInto(rec runs.Record) (tea.Model, tea.Cmd) {
 	next, ok := git.NextEnvironmentBranch(m.deps.Config, rec.Target)
 	if !ok {
 		m.ticket = rec.Ticket
-		m.notice = "no next environment configured after " + rec.Target + "; continuing manually"
+		m.notice = "no hay siguiente entorno configurado después de " + rec.Target + "; continúa manualmente"
 		m.prelim = preliminaryTarget(m.deps.Config)
 		m.state = StateCommitDiscovery
 		return m, m.discoverCmd()
@@ -784,6 +830,7 @@ func (m Model) onPickDone(msg pickDoneMsg) (tea.Model, tea.Cmd) {
 			rec.Phase = "git-conflict"
 			rec.UpdatedAt = m.now()
 		})
+		m.conflictIdx = 0
 		m.state = StateCherryPickConflict
 		return m, tea.Batch(m.repoStateCmd(), tickCmd())
 	}
@@ -873,12 +920,35 @@ func isSpinnerState(state State) bool {
 	}
 }
 
+// spinnerActive reports whether the current phase animates: the long-running
+// states plus the push and PR phases, branch-cleanup and queue loading, the
+// quick-deploy gate check or execution, and polling (which only needs the tick
+// to refresh its clock and renders no glyph).
+func (m Model) spinnerActive() bool {
+	switch m.state {
+	case StatePrereqCheck:
+		// First load only: retries keep previous results and show no spinner.
+		return len(m.checks) == 0
+	case StatePushPreparation:
+		return m.pushPhase == pushPushing || m.pushPhase == pushPRCreating
+	case StateBranchCleanup:
+		return m.cleanupPhase == cleanupLoading
+	case StateQueueReview:
+		return m.queueLoading
+	case StateQuickDeploy:
+		return m.gateCheckingRunID != "" || m.quickDeployingRunID != ""
+	case StateValidationPolling:
+		return true
+	}
+	return isSpinnerState(m.state)
+}
+
 // onSpinnerTick bumps m.spinnerFrame and reschedules the next tick ONLY
 // while still in one of the 5 spinner states (mirrors onTick's own
 // state-scoped guard exactly) — so the animation stops the instant the flow
 // leaves those screens, never leaking a background tick past them.
 func (m Model) onSpinnerTick() (tea.Model, tea.Cmd) {
-	if !isSpinnerState(m.state) {
+	if !m.spinnerActive() {
 		// The single continuing loop dies here: clear the single-flight guard
 		// so the NEXT spinner-state entry (startSpinner) is free to reseed a
 		// fresh tick loop instead of being wrongly blocked by a stale true.
@@ -934,12 +1004,13 @@ func (m Model) onDeltaDone(msg deltaDoneMsg) (tea.Model, tea.Cmd) {
 // `esc` backs out). Success stores the parsed entries and the resolved
 // own-job identity for the view's highlight + approximate position.
 func (m Model) onQueueDone(msg queueDoneMsg) (tea.Model, tea.Cmd) {
+	m.queueLoading = false
 	m.identity = msg.identity
 	if msg.err != nil {
 		if errors.Is(msg.err, salesforce.ErrQueuePermission) {
 			m.queue = nil
 			m.queueErr = nil
-			m.notice = "no Tooling API permission to view the deploy queue; continuing without it"
+			m.notice = "sin permiso de Tooling API para ver la cola de deploys; se continúa sin ella"
 			m.validateErr = nil
 			m.state = StateValidationStart
 			m, spin := m.startSpinner()
@@ -981,6 +1052,7 @@ func (m Model) onValidateDone(msg validateDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.validateErr = nil
+	m.pollStart, m.lastReportAt = m.now(), time.Time{}
 	m.pollDeadline = m.now().Add(time.Duration(m.pollTimeoutSeconds()) * time.Second)
 	m.state = StateValidationPolling
 	// Arm the cancelable polling session context; reportCmd derives each poll's
@@ -1151,6 +1223,7 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	m.reportErr = nil
 	m.report = msg.report
+	m.lastReportAt = m.now()
 
 	if salesforce.IsTerminal(msg.report.Status) {
 		// Leaving polling: cancel the session context so no read-only report

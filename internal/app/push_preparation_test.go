@@ -37,9 +37,12 @@ func ghRunner(auth string) *execpkg.FakeRunner {
 	fr := execpkg.NewFakeRunner()
 	switch auth {
 	case "authed":
+		// Host-less and origin-scoped (github.com) probes both match.
 		fr.When("gh", []string{"auth", "status"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("Logged in to github.com")})
+		fr.When("gh", []string{"auth", "status", "--hostname=github.com"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("Logged in to github.com")})
 	case "unauthed":
 		fr.When("gh", []string{"auth", "status"}, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("not logged in")})
+		fr.When("gh", []string{"auth", "status", "--hostname=github.com"}, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("not logged in")})
 	case "absent":
 		// no canned response
 	}
@@ -159,7 +162,7 @@ func TestModel_PushPreparation_ConfirmRunsPush(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirming push should return the push command")
 	}
-	pushMsg := cmd()
+	pushMsg := withoutTicks(cmd)()
 	pd, ok := pushMsg.(pushDoneMsg)
 	if !ok || pd.err != nil {
 		t.Fatalf("push command should produce a successful pushDoneMsg, got %#v", pushMsg)
@@ -174,7 +177,7 @@ func TestModel_PushPreparation_ConfirmRunsPush(t *testing.T) {
 	if cmd2 == nil {
 		t.Fatal("a successful push should prepare PR data")
 	}
-	prepMsg := cmd2()
+	prepMsg := withoutTicks(cmd2)()
 	next3, _ := nm2.Update(prepMsg)
 	nm3 := next3.(Model)
 	if nm3.pushPhase != pushReady {
@@ -202,7 +205,7 @@ func TestModel_PushPreparation_PushFailureContinues(t *testing.T) {
 
 	next, cmd := m.Update(keyPress("p"))
 	nm := next.(Model)
-	msg := cmd()
+	msg := withoutTicks(cmd)()
 	if pd, ok := msg.(pushDoneMsg); !ok || pd.err == nil {
 		t.Fatalf("a failed push should produce pushDoneMsg with an error, got %#v", msg)
 	}
@@ -256,7 +259,7 @@ func TestModel_PushPreparation_NoPRWithoutExplicitConfirm(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("explicit confirm (y) should fire the create-PR command")
 	}
-	cmd()
+	withoutTicks(cmd)()
 	if n := prCreateCalls(fr); n != 1 {
 		t.Fatalf("explicit confirm should create exactly 1 PR, got %d", n)
 	}
@@ -311,7 +314,7 @@ func TestModel_PushPreparation_PRSuccessRecordsURL(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirming should fire the create-PR command")
 	}
-	prMsg := cmd()
+	prMsg := withoutTicks(cmd)()
 	next2, _ := next.(Model).Update(prMsg)
 	nm := next2.(Model)
 	if nm.prURL != prURL {
@@ -350,7 +353,7 @@ func TestModel_PushPreparation_PRFailureShowsManualData(t *testing.T) {
 	m.plan = git.DeploymentPlan{Ticket: "PROJ-1", TargetBranch: "UAT", PromotionBranch: branch}
 
 	next, cmd := m.Update(keyPress("y"))
-	prMsg := cmd()
+	prMsg := withoutTicks(cmd)()
 	next2, _ := next.(Model).Update(prMsg)
 	nm := next2.(Model)
 	if nm.prErr == nil {
@@ -437,7 +440,7 @@ func TestModel_PushPreparation_FallbackShowsCompareURL(t *testing.T) {
 // push-preparation phase (the screen is terminal-adjacent; the user can always
 // leave), and that a late tea.Quit is a real quit command.
 func TestModel_PushPreparation_QuitFromSubScreens(t *testing.T) {
-	for _, phase := range []pushPhase{pushConfirm, pushReady, pushPRConfirm} {
+	for _, phase := range []pushPhase{pushConfirm, pushReady} { // PR confirm: q cancels
 		m := New(Deps{Dir: "/repo", Config: testConfig()})
 		m.state = StatePushPreparation
 		m.pushPhase = phase

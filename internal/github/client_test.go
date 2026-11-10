@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/github"
@@ -50,7 +51,7 @@ func TestClient_AuthStatus(t *testing.T) {
 			tt.setup(runner)
 			c := github.New(runner)
 
-			got := c.AuthStatus(context.Background())
+			got := c.AuthStatus(context.Background(), "")
 			if got != tt.want {
 				t.Fatalf("AuthStatus() = %v, want %v", got, tt.want)
 			}
@@ -144,4 +145,51 @@ func TestSuggestedTitle(t *testing.T) {
 	if got != want {
 		t.Fatalf("SuggestedTitle() = %q, want %q", got, want)
 	}
+}
+
+// TestClient_AuthStatus_HostScopingAndTimeout: the probe is scoped to one
+// host via a single --hostname=<h> token, unsafe hosts fall back to the
+// host-less probe, and an expired context is TimedOut, never Unauthenticated.
+func TestClient_AuthStatus_HostScopingAndTimeout(t *testing.T) {
+	past, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		host     string
+		wantArgs []string
+		want     github.AuthState
+	}{
+		{"host scoped", context.Background(), "github.com", []string{"auth", "status", "--hostname=github.com"}, github.AuthAuthenticated},
+		{"no host", context.Background(), "", []string{"auth", "status"}, github.AuthAuthenticated},
+		{"flag-like host rejected", context.Background(), "-x", []string{"auth", "status"}, github.AuthAuthenticated},
+		{"whitespace host rejected", context.Background(), "a b", []string{"auth", "status"}, github.AuthAuthenticated},
+		{"expired ctx is timed out", past, "github.com", []string{"auth", "status", "--hostname=github.com"}, github.AuthTimedOut},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &ctxErrRunner{}
+			c := github.New(runner)
+			got := c.AuthStatus(tt.ctx, tt.host)
+			if got != tt.want {
+				t.Fatalf("AuthStatus() = %v, want %v", got, tt.want)
+			}
+			if strings.Join(runner.args, " ") != strings.Join(tt.wantArgs, " ") {
+				t.Fatalf("args = %v, want %v", runner.args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+// ctxErrRunner records args and fails when the context is already done,
+// mimicking exec.OSRunner killing a process whose deadline passed.
+type ctxErrRunner struct{ args []string }
+
+func (r *ctxErrRunner) Run(ctx context.Context, req exec.CommandRequest) (exec.CommandResult, error) {
+	r.args = req.Args
+	if err := ctx.Err(); err != nil {
+		return exec.CommandResult{}, err
+	}
+	return exec.CommandResult{}, nil
 }

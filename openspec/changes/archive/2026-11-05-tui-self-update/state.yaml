@@ -1,0 +1,41 @@
+change: tui-self-update
+branch: feat/tui-self-update
+artifact_store: openspec
+mode: auto
+delivery_strategy: single-pr
+review_budget_lines: 800
+strict_tdd: true
+delivery_phase: "Fase 5 Productizacion (HU-019 extension)"
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+artifacts:
+  explore: openspec/changes/tui-self-update/exploration.md
+  proposal: openspec/changes/tui-self-update/proposal.md
+  spec:
+    - openspec/changes/tui-self-update/specs/update-notification/spec.md
+    - openspec/changes/tui-self-update/specs/tui-self-update/spec.md
+  design: openspec/changes/tui-self-update/design.md
+  tasks: openspec/changes/tui-self-update/tasks.md
+  apply_progress: openspec/changes/tui-self-update/apply-progress.md
+  verify_report: openspec/changes/tui-self-update/verify-report.md
+capabilities:
+  new: [tui-self-update]
+  modified: [update-notification]
+size_forecast_lines: 790
+size_actual_lines: 801  # excl. openspec/; +1 over budget for the CRITICAL-1 test row
+open_issues:
+  - "follow-up: build-info version fallback (cut ADR-7) so go-install binaries see the banner and the u key"
+  - "follow-up: in-place self-replace for manual binaries (tui-self-update-manual)"
+resolved_issues:
+  - "design ADR-5 Windows deviation: spec delta amended with a Windows print-only scenario (2026-11-05)"
+  - "ADR-7 build-info fallback CUT for size during apply; requirement removed from the update-notification delta (2026-11-05)"
+  - "verify CRITICAL-1 (untested pre-release scenario) fixed with a TestHasNewer row (2026-11-05)"
+next: [none]
+updated: 2026-11-05

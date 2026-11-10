@@ -1,0 +1,72 @@
+change: tui-ux-polish-b2
+branch: feat/tui-self-update  # shipped in PR #4 with the earlier changes, per user
+stacked_on: feat/tui-self-update  # PR #4
+artifact_store: openspec
+mode: auto
+delivery_strategy: single-pr
+size_exception_lines: 1379  # user-approved 2026-11-06 (was 1300); overrun = corrective fixes
+size_baseline_commit: e8d783a
+strict_tdd: true
+delivery_phase: "Fase 5 Productizacion (TUI UX polish, change B2, follows tui-bubbles-adoption)"
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done  # round 2 PASS WITH WARNINGS, 0 CRITICAL (round 1 FAIL, C1 fixed in 5c9d708)
+  archive: done  # archive-report.md written; folder move by orchestrator
+artifacts:
+  explore: openspec/changes/tui-ux-polish-b2/exploration.md
+  proposal: openspec/changes/tui-ux-polish-b2/proposal.md
+  design: openspec/changes/tui-ux-polish-b2/design.md
+  spec: openspec/changes/tui-ux-polish-b2/specs/  # tui-presentation, run-history, commit-selection, validation-progress, ai-pr-summary
+capabilities:
+  new: []
+  modified: [tui-presentation, run-history, commit-selection, validation-progress, ai-pr-summary]
+work_units:
+  planned:
+    - U1-parity-hardening  # W2, W4 (spec amendment), W5, W6/S4, S1
+    - U2-windowing-truncation  # B's cut U3/U4, ADR-8
+    - U3-help-overlay
+    - U4-phase-aware-spinner
+    - U5-polling-elapsed-last-poll
+    - U6-fast-quit-detector  # S3
+    - U7-shared-enablement-predicates  # W7, optional
+size_forecast_lines: 1525  # raw ~1015 x 1.5 multiplier (B U1 1.33x, A 1.9x); U1-U4 ~1240
+cut_plan: "Measure after each unit against e8d783a, excluding openspec. If the projection passes 1300: cut U7, then U6 (internal-only). U5 (elapsed/last-poll) is user-visible and the user asked for everything ('dale con todo'): do NOT cut it silently; STOP and ask the user for a larger exception first. (Orchestrator amendment 2026-11-06.)"
+decisions:
+  W4: "Amend tui-presentation 'Printable Bindings Stay Inactive In Text-Input States' to name ticket b (empty buffer only) as an allowed guarded key, like q. No footer or code change."
+  W2: "Disable history Enter on non-resumable rows; make push-ready a inert once prURL is set."
+open_issues:
+  - "user review: W2 disable Enter on terminal rows (vs repurpose Enter)"
+  - "user review: elapsed format mm:ss and last poll 'hace Ns'"
+  - "user review: overlay copy Spanish, title 'Atajos'"
+  - "carried from B: overflow copy 'N más' (Spanish assumed)"
+out_of_scope_b3:
+  - "error screen redesign"
+  - "cleanup and queue windowing"
+  - "status badges in run history"
+  - "English continue-gate reasons in internal/git (separate change)"
+design_forecast_lines: 1325  # U1-U6 ~1250 (under 1300); U7 expected cut
+design_open_questions:
+  - "spec names an 'AI input' text state that does not exist in code; drop those scenarios in tasks or amend spec"
+  - "in-flight = ctrl+c-only footers (ADR-8); q-only screens (pushing, PR creating, validation start) and y/n prompts gain '? ayuda'; spec pin list must match"
+artifacts_tasks: openspec/changes/tui-ux-polish-b2/tasks.md  # 14 phases, 7 units; spec amended for ? ayuda pin list (ADR-8)
+design_open_questions_resolved: "AI input dropped; ? ayuda pin list fixed in tasks.md and spec amended"
+next: [none]
+updated: 2026-11-06
+# Orchestrator amendment 2026-11-06: removed "AI input" text state from the tui-presentation delta (no such state exists; AI is driven by a/y/d keys).
+apply_measured_lines: 1265  # U1 247, U2 592, U3 860, U4 1146, U5 1242, U6 1265 (cumulative, excl openspec, vs e8d783a)
+cut_units: [U7]  # W7 recorded as a known gap; projection 1340 > 1300
+commits:
+  U1: f481f3a  # test(app): make footer parity strict and guard terminal-row keys
+  U2: 9e5274b  # feat(app): window and truncate the history and commit lists
+  U3: 00f0933  # feat(app): add a help overlay on ?
+  U4: 75ee431  # feat(app): animate the spinner in push, PR, queue, cleanup and gate phases
+  U5: ff3438a  # feat(app): show elapsed time and last poll age while polling
+  U6: ce296e3  # test(app): detect quit commands by pointer instead of running them
+  corrective: 5c9d708  # fix(app): enforce strict footer parity and keep windowed lists inside the terminal
+merged_specs: [tui-presentation, run-history, commit-selection, validation-progress, ai-pr-summary]
+archive_report: openspec/changes/tui-ux-polish-b2/archive-report.md

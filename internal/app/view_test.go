@@ -99,7 +99,7 @@ func TestViewBranchCleanup_ColumnHeaders(t *testing.T) {
 	m.state = StateBranchCleanup
 	m.cleanupPhase = cleanupBrowsing
 	m.cleanupBranches = []cleanupRow{
-		{DeployBranch: git.DeployBranch{Name: "deploy/PROJ-1-to-UAT"}, MergedLabel: "unknown"},
+		{DeployBranch: git.DeployBranch{Name: "deploy/PROJ-1-to-UAT"}, MergedLabel: "desconocida"},
 	}
 
 	v := m.viewBranchCleanup()
@@ -265,7 +265,7 @@ func TestView_AI_UnacceptedSuggestion_ShowsTitleAndAcceptHint(t *testing.T) {
 		t.Errorf("the AI-generated description should be shown alongside the title for review, got:\n%s", v)
 	}
 	formulaTitle := github.SuggestedTitle("PROJ-1", "UAT")
-	if !strings.Contains(v, "title:   "+formulaTitle) {
+	if !strings.Contains(v, "título:  "+formulaTitle) {
 		t.Errorf("an unaccepted suggestion must NOT replace the effective title line, got:\n%s", v)
 	}
 }
@@ -303,7 +303,7 @@ func TestView_AI_Accepted_TitleReplacesFormulaEverywhere(t *testing.T) {
 	if strings.Contains(v, formulaTitle) {
 		t.Errorf("an accepted AI title must replace the formula title everywhere, formula still present:\n%s", v)
 	}
-	if !strings.Contains(v, "title:   PROJ-1 - AI drafted title") {
+	if !strings.Contains(v, "título:  PROJ-1 - AI drafted title") {
 		t.Errorf("accepted AI title should appear on the title line, got:\n%s", v)
 	}
 }
@@ -693,6 +693,46 @@ func TestViewDeployGateBlocked_NoOverrideKeyOffered(t *testing.T) {
 	for _, bad := range []string{"override", "bypass", "forzar igual", "continuar de todos modos"} {
 		if strings.Contains(strings.ToLower(footerLine), bad) {
 			t.Errorf("the footer must never advertise a bypass key, found %q in %q", bad, footerLine)
+		}
+	}
+}
+
+// TestViewPRData_TimedOutGHFallsBackWithNote: a timed-out gh offers the
+// compare URL, a one-line could-not-verify note, no gh-create option and no
+// "not authenticated" wording.
+func TestViewPRData_TimedOutGHFallsBackWithNote(t *testing.T) {
+	m := New(Deps{})
+	m.plan.TargetBranch = "UAT"
+	m.plan.PromotionBranch = "deploy/x"
+	m.authState = github.AuthTimedOut
+	m.compareURL = "https://github.com/org/repo/compare/UAT...deploy/x"
+
+	v := m.viewPRData()
+	if !strings.Contains(v, "No se pudo verificar gh") || !strings.Contains(v, m.compareURL) {
+		t.Fatalf("expected the timeout note and compare URL, got:\n%s", v)
+	}
+	for _, bad := range []string{"gh pr create", "sin autenticar", "autenticad"} {
+		if strings.Contains(v, bad) {
+			t.Errorf("timed-out view must not contain %q, got:\n%s", bad, v)
+		}
+	}
+}
+
+// TestViewDeployGateBlocked_GHUnavailableNamesGH: each gh-unavailable cause
+// renders one condition labelled "disponibilidad de gh", never an
+// approvals-missing message.
+func TestViewDeployGateBlocked_GHUnavailableNamesGH(t *testing.T) {
+	for _, cause := range []string{"gh no disponible", "gh no autenticado", "no se pudo verificar gh"} {
+		m := New(Deps{})
+		m.state = StateDeployGateBlocked
+		m.gateConditions = []gate.Condition{{Name: "gh-availability", Detail: cause}}
+
+		v := m.View()
+		if !strings.Contains(v, "disponibilidad de gh: "+cause) {
+			t.Errorf("expected labelled cause %q, got:\n%s", cause, v)
+		}
+		if strings.Contains(v, "aprobaciones") || strings.Contains(v, "gh-availability") {
+			t.Errorf("must not mention approvals or the raw key, got:\n%s", v)
 		}
 	}
 }

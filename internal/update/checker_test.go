@@ -108,3 +108,17 @@ func TestChecker_Latest_LargeBody(t *testing.T) {
 		t.Fatal("Latest() expected a non-nil error when the response body exceeds the size cap, got nil")
 	}
 }
+
+// TestChecker_Latest_RealRepoPath proves the repository is the real one.
+func TestChecker_Latest_RealRepoPath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0"}`))
+	}))
+	defer srv.Close()
+	_, _ = update.Checker{BaseURL: srv.URL, HTTPClient: srv.Client()}.Latest(context.Background())
+	if want := "/repos/malavolta/DeployDeck/releases/latest"; gotPath != want {
+		t.Fatalf("request path = %q, want %q", gotPath, want)
+	}
+}

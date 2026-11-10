@@ -35,8 +35,8 @@ func TestKeyTicket_GuardedQ(t *testing.T) {
 		m.ticket = ""
 		next, _ := m.Update(keyPress("q"))
 		nm := next.(Model)
-		if nm.state != StatePrereqCheck {
-			t.Fatalf("state = %v, want StatePrereqCheck (mirrors esc)", nm.state)
+		if nm.state != StateMainMenu {
+			t.Fatalf("state = %v, want StateMainMenu (mirrors esc)", nm.state)
 		}
 		if nm.ticket != "" {
 			t.Fatalf("ticket = %q, want unchanged empty buffer", nm.ticket)
@@ -273,8 +273,8 @@ func TestBackTransitions_ClearStaleNotice(t *testing.T) {
 		wantState State
 	}{
 		{name: "keySelection esc -> ticket", state: StateCommitSelection, key: "esc", wantState: StateTicketInput},
-		{name: "keyTicket esc -> prereq", state: StateTicketInput, key: "esc", wantState: StatePrereqCheck},
-		{name: "keyTicket empty-q -> prereq", state: StateTicketInput, ticket: "", key: "q", wantState: StatePrereqCheck},
+		{name: "keyTicket esc -> menu", state: StateTicketInput, key: "esc", wantState: StateMainMenu},
+		{name: "keyTicket empty-q -> menu", state: StateTicketInput, ticket: "", key: "q", wantState: StateMainMenu},
 		{name: "keyTarget esc -> selection", state: StateTargetSelection, key: "esc", wantState: StateCommitSelection},
 		{name: "keyPlanPreview esc -> target", state: StatePlanPreview, key: "esc", wantState: StateTargetSelection},
 		{name: "keySourceConfirm esc -> ticket", state: StateSourceConfirm, key: "esc", wantState: StateTicketInput},
@@ -439,7 +439,7 @@ func TestKeyQuickDeploy_Enter_GateCheckInFlight_BlocksSecondEnter(t *testing.T) 
 // both q and esc back out of the gate-block screen to StateRunHistory,
 // firing no command.
 func TestKeyDeployGateBlocked_QAndEsc_ReturnToRunHistory(t *testing.T) {
-	for _, key := range []string{"q", "esc"} {
+	for _, key := range []string{"esc"} { // q now quits (esc_q_matrix_test.go)
 		t.Run(key, func(t *testing.T) {
 			m := New(Deps{})
 			m.state = StateDeployGateBlocked
