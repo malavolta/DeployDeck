@@ -38,6 +38,12 @@ type ApproverReview struct {
 type Facts struct {
 	Config config.GateConfig
 
+	// GHUnavailable, when non-empty, is the cause (e.g. "gh no disponible")
+	// that gh could not be used at all. Evaluate then reports a single failed
+	// gh-availability condition BEFORE any PR resolution or per-condition
+	// evaluation, so the block never implies approvals are missing.
+	GHUnavailable string
+
 	// PRResolved is false when the run's PR could not be located at all
 	// (fail-closed PR resolution, deploy-gate spec's "Fail-Closed PR
 	// Resolution") — Evaluate then reports a single failed pr-resolution
@@ -122,6 +128,12 @@ func normalizeLogin(s string) string {
 // Conditions at all); Result.Passed is true iff every evaluated condition
 // passed.
 func Evaluate(f Facts) Result {
+	if f.GHUnavailable != "" {
+		return Result{
+			Passed:     false,
+			Conditions: []Condition{{Name: "gh-availability", Passed: false, Detail: f.GHUnavailable}},
+		}
+	}
 	if !f.PRResolved {
 		return Result{
 			Passed: false,

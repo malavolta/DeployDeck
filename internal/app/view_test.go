@@ -696,3 +696,43 @@ func TestViewDeployGateBlocked_NoOverrideKeyOffered(t *testing.T) {
 		}
 	}
 }
+
+// TestViewPRData_TimedOutGHFallsBackWithNote: a timed-out gh offers the
+// compare URL, a one-line could-not-verify note, no gh-create option and no
+// "not authenticated" wording.
+func TestViewPRData_TimedOutGHFallsBackWithNote(t *testing.T) {
+	m := New(Deps{})
+	m.plan.TargetBranch = "UAT"
+	m.plan.PromotionBranch = "deploy/x"
+	m.authState = github.AuthTimedOut
+	m.compareURL = "https://github.com/org/repo/compare/UAT...deploy/x"
+
+	v := m.viewPRData()
+	if !strings.Contains(v, "No se pudo verificar gh") || !strings.Contains(v, m.compareURL) {
+		t.Fatalf("expected the timeout note and compare URL, got:\n%s", v)
+	}
+	for _, bad := range []string{"gh pr create", "sin autenticar", "autenticad"} {
+		if strings.Contains(v, bad) {
+			t.Errorf("timed-out view must not contain %q, got:\n%s", bad, v)
+		}
+	}
+}
+
+// TestViewDeployGateBlocked_GHUnavailableNamesGH: each gh-unavailable cause
+// renders one condition labelled "disponibilidad de gh", never an
+// approvals-missing message.
+func TestViewDeployGateBlocked_GHUnavailableNamesGH(t *testing.T) {
+	for _, cause := range []string{"gh no disponible", "gh no autenticado", "no se pudo verificar gh"} {
+		m := New(Deps{})
+		m.state = StateDeployGateBlocked
+		m.gateConditions = []gate.Condition{{Name: "gh-availability", Detail: cause}}
+
+		v := m.View()
+		if !strings.Contains(v, "disponibilidad de gh: "+cause) {
+			t.Errorf("expected labelled cause %q, got:\n%s", cause, v)
+		}
+		if strings.Contains(v, "aprobaciones") || strings.Contains(v, "gh-availability") {
+			t.Errorf("must not mention approvals or the raw key, got:\n%s", v)
+		}
+	}
+}

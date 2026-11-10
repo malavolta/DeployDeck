@@ -102,6 +102,7 @@ func richModel() Model {
 		{RunID: "r2", Status: "InProgress", JobID: "J2", CreatedAt: time.Now()},
 	}
 	m.plan.PromotionBranch = "deploy/DD-1"
+	m.spinning = false // New arms the Doctor loading loop; richModel jumps past it
 	return m
 }
 

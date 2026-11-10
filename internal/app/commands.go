@@ -1383,6 +1383,37 @@ func (m Model) pushCmd() tea.Cmd {
 	}
 }
 
+// ghAuthTimeout bounds one `gh auth status` probe so an unreachable host
+// cannot stall a screen.
+const ghAuthTimeout = 5 * time.Second
+
+// ghAuth probes gh scoped to originURL's host (host-less when it cannot be
+// derived), bounded by ghAuthTimeout. A nil client is AuthAbsent.
+func ghAuth(parent context.Context, gh github.Client, originURL string) github.AuthState {
+	if gh == nil {
+		return github.AuthAbsent
+	}
+	host, _ := github.OriginHost(originURL)
+	ctx, cancel := context.WithTimeout(parent, ghAuthTimeout)
+	defer cancel()
+	return gh.AuthStatus(ctx, host)
+}
+
+// ghUnavailableCause maps a non-authenticated state to the gate's Spanish
+// cause string; "" for an authenticated gh.
+func ghUnavailableCause(auth github.AuthState) string {
+	switch auth {
+	case github.AuthAuthenticated:
+		return ""
+	case github.AuthUnauthenticated:
+		return "gh no autenticado"
+	case github.AuthTimedOut:
+		return "no se pudo verificar gh"
+	default:
+		return "gh no disponible"
+	}
+}
+
 // preparePRCmd composes the HU-014 post-push PR-preparation data: ONE
 // `gh auth status` (through the github.Client — AuthAbsent when no client is
 // wired) plus `git remote get-url origin` (through the git service), from
@@ -1399,10 +1430,9 @@ func (m Model) preparePRCmd() tea.Cmd {
 	reusing := m.reusing
 	ctx := m.ctx()
 	return func() tea.Msg {
-		auth := github.AuthAbsent
-		if gh != nil {
-			auth = gh.AuthStatus(ctx)
-		}
+		// Read origin first: the gh probe is scoped to its host.
+		originURL, rerr := g.RemoteURL(ctx, dir, "origin")
+		auth := ghAuth(ctx, gh, originURL)
 		msg := prepDoneMsg{auth: auth}
 
 		// incremental-promotion: only a REUSED branch could already have an
@@ -1417,7 +1447,6 @@ func (m Model) preparePRCmd() tea.Cmd {
 			}
 		}
 
-		originURL, rerr := g.RemoteURL(ctx, dir, "origin")
 		if rerr != nil {
 			msg.remoteErr = rerr
 			return msg
@@ -1638,6 +1667,8 @@ type gateCheckDoneMsg struct {
 // pr-resolution condition).
 func (m Model) gateCheckCmd() tea.Cmd {
 	gh := m.deps.GH
+	g := m.deps.Git
+	dir := m.deps.GitRoot
 	rec := m.runs[m.runsCursor]
 	gateCfg, _ := m.deps.Config.GateFor(rec.Target)
 	branchFormat := m.deps.Config.BranchFormat
@@ -1652,6 +1683,17 @@ func (m Model) gateCheckCmd() tea.Cmd {
 		defer cancel()
 
 		facts := gate.Facts{Config: gateCfg}
+
+		// gh availability first: when gh is unusable no other fact can be
+		// read, so block naming gh as the cause (fail closed, no gh calls).
+		originURL := ""
+		if g != nil {
+			originURL, _ = g.RemoteURL(ctx, dir, "origin")
+		}
+		if cause := ghUnavailableCause(ghAuth(ctx, gh, originURL)); cause != "" {
+			facts.GHUnavailable = cause
+			return gateCheckDoneMsg{result: gate.Evaluate(facts)}
+		}
 
 		prURL, ok := resolvePRURL(ctx, gh, rec, branchFormat)
 		facts.PRResolved = ok

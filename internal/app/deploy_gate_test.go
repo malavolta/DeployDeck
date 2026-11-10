@@ -98,7 +98,7 @@ func primeAppUnresolvedThreads(t *testing.T, fr *execpkg.FakeRunner, result exec
 // PRForBranch fallback, isolating this test from that already-proven path.
 func gateCheckModel(t *testing.T, gateCfg config.GateConfig) (Model, *execpkg.FakeRunner) {
 	t.Helper()
-	fr := execpkg.NewFakeRunner()
+	fr := ghRunner("authed")
 	cfg := config.Config{
 		Branches:     map[string]string{"uat": "UAT"},
 		BranchFormat: config.DefaultBranchFormat,
@@ -196,8 +196,8 @@ func TestGateCheckCmd_MapsEachGHErrorIndependently(t *testing.T) {
 
 			// Every one of the 4 gh reads must have been ATTEMPTED regardless
 			// of which one failed — proving independence, not a short-circuit.
-			if len(fr.Calls) != 4 {
-				t.Fatalf("expected all 4 gh reads to be attempted independently, got %d calls: %v", len(fr.Calls), fr.Calls)
+			if len(fr.Calls) != 5 { // auth probe + the 4 reads
+				t.Fatalf("expected the auth probe plus all 4 gh reads to be attempted independently, got %d calls: %v", len(fr.Calls), fr.Calls)
 			}
 		})
 	}
@@ -209,7 +209,7 @@ func TestGateCheckCmd_MapsEachGHErrorIndependently(t *testing.T) {
 // skips the 4 gh reads entirely — only the PRForBranch fallback attempt
 // itself is ever called.
 func TestGateCheckCmd_NoResolvablePR_SkipsAllFourReads(t *testing.T) {
-	fr := execpkg.NewFakeRunner()
+	fr := ghRunner("authed")
 	branch := "deploy/PROJ-1-to-UAT"
 	fr.When("gh", []string{"pr", "view", branch, "--json", "url,state"}, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("no pull requests found")})
 
@@ -235,9 +235,9 @@ func TestGateCheckCmd_NoResolvablePR_SkipsAllFourReads(t *testing.T) {
 		t.Fatalf("expected exactly 1 pr-resolution condition, got %+v", done.result.Conditions)
 	}
 
-	// Only the PRForBranch fallback attempt itself — none of the 4 gh reads.
-	if len(fr.Calls) != 1 {
-		t.Fatalf("expected only the PRForBranch attempt (1 call), got %d: %v", len(fr.Calls), fr.Calls)
+	// Only the auth probe and the PRForBranch fallback attempt — none of the 4 gh reads.
+	if len(fr.Calls) != 2 {
+		t.Fatalf("expected only the auth probe and PRForBranch attempt (2 calls), got %d: %v", len(fr.Calls), fr.Calls)
 	}
 }
 

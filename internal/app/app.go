@@ -749,7 +749,9 @@ func visibleMenuEntries(entries []menuEntry) []menuEntry {
 // New builds the initial Model in StatePrereqCheck.
 func New(deps Deps) Model {
 	normalizeRoots(&deps)
-	return Model{deps: deps, state: StatePrereqCheck}
+	// With a checker wired the Doctor screen starts loading: arm the single
+	// spinner tick loop here (Init seeds its first tick).
+	return Model{deps: deps, state: StatePrereqCheck, spinning: deps.NewChecker != nil}
 }
 
 // normalizeRoots seeds GitRoot/ProjectDir/ArtifactsRoot from the
@@ -828,6 +830,9 @@ func (m Model) DeltaAllowed() bool {
 // runPrereqCmd(), checkUpdateCmd())"). tea.Batch drops nil cmds, so a nil
 // Deps.CheckUpdate degrades to the pre-existing prereq-only startup.
 func (m Model) Init() tea.Cmd {
+	if m.deps.NewChecker != nil {
+		return tea.Batch(m.runPrereqCmd(), m.checkUpdateCmd(), spinnerCmd())
+	}
 	return tea.Batch(m.runPrereqCmd(), m.checkUpdateCmd())
 }
 

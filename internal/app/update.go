@@ -926,6 +926,9 @@ func isSpinnerState(state State) bool {
 // to refresh its clock and renders no glyph).
 func (m Model) spinnerActive() bool {
 	switch m.state {
+	case StatePrereqCheck:
+		// First load only: retries keep previous results and show no spinner.
+		return len(m.checks) == 0
 	case StatePushPreparation:
 		return m.pushPhase == pushPushing || m.pushPhase == pushPRCreating
 	case StateBranchCleanup:

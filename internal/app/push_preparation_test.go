@@ -37,9 +37,12 @@ func ghRunner(auth string) *execpkg.FakeRunner {
 	fr := execpkg.NewFakeRunner()
 	switch auth {
 	case "authed":
+		// Host-less and origin-scoped (github.com) probes both match.
 		fr.When("gh", []string{"auth", "status"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("Logged in to github.com")})
+		fr.When("gh", []string{"auth", "status", "--hostname=github.com"}, execpkg.CommandResult{ExitCode: 0, Stdout: []byte("Logged in to github.com")})
 	case "unauthed":
 		fr.When("gh", []string{"auth", "status"}, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("not logged in")})
+		fr.When("gh", []string{"auth", "status", "--hostname=github.com"}, execpkg.CommandResult{ExitCode: 1, Stderr: []byte("not logged in")})
 	case "absent":
 		// no canned response
 	}

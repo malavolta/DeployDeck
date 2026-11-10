@@ -183,6 +183,9 @@ func (m Model) viewPrereq() string {
 	// lever 1) — contextBar's test above already proves GitRoot is read
 	// correctly from a nested Deps.
 	b.WriteString(fmt.Sprintf("\n  Repo: %s\n\n  Prerequisitos\n\n", m.deps.GitRoot))
+	if len(m.checks) == 0 {
+		b.WriteString("  " + spinnerView(m.spinnerFrame) + " Comprobando prerequisitos…\n")
+	}
 	for _, c := range m.checks {
 		b.WriteString(fmt.Sprintf("  %s %s  %s\n", mark(statusMark(c.Status)), c.Name, c.Detail))
 		if c.FixCommand != "" {
@@ -869,6 +872,8 @@ func conditionLabelES(name string) string {
 		return "firma"
 	case "pr-resolution":
 		return "localización de la PR"
+	case "gh-availability":
+		return "disponibilidad de gh"
 	default:
 		return name
 	}
@@ -1024,10 +1029,13 @@ func (m Model) viewPRData() string {
 		return b.String()
 	}
 
-	// Compare-URL fallback: gh absent or present-unauthenticated.
-	if m.authState == github.AuthUnauthenticated {
+	// Compare-URL fallback: gh absent, present-unauthenticated or timed out.
+	switch m.authState {
+	case github.AuthUnauthenticated:
 		b.WriteString("\n  gh detectado pero sin autenticar. Abre el PR en el navegador:\n")
-	} else {
+	case github.AuthTimedOut:
+		b.WriteString("\n  No se pudo verificar gh (tiempo agotado). Abre el PR en el navegador:\n")
+	default:
 		b.WriteString("\n  gh no disponible. Abre el PR en el navegador:\n")
 	}
 	if m.compareURL != "" {

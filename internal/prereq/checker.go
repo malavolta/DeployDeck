@@ -1,6 +1,8 @@
 package prereq
 
 import (
+	"time"
+
 	"github.com/malavolta/DeployDeck/internal/ai"
 	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/git"
@@ -73,6 +75,9 @@ type Checker struct {
 	// Checker built before HU-014, and every existing checker test that
 	// never sets it — skips CheckGH entirely, reporting OK.
 	GH github.Client
+
+	// GHTimeout bounds the gh auth probe. Zero means defaultGHTimeout (5s).
+	GHTimeout time.Duration
 
 	// AI is the local-model client backing the informative, non-blocking
 	// AI endpoint/model availability doctor check (ai-pr-summary,

@@ -1,9 +1,11 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/malavolta/DeployDeck/internal/gate"
+	"github.com/malavolta/DeployDeck/internal/prereq"
 )
 
 // TestStateDeployGateBlocked_ModelFieldsExistAndAreWired is task 6.5 (RED):
@@ -71,5 +73,40 @@ func TestNew_NormalizeRoots_ExplicitRootsWin(t *testing.T) {
 	}
 	if m.deps.ArtifactsRoot != "/repo/project" {
 		t.Errorf("ArtifactsRoot = %q, want %q", m.deps.ArtifactsRoot, "/repo/project")
+	}
+}
+
+// TestDoctorLoading covers the first-load Doctor indicator: the spinner loop
+// is armed only when a checker is wired, runs only while no results exist,
+// and the footer is unchanged by the loading line.
+func TestDoctorLoading(t *testing.T) {
+	newChecker := func() (*prereq.Checker, error) { return nil, errStub }
+
+	m := New(Deps{NewChecker: newChecker})
+	if !m.spinning || !m.spinnerActive() {
+		t.Fatal("expected the tick loop armed and active while no checks exist")
+	}
+	if New(Deps{}).spinning {
+		t.Fatal("no NewChecker: the tick loop must not be armed")
+	}
+	if New(Deps{}).Init() != nil {
+		t.Fatal("no NewChecker/CheckUpdate: Init must stay a no-op")
+	}
+
+	loading := m.viewPrereq()
+	if !strings.HasSuffix(loading, m.footerLine()) {
+		t.Fatalf("loading screen must end with the unchanged Doctor footer, got:\n%s", loading)
+	}
+	if !strings.Contains(loading, "Comprobando prerequisitos…") {
+		t.Fatalf("expected the loading line, got:\n%s", loading)
+	}
+
+	m.checks = []prereq.PrereqCheck{{Name: "git", Status: prereq.StatusOK}}
+	if m.spinnerActive() {
+		t.Fatal("tick loop must stop once results exist")
+	}
+	loaded := m.viewPrereq()
+	if strings.Contains(loaded, "Comprobando") {
+		t.Fatalf("loading line must disappear with results, got:\n%s", loaded)
 	}
 }
