@@ -168,6 +168,20 @@ func wrapIndented(text string, width int) []string {
 	return append(out, indent+cur)
 }
 
+// wrapLine word-wraps one 2-space-indented body line to width with a 4-space
+// hanging indent on continuations. width <= 0 or a line that already fits is
+// returned untouched (byte-identical to the unwrapped output).
+func wrapLine(line string, width int) string {
+	if width <= 0 || ansi.StringWidth(line) <= width {
+		return line
+	}
+	ls := wrapIndented(strings.TrimPrefix(line, "  "), width-2)
+	for i := 1; i < len(ls); i++ {
+		ls[i] = "  " + ls[i]
+	}
+	return strings.Join(ls, "\n")
+}
+
 // hintLines splits a hint into its sentence and 0%-class list, wrapped to
 // width, one muted string per rendered line.
 func hintLines(hint string, width int) []string {

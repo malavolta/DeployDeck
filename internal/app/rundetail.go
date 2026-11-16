@@ -161,7 +161,7 @@ func (m Model) detailLines() []string {
 		b.WriteString(fmt.Sprintf("  Pick: %d de %d\n", rec.PickIndex, rec.PickTotal))
 	}
 	if cached && e.loaded && !e.missing {
-		b.WriteString(reportSections(e.report, v.kind == causeCanceled))
+		b.WriteString(reportSections(e.report, v.kind == causeCanceled, m.width))
 		if e.path != "" {
 			b.WriteString("\n  " + styleDim.Render("Reporte completo: "+m.displayPath(e.path)) + "\n")
 		}

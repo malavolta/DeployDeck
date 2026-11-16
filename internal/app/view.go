@@ -1209,7 +1209,7 @@ func (m Model) validationBodyFor(skipCancel bool) string {
 		b.WriteString(fmt.Sprintf("\n  Job: %s\n", m.jobID))
 	}
 	b.WriteString(fmt.Sprintf("  Estado: %s\n", r.Status))
-	b.WriteString(reportSections(r, skipCancel))
+	b.WriteString(reportSections(r, skipCancel, m.width))
 	// D5: the latest persisted report path, muted — shown on any terminal
 	// screen (Succeeded/SucceededPartial/Failed/Canceled, including a
 	// timeout, which also lands on StateFailed) but NOT while still live
@@ -1225,7 +1225,7 @@ func (m Model) validationBodyFor(skipCancel bool) string {
 // errors, failed tests, coverage, org error, cancel attribution and the
 // no-structured-detail fallback. Output is byte-identical to the former inline
 // body (pinned by TestValidationBody_GoldenPinned).
-func reportSections(r salesforce.DeployReport, skipCancel bool) string {
+func reportSections(r salesforce.DeployReport, skipCancel bool, width int) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("  Componentes: %d/%d (errores: %d)\n", r.NumberComponentsDeployed, r.NumberComponentsTotal, r.NumberComponentErrors))
 	b.WriteString(fmt.Sprintf("  Tests: %d/%d (errores: %d)\n", r.NumberTestsCompleted, r.NumberTestsTotal, r.NumberTestErrors))
@@ -1247,7 +1247,7 @@ func reportSections(r salesforce.DeployReport, skipCancel bool) string {
 			if loc := componentFailureLocation(f); loc != "" {
 				line += " " + loc
 			}
-			b.WriteString(line + "\n")
+			b.WriteString(wrapLine(line, width) + "\n")
 		}
 	}
 	if len(r.TestFailures) > 0 {
@@ -1255,7 +1255,7 @@ func reportSections(r salesforce.DeployReport, skipCancel bool) string {
 		for _, f := range r.TestFailures {
 			// Remediation (risk WARNING): f.Message is org-sourced (an Apex
 			// assertion/exception message from someone else's run).
-			b.WriteString(fmt.Sprintf("  - %s.%s: %s\n", f.Class, f.Method, sanitizeTermLine(f.Message)))
+			b.WriteString(wrapLine(fmt.Sprintf("  - %s.%s: %s", f.Class, f.Method, sanitizeTermLine(f.Message)), width) + "\n")
 			// First stack-trace frame only, muted (D2) — bounded so N tests
 			// never flood the TUI; the full trace lives in the report path.
 			// Sanitized (risk WARNING) BEFORE styling, same as every other
@@ -1279,7 +1279,7 @@ func reportSections(r salesforce.DeployReport, skipCancel bool) string {
 				label = "cobertura global"
 			}
 			// Remediation (risk WARNING): w.Message is org-sourced.
-			b.WriteString(fmt.Sprintf("  - [%s] %s\n", label, sanitizeTermLine(w.Message)))
+			b.WriteString(wrapLine(fmt.Sprintf("  - [%s] %s", label, sanitizeTermLine(w.Message)), width) + "\n")
 		}
 		shown := belowGate
 		overflow := 0
@@ -1297,7 +1297,7 @@ func reportSections(r salesforce.DeployReport, skipCancel bool) string {
 		// (design.md Open Questions: "inline ... prefixed flujo:").
 		// Remediation (risk WARNING): w.Message is org-sourced.
 		for _, w := range r.FlowCoverageWarnings {
-			b.WriteString(fmt.Sprintf("  - flujo: %s: %s\n", w.FlowName, sanitizeTermLine(w.Message)))
+			b.WriteString(wrapLine(fmt.Sprintf("  - flujo: %s: %s", w.FlowName, sanitizeTermLine(w.Message)), width) + "\n")
 		}
 	}
 	// Org-level error (bug fix): surfaces when the failure has no
@@ -1306,9 +1306,9 @@ func reportSections(r salesforce.DeployReport, skipCancel bool) string {
 	if r.ErrorMessage != "" {
 		errMessage := sanitizeTermLine(r.ErrorMessage)
 		if r.ErrorStatusCode != "" {
-			b.WriteString(fmt.Sprintf("\n  %s Error (%s): %s\n", mark("XX"), sanitizeTermLine(r.ErrorStatusCode), errMessage))
+			b.WriteString("\n" + wrapLine(fmt.Sprintf("  %s Error (%s): %s", mark("XX"), sanitizeTermLine(r.ErrorStatusCode), errMessage), width) + "\n")
 		} else {
-			b.WriteString(fmt.Sprintf("\n  %s Error: %s\n", mark("XX"), errMessage))
+			b.WriteString("\n" + wrapLine(fmt.Sprintf("  %s Error: %s", mark("XX"), errMessage), width) + "\n")
 		}
 	}
 	if r.Status == "Canceled" && r.CanceledByName != "" && !skipCancel {
