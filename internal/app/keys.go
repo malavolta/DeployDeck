@@ -63,6 +63,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyCancelConfirm(msg)
 	case StateRunHistory:
 		return m.keyRunHistory(msg)
+	case StateRunDetail:
+		return m.keyRunDetail(msg)
 	case StateQuickDeploy:
 		return m.keyQuickDeploy(msg)
 	case StateSucceeded:
@@ -612,8 +614,8 @@ func (m Model) keyMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.standaloneMode = ""
 			m.notice = ""
 			m.runsCursor = 0
-			m.runDetail = false
 			m.runsLoadErr = nil
+			m.enterHistoryReports()
 			m.state = entry.target
 			return m, m.runHistoryLoadCmd()
 		default:
@@ -1369,7 +1371,7 @@ func (m Model) keyValidationPolling(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // keyRunHistory handles HU-013's run-history browse + resume-offer screen
 // (mockup docs/MOCKUPS_TUI.md "Historial De Runs", footer line 386): `↑/↓`
-// (and k/j) move the selection, `d` toggles the expanded detail, `Enter`
+// (and k/j) move the selection, `d` opens the full-screen run detail, `Enter`
 // resumes the selected run when it is resumable (routing into
 // StateCherryPickConflict or StateValidationPolling) and is a no-op on a
 // terminal run (the detail stays shown), and `q`/`esc` declines the resume
@@ -1381,15 +1383,19 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.runsCursor > 0 {
 			m.runsCursor--
 		}
-		return m, nil
+		return m, m.ensureReportCmd()
 	case key.Matches(msg, keys.Down):
 		if m.runsCursor < len(m.runs)-1 {
 			m.runsCursor++
 		}
-		return m, nil
+		return m, m.ensureReportCmd()
 	case key.Matches(msg, keys.Delete):
-		m.runDetail = !m.runDetail
-		return m, nil
+		if m.runsCursor < 0 || m.runsCursor >= len(m.runs) {
+			return m, nil
+		}
+		m.detailScroll = 0
+		m.state = StateRunDetail
+		return m, m.ensureReportCmd()
 	case key.Matches(msg, keys.Enter):
 		if !m.canResume() {
 			return m, nil

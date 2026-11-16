@@ -28,6 +28,7 @@ func escQFixtures() []escQ {
 		{"delta source", st(StateDeltaSourceSelect), StateMainMenu, "quit"},
 		{"sandbox", st(StateSandboxSelect), StatePackageSelect, "quit"},
 		{"run history", st(StateRunHistory), StateMainMenu, "quit"},
+		{"run detail", st(StateRunDetail), StateRunHistory, "quit"},
 		{"gate blocked", st(StateDeployGateBlocked), StateRunHistory, "quit"},
 		{"source confirm", st(StateSourceConfirm), StateTicketInput, "quit"},
 		{"selection", st(StateCommitSelection), StateTicketInput, "quit"},

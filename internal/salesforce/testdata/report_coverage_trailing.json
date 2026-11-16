@@ -1,0 +1,71 @@
+{
+ "status": 0,
+ "result": {
+  "checkOnly": true,
+  "done": true,
+  "id": "0Affj00000ZY3LtCAL",
+  "numberComponentErrors": 0,
+  "numberComponentsDeployed": 3,
+  "numberComponentsTotal": 3,
+  "numberFiles": "8",
+  "numberTestErrors": 0,
+  "numberTestsCompleted": 3,
+  "numberTestsTotal": 3,
+  "status": "Failed",
+  "success": false,
+  "details": {
+   "componentFailures": [],
+   "runTestResult": {
+    "numTestsRun": 3,
+    "failures": [],
+    "codeCoverage": [
+     {
+      "name": "UgenClasificadorTramite",
+      "namespace": null,
+      "numLocations": 41,
+      "numLocationsNotCovered": 11
+     },
+     {
+      "name": "TGS",
+      "namespace": null,
+      "numLocations": 0,
+      "numLocationsNotCovered": 0
+     },
+     {
+      "name": "NebulaDemoQueueable",
+      "namespace": null,
+      "numLocations": 9,
+      "numLocationsNotCovered": 9
+     },
+     {
+      "name": "DemoCoverageFiller",
+      "namespace": null,
+      "numLocations": 55,
+      "numLocationsNotCovered": 0
+     },
+     {
+      "name": "NebulaDemoService",
+      "namespace": null,
+      "numLocations": 23,
+      "numLocationsNotCovered": 23
+     },
+     {
+      "name": "UgenTramiteRetriever",
+      "namespace": null,
+      "numLocations": 25,
+      "numLocationsNotCovered": 8
+     }
+    ],
+    "codeCoverageWarnings": [
+     {
+      "name": null,
+      "namespace": "",
+      "message": "Average test coverage across all Apex Classes and Triggers is 66%, at least 75% test coverage is required."
+     }
+    ]
+   }
+  }
+ }
+}
+
+ ›   Warning: @salesforce/cli update available from 2.144.6 to 2.157.8.

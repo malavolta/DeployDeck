@@ -172,7 +172,7 @@ func TestViewRunHistory_ModeAwareRender(t *testing.T) {
 // --- 5.7/5.8: history keys --------------------------------------------------
 
 // TestKeyRunHistory_Navigation is task 5.7 (RED): ↑/↓ move the cursor, `d`
-// toggles the expanded detail, `Enter` on a resumable run resumes it, `Enter`
+// opens the full-screen run detail, `Enter` on a resumable run resumes it, `Enter`
 // on a terminal run is a no-op (stays on history), and `q`/`esc` declines to
 // the normal ticket-input flow.
 func TestKeyRunHistory_Navigation(t *testing.T) {
@@ -200,17 +200,17 @@ func TestKeyRunHistory_Navigation(t *testing.T) {
 		}
 	})
 
-	t.Run("d toggles the expanded detail", func(t *testing.T) {
+	t.Run("d opens the full-screen detail", func(t *testing.T) {
 		m := historyModel(records)
-		toggled := advance(t, m, keyPress("d"))
-		if !toggled.runDetail {
-			t.Fatal("d should turn the detail toggle on")
+		opened := advance(t, m, keyPress("d"))
+		if opened.State() != StateRunDetail {
+			t.Fatalf("d should open StateRunDetail, got %v", opened.State())
 		}
-		if !strings.Contains(toggled.View(), "Fase:") {
-			t.Errorf("the expanded detail should surface extra fields (Fase:):\n%s", toggled.View())
+		if !strings.Contains(opened.View(), "Estado:") {
+			t.Errorf("the detail should surface the run fields (Estado:):\n%s", opened.View())
 		}
-		if advance(t, toggled, keyPress("d")).runDetail {
-			t.Error("d again should turn the detail toggle off")
+		if advance(t, opened, keyPress("esc")).State() != StateRunHistory {
+			t.Error("esc should return to history")
 		}
 	})
 

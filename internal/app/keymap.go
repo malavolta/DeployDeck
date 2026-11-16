@@ -213,6 +213,8 @@ func (m Model) screenBindings() []key.Binding {
 		return []key.Binding{bEnter("confirmar"), bEsc("volver")}
 	case StateRunHistory:
 		return m.historyBindings()
+	case StateRunDetail:
+		return []key.Binding{hint(keys.Nav, "↑/↓", "desplazar", m.detailScrollable()), bEsc("volver"), bQuit()}
 	case StateQuickDeploy:
 		_, sel := m.selectedRun()
 		return []key.Binding{hint(keys.Enter, "Enter", "confirmar", sel), bBack("volver")}

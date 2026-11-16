@@ -20,6 +20,17 @@ func window(cursor, total, rows int) (start, end int) {
 	return start, start + rows
 }
 
+// scrollWindow returns the [start,end) slice of total lines that fits in rows
+// lines for a free-scrolling view with no cursor: offset is clamped to
+// [0, total-rows]. rows <= 0 or content that fits is unwindowed.
+func scrollWindow(offset, total, rows int) (start, end int) {
+	if rows <= 0 || total <= rows {
+		return 0, total
+	}
+	start = min(max(offset, 0), total-rows)
+	return start, start + rows
+}
+
 // overflow renders the "N más" indicator for n hidden rows above or below.
 func overflow(n int, up bool) string {
 	if n <= 0 {

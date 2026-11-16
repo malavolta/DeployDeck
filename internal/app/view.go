@@ -94,6 +94,8 @@ func (m Model) viewBody() string {
 		return m.viewCancelConfirm()
 	case StateRunHistory:
 		return m.viewRunHistory()
+	case StateRunDetail:
+		return m.viewRunDetail()
 	case StateQuickDeploy:
 		return m.viewQuickDeploy()
 	case StatePushPreparation:
@@ -913,7 +915,9 @@ func (m Model) viewValidationResult() string {
 	} else {
 		b.WriteString(m.screenHeader("Resultado De Validación"))
 	}
-	b.WriteString(m.validationBody())
+	v := classify(m.report)
+	b.WriteString(failureBlock(v, m.width))
+	b.WriteString(m.validationBodyFor(v.isFailure() && v.kind == causeCanceled))
 	if m.timedOut {
 		b.WriteString("\n  " + mark("XX") + " Timeout: la validación no alcanzó un estado terminal a tiempo.\n")
 	}
@@ -1194,13 +1198,35 @@ func firstStackFrame(stackTrace string) string {
 
 // validationBody renders the shared live/terminal progress body: job id,
 // status, component/test counters, metadata errors and failed tests (HU-011).
-func (m Model) validationBody() string {
+func (m Model) validationBody() string { return m.validationBodyFor(false) }
+
+// validationBodyFor is validationBody; skipCancel drops the "Cancelado por:"
+// section line when the screen already shows it in the failure headline.
+func (m Model) validationBodyFor(skipCancel bool) string {
 	var b strings.Builder
 	r := m.report
 	if m.jobID != "" {
 		b.WriteString(fmt.Sprintf("\n  Job: %s\n", m.jobID))
 	}
 	b.WriteString(fmt.Sprintf("  Estado: %s\n", r.Status))
+	b.WriteString(reportSections(r, skipCancel))
+	// D5: the latest persisted report path, muted — shown on any terminal
+	// screen (Succeeded/SucceededPartial/Failed/Canceled, including a
+	// timeout, which also lands on StateFailed) but NOT while still live
+	// polling, replacing the prior dead-end hint above.
+	if m.state != StateValidationPolling && m.reportPath != "" {
+		b.WriteString("\n  " + styleDim.Render("Reporte completo: "+m.displayPath(m.reportPath)) + "\n")
+	}
+	return b.String()
+}
+
+// reportSections renders the report-derived body shared by the live/terminal
+// progress screens and the run detail: component/test counters, metadata
+// errors, failed tests, coverage, org error, cancel attribution and the
+// no-structured-detail fallback. Output is byte-identical to the former inline
+// body (pinned by TestValidationBody_GoldenPinned).
+func reportSections(r salesforce.DeployReport, skipCancel bool) string {
+	var b strings.Builder
 	b.WriteString(fmt.Sprintf("  Componentes: %d/%d (errores: %d)\n", r.NumberComponentsDeployed, r.NumberComponentsTotal, r.NumberComponentErrors))
 	b.WriteString(fmt.Sprintf("  Tests: %d/%d (errores: %d)\n", r.NumberTestsCompleted, r.NumberTestsTotal, r.NumberTestErrors))
 
@@ -1285,8 +1311,8 @@ func (m Model) validationBody() string {
 			b.WriteString(fmt.Sprintf("\n  %s Error: %s\n", mark("XX"), errMessage))
 		}
 	}
-	if r.Status == "Canceled" && r.CanceledByName != "" {
-		b.WriteString(fmt.Sprintf("\n  Cancelado por: %s\n", r.CanceledByName))
+	if r.Status == "Canceled" && r.CanceledByName != "" && !skipCancel {
+		b.WriteString(fmt.Sprintf("\n  Cancelado por: %s\n", sanitizeTermLine(r.CanceledByName)))
 	}
 	// Invariant (bug fix): a Failed report must never render without a
 	// reason. If none of the structured reasons above fired, say so
@@ -1301,13 +1327,6 @@ func (m Model) validationBody() string {
 	if r.Status == "Failed" && !hasStructuredFailureDetail(r, belowGate) {
 		b.WriteString("\n  " + mark("XX") + " La validación falló sin detalle estructurado.\n")
 	}
-	// D5: the latest persisted report path, muted — shown on any terminal
-	// screen (Succeeded/SucceededPartial/Failed/Canceled, including a
-	// timeout, which also lands on StateFailed) but NOT while still live
-	// polling, replacing the prior dead-end hint above.
-	if m.state != StateValidationPolling && m.reportPath != "" {
-		b.WriteString("\n  " + styleDim.Render("Reporte completo: "+m.reportPath) + "\n")
-	}
 	return b.String()
 }
 
@@ -1315,8 +1334,7 @@ func (m Model) validationBody() string {
 // (mockup docs/MOCKUPS_TUI.md "Historial De Runs"): the past runs newest-first
 // (date, ticket, target, progress, jobId) with the selected row marked, plus a
 // selected-run detail panel (branch, commit count, delta package path). An
-// empty history renders no rows and no error. `d` toggles an expanded detail
-// block (status/jobId/phase/pick).
+// empty history renders no rows and no error. `d` opens StateRunDetail.
 func (m Model) viewRunHistory() string {
 	var b strings.Builder
 	b.WriteString(m.screenHeader("Historial"))
@@ -1382,19 +1400,7 @@ func (m Model) viewRunHistory() string {
 			packageLine = rec.ManifestPath
 		}
 		tail.WriteString(fmt.Sprintf("  Package: %s\n", packageLine))
-		if m.runDetail {
-			tail.WriteString("\n  Detalle:\n")
-			tail.WriteString(fmt.Sprintf("  Estado: %s\n", runProgressLabel(rec)))
-			if rec.JobID != "" {
-				tail.WriteString(fmt.Sprintf("  Job Id: %s\n", rec.JobID))
-			}
-			if rec.Phase != "" {
-				tail.WriteString(fmt.Sprintf("  Fase: %s\n", rec.Phase))
-			}
-			if rec.PickTotal > 0 {
-				tail.WriteString(fmt.Sprintf("  Pick: %d de %d\n", rec.PickIndex, rec.PickTotal))
-			}
-		}
+		tail.WriteString(m.motivoLine(rec.RunID))
 	}
 
 	tail.WriteString(m.noticeLine())

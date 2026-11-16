@@ -83,6 +83,12 @@ func TestFooterPins_BytesAreUnchanged(t *testing.T) {
 			"d detalle   ↑/↓ navegar   Esc volver   q salir   ? ayuda"},
 		{"history re-promote", hist(runs.Record{RunID: "r", Status: "Succeeded", Commits: []string{"a"}, CreatedAt: time.Now()}),
 			"d detalle   r re-promocionar   ↑/↓ navegar   Esc volver   q salir   ? ayuda"},
+		{"run detail", func(m *Model) { m.state, m.runs = StateRunDetail, []runs.Record{{RunID: "r"}} }, "Esc volver   q salir   ? ayuda"},
+		{"run detail scrollable", func(m *Model) {
+			m.state, m.height = StateRunDetail, 8
+			m.runs = []runs.Record{{RunID: "r", JobID: "J", Phase: "validating"}}
+			m.runReports["r"] = runReportEntry{loaded: true, report: coverageReport()}
+		}, "↑/↓ desplazar   Esc volver   q salir   ? ayuda"},
 		{"quick deploy", func(m *Model) { m.state, m.runs = StateQuickDeploy, []runs.Record{{RunID: "r"}} }, "Enter confirmar   q/Esc volver"},
 		{"quick deploy none", st(StateQuickDeploy), "q/Esc volver"},
 		{"gate blocked", st(StateDeployGateBlocked), "Esc volver al historial   q salir   ? ayuda"},

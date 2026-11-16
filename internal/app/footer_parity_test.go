@@ -138,6 +138,11 @@ func parityFixtures() []struct {
 			m.repoState.CurrentSHA = "a"
 			m.runs = []runs.Record{{RunID: "r", Status: "Succeeded", Phase: "cherry-pick", TestLevel: "RunLocalTests", JobID: "J", Commits: []string{"a"}, CreatedAt: time.Now()}, m.runs[0]}
 		})},
+		{"run detail", set(StateRunDetail, func(m *Model) { m.runs = m.runs[:1] })},
+		{"run detail scrollable", set(StateRunDetail, func(m *Model) {
+			m.height, m.detailScroll = 9, 2
+			m.runReports["r1"] = runReportEntry{loaded: true, report: coverageReport()}
+		})},
 		{"quick deploy", set(StateQuickDeploy, quickReady)},
 		{"quick deploy none", set(StateQuickDeploy, func(m *Model) { m.runs = nil })},
 		{"aborted no branch", set(StateAborted, func(m *Model) { m.plan.PromotionBranch = "" })},

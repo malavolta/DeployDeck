@@ -65,6 +65,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onResumeDetect(msg)
 	case runHistoryLoadedMsg:
 		return m.onRunHistoryLoaded(msg)
+	case runReportMsg:
+		return m.onRunReport(msg)
 	case originalBranchMsg:
 		return m.onOriginalBranch(msg)
 	case unpushedMsg:
@@ -378,7 +380,8 @@ func (m Model) onResumeDetect(msg resumeDetectMsg) (tea.Model, tea.Cmd) {
 	}
 	m.runsCursor = idx
 	m.state = StateRunHistory
-	return m, nil
+	m.enterHistoryReports()
+	return m, m.ensureReportCmd()
 }
 
 // onRunHistoryLoaded lands the fresh run-list load fired by the "Historial de
@@ -404,7 +407,7 @@ func (m Model) onRunHistoryLoaded(msg runHistoryLoadedMsg) (tea.Model, tea.Cmd) 
 	m.runs = records
 	m.runsCursor = 0
 	m.runsLoadErr = nil
-	return m, nil
+	return m, m.ensureReportCmd()
 }
 
 // reconcileStaleRuns resyncs cherry-pick-phase records against the live repo:

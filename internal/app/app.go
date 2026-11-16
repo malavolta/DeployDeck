@@ -189,6 +189,11 @@ const (
 	// q/esc are the only live keys, backing out to StateRunHistory. Appended
 	// last so every prior State's value is never renumbered.
 	StateDeployGateBlocked
+	// StateRunDetail is run-failure-detail's full-screen, scrollable run
+	// detail, opened ONLY by `d` on StateRunHistory: headline, hint, run
+	// fields and the shared report sections. Esc returns to history with the
+	// cursor unchanged; q quits. Appended last so no State is renumbered.
+	StateRunDetail
 	// stateCount is the number of states. It MUST stay last: the parity test
 	// ranges over every state below it and fails when a state has no fixture.
 	stateCount
@@ -463,7 +468,7 @@ type Model struct {
 
 	// RunHistory (HU-013): the browsable past-run list that doubles as the
 	// resume-offer surface. runs is the full List() snapshot (newest-first),
-	// runsCursor the selected row, runDetail the expanded-detail toggle.
+	// runsCursor the selected row (`d` opens StateRunDetail).
 	runs       []runs.Record
 	runsCursor int
 
@@ -473,8 +478,14 @@ type Model struct {
 
 	// helpOpen is the modal `?` overlay: it replaces the body and swallows
 	// every key but ?, Esc and ctrl+c.
-	helpOpen  bool
-	runDetail bool
+	helpOpen bool
+	// runReports caches the latest persisted report per RunID for the history
+	// tail and the run detail; reportGen identifies the history session so a
+	// load fired in an earlier session is dropped (run-failure-detail).
+	runReports map[string]runReportEntry
+	reportGen  int
+	// detailScroll is StateRunDetail's top-line offset (clamped on use).
+	detailScroll int
 	// runsLoadErr is a failed fresh run-list load fired by the "Historial de
 	// runs" menu entry (onRunHistoryLoaded). A DEDICATED field rendered only
 	// by viewRunHistory — never the shared m.notice — so a stale load error
@@ -751,7 +762,7 @@ func New(deps Deps) Model {
 	normalizeRoots(&deps)
 	// With a checker wired the Doctor screen starts loading: arm the single
 	// spinner tick loop here (Init seeds its first tick).
-	return Model{deps: deps, state: StatePrereqCheck, spinning: deps.NewChecker != nil}
+	return Model{deps: deps, state: StatePrereqCheck, spinning: deps.NewChecker != nil, runReports: map[string]runReportEntry{}}
 }
 
 // normalizeRoots seeds GitRoot/ProjectDir/ArtifactsRoot from the
