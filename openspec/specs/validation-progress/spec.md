@@ -175,6 +175,64 @@ When a validation job reaches a terminal successful state (`Succeeded` or `Succe
 - WHEN the run's PR is subsequently created
 - THEN the deploy-gate validation-comment post/upsert is (re)triggered at PR creation, reaching the PR that did not exist at validation time (see `deploy-gate` for how the dedup marker keeps this exactly-once)
 
+### Requirement: Polling Shows Elapsed Time And Last-Poll Age
+
+While a validation job is polling, the screen MUST show the elapsed time since polling started as `mm:ss` (zero-padded; minutes keep growing past 59) and the age of the last successful report as `hace Ns` (whole seconds). Both values MUST be computed from the injected clock (`Deps.Now`), never from the wall clock. Before the first report has arrived, the last-poll age MUST NOT be shown as a number. Elapsed time and age update on each render driven by the existing tick or report messages and add no new polling requests. Re-attaching to an existing job restarts elapsed from the time of re-attach. Terminal states stop showing the live lines.
+
+#### Scenario: Elapsed is formatted mm:ss
+- GIVEN polling started at fake time T and the clock now reads T+65s
+- WHEN the view renders
+- THEN it shows `01:05`
+
+#### Scenario: Last poll is relative
+- GIVEN a report received at fake time T and the clock now reads T+7s
+- WHEN the view renders
+- THEN it shows `hace 7s`
+
+#### Scenario: Last poll refreshes on a new report
+- GIVEN `hace 7s` is shown
+- WHEN a new report arrives and the clock reads that instant
+- THEN the view shows `hace 0s`
+
+#### Scenario: No report yet
+- GIVEN polling just started and no report has arrived
+- WHEN the view renders
+- THEN elapsed shows `00:00` and no `hace Ns` number is shown
+
+#### Scenario: Long jobs keep counting
+- GIVEN the clock reads 61 minutes and 5 seconds after start
+- WHEN the view renders
+- THEN it shows `61:05`
+
+#### Scenario: Terminal state drops the live lines
+- GIVEN polling reaches a terminal state
+- WHEN the result renders
+- THEN neither the elapsed time nor `hace Ns` is shown
+
+### Requirement: Terminal Result Screen Shows The Failure Headline
+
+On a terminal Failed or Canceled result the screen MUST show the failure headline (same text as history and detail) above the counters. While the job is polling (`Queued`/`InProgress`/`Pending`) no headline MUST be shown. On timeout the existing timeout line (`Timeout: la validación no alcanzó un estado terminal a tiempo.`) MUST remain; the headline is derived from the last known report if one exists, otherwise omitted; the status is shown as-is.
+
+#### Scenario: Failed coverage run shows headline
+- GIVEN polling reaches `Failed` with org-wide coverage 66% < 75%
+- WHEN the result renders
+- THEN `Falló por cobertura: 66% global < 75%` appears above the counters
+
+#### Scenario: Polling has no headline
+- GIVEN the last report status is `InProgress`
+- WHEN the screen renders
+- THEN no failure headline is shown
+
+#### Scenario: Timeout with a last report
+- GIVEN polling timed out while the last report was non-terminal (a timeout only occurs while the status is non-terminal)
+- WHEN the result renders
+- THEN the existing timeout line appears and no failure headline is shown
+
+#### Scenario: Timeout without any report
+- GIVEN polling timed out before any report arrived
+- WHEN the result renders
+- THEN the timeout line appears and no headline
+
 ## Design Notes
 
 - Visual severity follows the existing `tui-presentation` "Semantic Color And Visual Hierarchy" requirement (bright-red for Error, bright-amber/yellow for Warning and partial success, bright-green for success) — not duplicated here.

@@ -155,7 +155,7 @@ func TestKeyRunHistory_X_OnIneligibleRow_IsNoOp(t *testing.T) {
 }
 
 // TestKeyRunHistory_EnterDAndR_RemainUnaffectedByX is task 4.5 (RED), a
-// regression guard: the existing Enter (resume), d (detail toggle), and r
+// regression guard: the existing Enter (resume), d (run detail), and r
 // (re-promote) actions are unaffected by the new x branch (run-history spec:
 // "Enter, d, and r remain unaffected").
 func TestKeyRunHistory_EnterDAndR_RemainUnaffectedByX(t *testing.T) {
@@ -180,9 +180,9 @@ func TestKeyRunHistory_EnterDAndR_RemainUnaffectedByX(t *testing.T) {
 	m2 := New(Deps{Dir: "/repo", Config: validationConfig()})
 	m2.state = StateRunHistory
 	m2.runs = records
-	toggled := advance(t, m2, keyPress("d"))
-	if !toggled.runDetail {
-		t.Fatal("d should still toggle the expanded detail, unaffected by x")
+	opened := advance(t, m2, keyPress("d"))
+	if opened.State() != StateRunDetail {
+		t.Fatal("d should still open the run detail, unaffected by x")
 	}
 
 	rp := New(Deps{Dir: "/repo", Config: rePromoteEnvConfig()})

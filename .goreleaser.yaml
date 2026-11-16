@@ -78,13 +78,13 @@ homebrew_casks:
     homepage: "https://github.com/malavolta/DeployDeck"
     description: "Go TUI orchestrating Salesforce commit promotion via git cherry-picks"
     # The binary is not signed/notarized, so strip the Gatekeeper quarantine
-    # attribute on install or macOS blocks the first run.
+    # attribute on install or macOS blocks the first run. Casks are
+    # macOS-only, so no OS guard is needed. Uses the declarative
+    # postflight_steps DSL (hooks.post.install was deprecated in v2.19).
     hooks:
       post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/deploydeck"]
-          end
+        install_steps: |
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/deploydeck"]
 
 # Scoop manifest, published to malavolta/scoop-bucket on release (Windows).
 # Needs the SCOOP_TOKEN secret (Contents: write on the bucket repo).

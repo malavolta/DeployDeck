@@ -232,3 +232,24 @@ func TestParsePRURL_DelegatesToParsePRURLParts(t *testing.T) {
 		t.Fatalf("ParsePRURL() = %q, want %q", got, "github.ibm.com/org/repo")
 	}
 }
+
+func TestOriginHost(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   string
+		ok     bool
+	}{
+		{"git@github.com:org/repo.git", "github.com", true},
+		{"https://github.com/org/repo", "github.com", true},
+		{"ssh://git@github.ibm.com/org/repo.git", "github.ibm.com", true},
+		{"git@github.ibm.com:org/repo.git", "github.ibm.com", true},
+		{"not a url", "", false},
+		{"https://--help/o/r", "", false},
+	}
+	for _, tt := range tests {
+		got, ok := github.OriginHost(tt.origin)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("OriginHost(%q) = (%q, %v), want (%q, %v)", tt.origin, got, ok, tt.want, tt.ok)
+		}
+	}
+}

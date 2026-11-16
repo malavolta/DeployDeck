@@ -1,7 +1,9 @@
 package salesforce
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -283,6 +285,45 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 		// preserves the pre-existing zero-exit behavior verbatim.
 	}
 
+	return toDeployReport(decoded, raw), nil
+}
+
+// ParseDeployReport decodes a persisted `sf project deploy report --json`
+// output (stdout + "\n" + stderr) into a DeployReport using the SAME mapping
+// as ReportDeploy. It is tolerant of surrounding CLI text: the first JSON
+// value is decoded, and when that fails the decode is retried from the first
+// '{' (leading noise). A decoded result with an empty Status is an error.
+func ParseDeployReport(raw []byte) (DeployReport, error) {
+	var decoded reportResultEnvelope
+	err := decodeFirstEnvelope(raw, &decoded)
+	if err != nil {
+		if i := bytes.IndexByte(raw, '{'); i > 0 {
+			decoded = reportResultEnvelope{}
+			err = decodeFirstEnvelope(raw[i:], &decoded)
+		}
+	}
+	if err != nil {
+		return DeployReport{}, err
+	}
+	if decoded.Status == "" {
+		return DeployReport{}, fmt.Errorf("salesforce: report has no status")
+	}
+	return toDeployReport(decoded, string(raw)), nil
+}
+
+func decodeFirstEnvelope(raw []byte, out *reportResultEnvelope) error {
+	var env envelope
+	if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&env); err != nil {
+		return fmt.Errorf("salesforce: parsing sf JSON envelope: %w", err)
+	}
+	if err := json.Unmarshal(env.Result, out); err != nil {
+		return fmt.Errorf("salesforce: parsing sf JSON result: %w", err)
+	}
+	return nil
+}
+
+// toDeployReport maps a decoded report result onto the exported DeployReport.
+func toDeployReport(decoded reportResultEnvelope, raw string) DeployReport {
 	report := DeployReport{
 		Status:                   decoded.Status,
 		NumberComponentsTotal:    decoded.NumberComponentsTotal,
@@ -338,5 +379,5 @@ func (c *client) ReportDeploy(ctx context.Context, jobID, targetOrg, dir string)
 		})
 	}
 
-	return report, nil
+	return report
 }

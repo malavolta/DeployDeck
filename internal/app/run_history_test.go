@@ -59,11 +59,11 @@ func TestViewRunHistory_ListsRunsNewestFirst(t *testing.T) {
 func TestViewRunHistory_RowShowsProgressReached(t *testing.T) {
 	t.Run("run without a job shows the last step reached", func(t *testing.T) {
 		rec := runs.Record{RunID: "g", Ticket: "PROJ-1", Target: "UAT", Phase: "git-conflict", CreatedAt: time.Now()}
-		if got := runProgressLabel(rec); got != "git-conflict" {
-			t.Errorf("a jobless run's progress label = %q, want its phase git-conflict", got)
+		if got := runProgressLabel(rec); got != "conflicto" {
+			t.Errorf("a jobless run's progress label = %q, want its phase in Spanish (conflicto)", got)
 		}
 		m := historyModel([]runs.Record{rec})
-		if !strings.Contains(m.View(), "git-conflict") {
+		if !strings.Contains(m.View(), "conflicto") {
 			t.Errorf("history row for a jobless run should show the last step reached:\n%s", m.View())
 		}
 	})
@@ -172,7 +172,7 @@ func TestViewRunHistory_ModeAwareRender(t *testing.T) {
 // --- 5.7/5.8: history keys --------------------------------------------------
 
 // TestKeyRunHistory_Navigation is task 5.7 (RED): ↑/↓ move the cursor, `d`
-// toggles the expanded detail, `Enter` on a resumable run resumes it, `Enter`
+// opens the full-screen run detail, `Enter` on a resumable run resumes it, `Enter`
 // on a terminal run is a no-op (stays on history), and `q`/`esc` declines to
 // the normal ticket-input flow.
 func TestKeyRunHistory_Navigation(t *testing.T) {
@@ -200,17 +200,17 @@ func TestKeyRunHistory_Navigation(t *testing.T) {
 		}
 	})
 
-	t.Run("d toggles the expanded detail", func(t *testing.T) {
+	t.Run("d opens the full-screen detail", func(t *testing.T) {
 		m := historyModel(records)
-		toggled := advance(t, m, keyPress("d"))
-		if !toggled.runDetail {
-			t.Fatal("d should turn the detail toggle on")
+		opened := advance(t, m, keyPress("d"))
+		if opened.State() != StateRunDetail {
+			t.Fatalf("d should open StateRunDetail, got %v", opened.State())
 		}
-		if !strings.Contains(toggled.View(), "Fase:") {
-			t.Errorf("the expanded detail should surface extra fields (Fase:):\n%s", toggled.View())
+		if !strings.Contains(opened.View(), "Estado:") {
+			t.Errorf("the detail should surface the run fields (Estado:):\n%s", opened.View())
 		}
-		if advance(t, toggled, keyPress("d")).runDetail {
-			t.Error("d again should turn the detail toggle off")
+		if advance(t, opened, keyPress("esc")).State() != StateRunHistory {
+			t.Error("esc should return to history")
 		}
 	})
 
@@ -241,15 +241,16 @@ func TestKeyRunHistory_Navigation(t *testing.T) {
 		}
 	})
 
-	t.Run("q and esc decline to the main menu", func(t *testing.T) {
+	t.Run("esc declines to the main menu; q quits", func(t *testing.T) {
 		// HU-018 (design ADR-1 refinement): declining the resume offer returns to
 		// the main menu — not StateTicketInput — so the hub stays reachable after
 		// a declined resume.
-		for _, key := range []string{"q", "esc"} {
-			m := historyModel(records)
-			if advance(t, m, keyPress(key)).State() != StateMainMenu {
-				t.Errorf("%q should decline the offer and proceed to StateMainMenu", key)
-			}
+		m := historyModel(records)
+		if advance(t, m, keyPress("esc")).State() != StateMainMenu {
+			t.Error("esc should decline the offer and proceed to StateMainMenu")
+		}
+		if _, cmd := m.Update(keyPress("q")); !isQuit(cmd) {
+			t.Error("q should quit without touching the run record")
 		}
 	})
 }

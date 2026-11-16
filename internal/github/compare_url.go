@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // Origin URL patterns CompareURL recognizes. All three derive the SAME
@@ -74,6 +75,22 @@ func OwnerRepo(originURL string) (ownerRepo string, ok bool) {
 		return "", false
 	}
 	return host + "/" + org + "/" + repo, true
+}
+
+// safeHost reports whether host can be passed to gh as a --hostname value:
+// non-empty, not flag-like, and free of whitespace.
+func safeHost(host string) bool {
+	return host != "" && !strings.HasPrefix(host, "-") && !strings.ContainsAny(host, " \t\r\n")
+}
+
+// OriginHost derives the host from originURL (any form parseOrigin
+// recognizes). ok=false for an unrecognized form or an unsafe host.
+func OriginHost(originURL string) (host string, ok bool) {
+	host, _, _, ok = parseOrigin(originURL)
+	if !ok || !safeHost(host) {
+		return "", false
+	}
+	return host, true
 }
 
 // prURLPattern matches a PR URL's ANCHORED shape:

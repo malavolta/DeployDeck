@@ -526,3 +526,27 @@ func TestHasValidationComment(t *testing.T) {
 		t.Fatal("expected HasValidationComment=false for an empty bodies slice")
 	}
 }
+
+// TestEvaluate_GHUnavailable: a non-empty GHUnavailable fails closed with
+// exactly one gh-availability condition, even when PRResolved is true and
+// every other fact would pass; an empty value leaves evaluation unchanged.
+func TestEvaluate_GHUnavailable(t *testing.T) {
+	base := Facts{
+		PRResolved: true,
+		Config:     config.GateConfig{Enabled: true, Approvers: []string{"alice"}},
+		Reviews:    []ApproverReview{{Login: "alice", State: "APPROVED"}},
+		Provenance: provenance.Verified, CommentPresent: true,
+	}
+
+	unavailable := base
+	unavailable.GHUnavailable = "gh no disponible"
+	got := Evaluate(unavailable)
+	if got.Passed || len(got.Conditions) != 1 || got.Conditions[0].Name != "gh-availability" ||
+		got.Conditions[0].Passed || got.Conditions[0].Detail != "gh no disponible" {
+		t.Fatalf("Evaluate() = %+v, want one failed gh-availability condition", got)
+	}
+
+	if ok := Evaluate(base); !ok.Passed {
+		t.Fatalf("empty GHUnavailable must leave evaluation unchanged, got %+v", ok)
+	}
+}

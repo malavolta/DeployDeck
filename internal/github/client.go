@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -21,6 +22,9 @@ const (
 	AuthAbsent AuthState = iota
 	AuthUnauthenticated
 	AuthAuthenticated
+	// AuthTimedOut: the probe hit its deadline, so authentication could not
+	// be verified. It is NEVER reported as AuthUnauthenticated.
+	AuthTimedOut
 )
 
 // Client is the gh CLI shim: auth-status detection and PR creation.
@@ -30,7 +34,11 @@ type Client interface {
 	// present-unauthenticated, present-authenticated) is itself a valid,
 	// informative AuthState the caller branches on directly, never a
 	// failure mode requiring separate error handling.
-	AuthStatus(ctx context.Context) AuthState
+	//
+	// host scopes the probe to one host (`--hostname=<h>`) so an unreachable
+	// extra host cannot affect the result; "" (or an unsafe host) runs the
+	// host-less `gh auth status`. A done context classifies as AuthTimedOut.
+	AuthStatus(ctx context.Context, host string) AuthState
 	// CreatePR runs `gh pr create --base <base> --head <head> --title
 	// <title> --body <body>` (fully non-interactive — --body forces it,
 	// even when body is "" — args passed as a discrete slice, NEVER
@@ -118,12 +126,17 @@ func New(runner exec.Runner) Client {
 }
 
 // AuthStatus implements Client.AuthStatus.
-func (c *client) AuthStatus(ctx context.Context) AuthState {
-	result, err := c.runner.Run(ctx, exec.CommandRequest{
-		Name: "gh",
-		Args: []string{"auth", "status"},
-	})
+func (c *client) AuthStatus(ctx context.Context, host string) AuthState {
+	args := []string{"auth", "status"}
+	if safeHost(host) {
+		// One discrete token: a host such as "--help" can never parse as a flag.
+		args = append(args, "--hostname="+host)
+	}
+	result, err := c.runner.Run(ctx, exec.CommandRequest{Name: "gh", Args: args})
 	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) {
+			return AuthTimedOut
+		}
 		return AuthAbsent
 	}
 	if result.ExitCode != 0 {
