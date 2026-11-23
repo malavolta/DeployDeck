@@ -79,8 +79,8 @@ func TestInit_Batches_PrereqAndCheckUpdate(t *testing.T) {
 		if !ok {
 			t.Fatalf("Init()() = %T, want tea.BatchMsg (both prereq and update-check cmds)", msg)
 		}
-		if len(batch) != 2 {
-			t.Errorf("tea.BatchMsg has %d cmds, want 2 (prereq + update-check)", len(batch))
+		if len(batch) != 3 {
+			t.Errorf("tea.BatchMsg has %d cmds, want 3 (prereq + update-check + Doctor spinner)", len(batch))
 		}
 	})
 

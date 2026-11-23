@@ -86,7 +86,7 @@ func TestE2E_RunHistory_SeedsOfferDeclineResume(t *testing.T) {
 	}
 
 	// Declining proceeds to the main menu (HU-018 ADR-1 refinement).
-	if declined := advance(t, m, keyPress("q")); declined.State() != StateMainMenu {
+	if declined := advance(t, m, keyPress("esc")); declined.State() != StateMainMenu {
 		t.Fatalf("declining should proceed to StateMainMenu, got %v", declined.State())
 	}
 

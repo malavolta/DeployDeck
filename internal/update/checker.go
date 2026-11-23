@@ -13,10 +13,8 @@ import (
 const maxResponseBodyBytes = 1 << 20 // 1 MiB
 
 // ownerRepo identifies the GitHub repository whose Releases API is queried
-// for the latest tag. It is a PLACEHOLDER — set at activation checklist
-// step (a) once the real module path / origin repository exists
-// (docs/ACTIVATION-CHECKLIST.md).
-const ownerRepo = "OWNER/REPO" // PLACEHOLDER — set at activation checklist step (a)
+// for the latest tag.
+const ownerRepo = "malavolta/DeployDeck"
 
 // Checker looks up the latest DeployDeck release from GitHub. BaseURL is
 // injectable so tests can point it at an httptest.Server instead of the

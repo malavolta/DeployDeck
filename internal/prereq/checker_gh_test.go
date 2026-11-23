@@ -2,7 +2,10 @@ package prereq_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/malavolta/DeployDeck/internal/exec"
 	"github.com/malavolta/DeployDeck/internal/git"
@@ -116,5 +119,88 @@ func TestChecker_Check_NilGH_IncludesSkippedGHCheck(t *testing.T) {
 	}
 	if ghCheck.Status != prereq.StatusOK {
 		t.Fatalf("expected the skipped gh check to be OK, got %+v", ghCheck)
+	}
+}
+
+// deadlineRunner records the gh probe's args and deadline, and answers with
+// a canned result/error.
+type deadlineRunner struct {
+	args     []string
+	deadline time.Time
+	hasDL    bool
+	result   exec.CommandResult
+	err      error
+}
+
+func (r *deadlineRunner) Run(ctx context.Context, req exec.CommandRequest) (exec.CommandResult, error) {
+	r.args = req.Args
+	r.deadline, r.hasDL = ctx.Deadline()
+	return r.result, r.err
+}
+
+func originGit(origin string) *git.Service {
+	g := exec.NewFakeRunner()
+	g.When("git", []string{"rev-parse", "--show-toplevel"}, exec.CommandResult{Stdout: []byte("/repo\n")})
+	g.When("git", []string{"remote", "get-url", "origin"}, exec.CommandResult{Stdout: []byte(origin + "\n")})
+	return git.New(g)
+}
+
+func TestChecker_CheckGH_ProbeScopeAndTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		git      *git.Service
+		wantArgs string
+	}{
+		{"origin host scoped", originGit("git@github.com:org/repo.git"), "auth status --hostname=github.com"},
+		{"unsafe origin host falls back", originGit("https://--help/o/r"), "auth status"},
+		{"no origin falls back", git.New(exec.NewFakeRunner()), "auth status"},
+		{"nil git falls back", nil, "auth status"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &deadlineRunner{result: exec.CommandResult{ExitCode: 0}}
+			checker := &prereq.Checker{GH: github.New(r), Git: tt.git, GitRoot: "/repo", GHTimeout: 2 * time.Second}
+			before := time.Now()
+			check, _ := checker.CheckGH(context.Background())
+			if got := strings.Join(r.args, " "); got != tt.wantArgs {
+				t.Fatalf("args = %q, want %q", got, tt.wantArgs)
+			}
+			if check.Status != prereq.StatusOK {
+				t.Fatalf("want OK, got %+v", check)
+			}
+			if !r.hasDL || r.deadline.After(before.Add(2*time.Second+time.Second)) {
+				t.Fatalf("probe deadline %v not bounded by GHTimeout", r.deadline)
+			}
+		})
+	}
+}
+
+func TestChecker_CheckGH_NonAuthStatesExplainConsequences(t *testing.T) {
+	tests := []struct {
+		name       string
+		runner     *deadlineRunner
+		want       string
+		wantNotSay string
+	}{
+		{"absent", &deadlineRunner{err: errors.New("not found")}, "not installed", ""},
+		{"unauthenticated", &deadlineRunner{result: exec.CommandResult{ExitCode: 1}}, "not authenticated", ""},
+		{"timed out", &deadlineRunner{err: context.DeadlineExceeded}, "could not verify", "not authenticated"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checker := &prereq.Checker{GH: github.New(tt.runner)}
+			check, _ := checker.CheckGH(context.Background())
+			if check.Status != prereq.StatusWarning {
+				t.Fatalf("want warning, got %+v", check)
+			}
+			for _, w := range []string{tt.want, "compare URL", "deploy gate", "validation comment", "push still works"} {
+				if !strings.Contains(check.Detail, w) {
+					t.Errorf("Detail %q missing %q", check.Detail, w)
+				}
+			}
+			if tt.wantNotSay != "" && strings.Contains(check.Detail, tt.wantNotSay) {
+				t.Errorf("Detail %q must not say %q", check.Detail, tt.wantNotSay)
+			}
+		})
 	}
 }

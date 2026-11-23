@@ -297,6 +297,19 @@ type resumeDetectMsg struct {
 	err     error
 }
 
+// runHistoryLoadedMsg is the fresh run-list load fired when the user opens
+// StateRunHistory from the main menu ("Historial de runs"). records is the
+// Runs.List snapshot (newest-first). state is the live RepoState, valid only
+// when stateKnown is true: the repo read is best-effort here (a nil Git or a
+// failed read must never hide the history), so stale-run reconciliation runs
+// only against a state that was actually read. err is a failed listing.
+type runHistoryLoadedMsg struct {
+	state      git.RepoState
+	stateKnown bool
+	records    []runs.Record
+	err        error
+}
+
 // cancelDoneMsg carries the HU-012 cancel outcome: the raw cancel response
 // (persisted verbatim as cancel.json on success) or an error. onCancelDone
 // marks the run Canceled + persists on success, or surfaces the error WITHOUT
@@ -416,20 +429,20 @@ func resolveMergeTarget(records []runs.Record, format, name string) (string, boo
 	return "", false
 }
 
-// mergedLabel classifies an orphan branch's best-effort "likely merged" vs
-// "abandoned" advisory label from IsMergedInto's result (branch-cleanup spec:
+// mergedLabel classifies an orphan branch's best-effort "probablemente fusionada" vs
+// "abandonada" advisory label from IsMergedInto's result (branch-cleanup spec:
 // "Merged-Vs-Abandoned Is A Best-Effort Label Only" — this label NEVER gates
 // deletion, see keyBranchCleanup's unconditional unpushedCountCmd gate). An
 // unresolved target (ok==false) or an ancestor-check error both degrade to
-// "unknown" rather than guessing.
+// "desconocida" rather than guessing.
 func mergedLabel(ok, merged bool, err error) string {
 	if !ok || err != nil {
-		return "unknown"
+		return "desconocida"
 	}
 	if merged {
-		return "likely merged"
+		return "probablemente fusionada"
 	}
-	return "abandoned"
+	return "abandonada"
 }
 
 // shouldRestore is the pure HU-017 restore-on-quit guard (design.md "Quit-
@@ -1113,6 +1126,35 @@ func (m Model) resumeDetectCmd() tea.Cmd {
 	}
 }
 
+// runHistoryLoadCmd reloads the run list for the "Historial de runs" menu
+// entry. It reuses the same injected dependencies as resumeDetectCmd
+// (Runs.List + Git.RepoState) but, unlike startup detection, the repo read is
+// best-effort: a nil Git or a failed RepoState still delivers the records
+// (stateKnown=false), because the history must stay browsable regardless. A
+// nil Runs writer disables the load (nil cmd), leaving m.runs as-is.
+func (m Model) runHistoryLoadCmd() tea.Cmd {
+	writer := m.deps.Runs
+	if writer == nil {
+		return nil
+	}
+	g := m.deps.Git
+	dir := m.deps.GitRoot
+	parent := m.ctx()
+	return func() tea.Msg {
+		var msg runHistoryLoadedMsg
+		if g != nil {
+			ctx, cancel := context.WithTimeout(parent, resumeDetectTimeout)
+			state, err := g.RepoState(ctx, dir)
+			cancel()
+			if err == nil {
+				msg.state, msg.stateKnown = state, true
+			}
+		}
+		msg.records, msg.err = writer.List()
+		return msg
+	}
+}
+
 // originalBranchCmd captures the branch checked out at flow startup —
 // BEFORE any promotion branch is created — through git.Service.CurrentBranch,
 // so quitCmd can restore it later (branch-cleanup spec: "Original Branch
@@ -1341,6 +1383,37 @@ func (m Model) pushCmd() tea.Cmd {
 	}
 }
 
+// ghAuthTimeout bounds one `gh auth status` probe so an unreachable host
+// cannot stall a screen.
+const ghAuthTimeout = 5 * time.Second
+
+// ghAuth probes gh scoped to originURL's host (host-less when it cannot be
+// derived), bounded by ghAuthTimeout. A nil client is AuthAbsent.
+func ghAuth(parent context.Context, gh github.Client, originURL string) github.AuthState {
+	if gh == nil {
+		return github.AuthAbsent
+	}
+	host, _ := github.OriginHost(originURL)
+	ctx, cancel := context.WithTimeout(parent, ghAuthTimeout)
+	defer cancel()
+	return gh.AuthStatus(ctx, host)
+}
+
+// ghUnavailableCause maps a non-authenticated state to the gate's Spanish
+// cause string; "" for an authenticated gh.
+func ghUnavailableCause(auth github.AuthState) string {
+	switch auth {
+	case github.AuthAuthenticated:
+		return ""
+	case github.AuthUnauthenticated:
+		return "gh no autenticado"
+	case github.AuthTimedOut:
+		return "no se pudo verificar gh"
+	default:
+		return "gh no disponible"
+	}
+}
+
 // preparePRCmd composes the HU-014 post-push PR-preparation data: ONE
 // `gh auth status` (through the github.Client — AuthAbsent when no client is
 // wired) plus `git remote get-url origin` (through the git service), from
@@ -1357,10 +1430,9 @@ func (m Model) preparePRCmd() tea.Cmd {
 	reusing := m.reusing
 	ctx := m.ctx()
 	return func() tea.Msg {
-		auth := github.AuthAbsent
-		if gh != nil {
-			auth = gh.AuthStatus(ctx)
-		}
+		// Read origin first: the gh probe is scoped to its host.
+		originURL, rerr := g.RemoteURL(ctx, dir, "origin")
+		auth := ghAuth(ctx, gh, originURL)
 		msg := prepDoneMsg{auth: auth}
 
 		// incremental-promotion: only a REUSED branch could already have an
@@ -1375,7 +1447,6 @@ func (m Model) preparePRCmd() tea.Cmd {
 			}
 		}
 
-		originURL, rerr := g.RemoteURL(ctx, dir, "origin")
 		if rerr != nil {
 			msg.remoteErr = rerr
 			return msg
@@ -1596,6 +1667,8 @@ type gateCheckDoneMsg struct {
 // pr-resolution condition).
 func (m Model) gateCheckCmd() tea.Cmd {
 	gh := m.deps.GH
+	g := m.deps.Git
+	dir := m.deps.GitRoot
 	rec := m.runs[m.runsCursor]
 	gateCfg, _ := m.deps.Config.GateFor(rec.Target)
 	branchFormat := m.deps.Config.BranchFormat
@@ -1610,6 +1683,17 @@ func (m Model) gateCheckCmd() tea.Cmd {
 		defer cancel()
 
 		facts := gate.Facts{Config: gateCfg}
+
+		// gh availability first: when gh is unusable no other fact can be
+		// read, so block naming gh as the cause (fail closed, no gh calls).
+		originURL := ""
+		if g != nil {
+			originURL, _ = g.RemoteURL(ctx, dir, "origin")
+		}
+		if cause := ghUnavailableCause(ghAuth(ctx, gh, originURL)); cause != "" {
+			facts.GHUnavailable = cause
+			return gateCheckDoneMsg{result: gate.Evaluate(facts)}
+		}
 
 		prURL, ok := resolvePRURL(ctx, gh, rec, branchFormat)
 		facts.PRResolved = ok

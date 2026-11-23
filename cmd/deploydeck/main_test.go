@@ -1,42 +1,15 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"testing"
-
-	"github.com/malavolta/DeployDeck/internal/version"
 )
 
-// TestDefaultCheckUpdate_DegradesOnError proves defaultCheckUpdate degrades
-// to (false, "", non-nil error) on any check failure — here a pre-canceled
-// context, so the composition seam is proven WITHOUT hitting the real
-// network (update-notification: Silent Skip on Check Failure).
-func TestDefaultCheckUpdate_DegradesOnError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	hasUpdate, latest, err := defaultCheckUpdate(ctx)
-
-	if err == nil {
-		t.Fatal("expected a non-nil error from a pre-canceled context, got nil")
-	}
-	if hasUpdate {
-		t.Errorf("hasUpdate = true, want false on check failure")
-	}
-	if latest != "" {
-		t.Errorf("latest = %q, want empty string on check failure", latest)
-	}
-}
-
-// TestDecideUpdate covers the pure decision logic defaultCheckUpdate
+// TestDecideUpdate covers the pure decision logic newCheckUpdate
 // delegates to after fetching: given a fetch error, decideUpdate degrades
 // silently; given a successful fetch, it defers to update.HasNewer's
 // current-vs-latest comparison (including the "dev" no-nag default).
 func TestDecideUpdate(t *testing.T) {
-	orig := version.Version
-	defer func() { version.Version = orig }()
-
 	tests := []struct {
 		name          string
 		current       string
@@ -95,9 +68,7 @@ func TestDecideUpdate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			version.Version = tt.current
-
-			hasUpdate, latest, err := decideUpdate(tt.latest, tt.fetchErr)
+			hasUpdate, latest, err := decideUpdate(tt.current, tt.latest, tt.fetchErr)
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
