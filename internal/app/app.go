@@ -589,7 +589,10 @@ type Model struct {
 	// background ctx and completes on the org regardless); (3) it identifies
 	// which in-memory m.runs row to mark quick-deployed so the in-session
 	// eligibility gate excludes it. Cleared on completion (success OR error).
-	quickConfirm        string
+	quickConfirm string
+	// quickFromResult: StateQuickDeploy was opened from StateSucceeded (not run
+	// history), so esc/q return there (ungated-env-deploy).
+	quickFromResult     bool
 	quickErr            error
 	quickDeployingRunID string
 

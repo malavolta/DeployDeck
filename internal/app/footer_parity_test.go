@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/malavolta/DeployDeck/internal/config"
 	"github.com/malavolta/DeployDeck/internal/git"
 	"github.com/malavolta/DeployDeck/internal/github"
 	"github.com/malavolta/DeployDeck/internal/prereq"
@@ -67,6 +68,7 @@ func TestFooterParity_PinnedFragments(t *testing.T) {
 		{"polling", st(StateValidationPolling), []string{"c cancelar", "r refrescar", "q salir (el job sigue activo)"}},
 		{"conflict", st(StateCherryPickConflict), []string{"el run queda reanudable", "↑/↓"}},
 		{"succeeded with branch", func(m *Model) { m.state, m.plan.PromotionBranch = StateSucceeded, "deploy/DD-1" }, []string{"d borrar rama"}},
+		{"succeeded offer available", func(m *Model) { m.state = StateSucceeded; resultOfferReady(nil)(m) }, []string{"x desplegar"}},
 		{"cleanup confirm", func(m *Model) {
 			m.state, m.cleanupPhase = StateBranchCleanup, cleanupConfirm
 			m.cleanupBranches = []cleanupRow{{}}
@@ -85,6 +87,19 @@ func TestFooterParity_PinnedFragments(t *testing.T) {
 	m.state = StateSucceeded
 	if strings.Contains(m.View(), "d borrar rama") {
 		t.Error("succeeded without a branch must not advertise d")
+	}
+	gate := func(m *Model) { m.deps.Config.Gates = map[string]config.GateConfig{"UAT": {Enabled: true}} }
+	for name, f := range map[string]func(*runs.Record){"unavailable": func(r *runs.Record) { r.TestLevel = "" }, "production": func(r *runs.Record) { r.Target = "main" }, "gated": func(r *runs.Record) { r.Target = "UAT" }} {
+		u := fixtureModel(func(m *Model) {
+			m.state = StateSucceeded
+			resultOfferReady(f)(m)
+			if name == "gated" {
+				gate(m)
+			}
+		})
+		if strings.Contains(u.View(), "x desplegar") {
+			t.Errorf("%s offer must not advertise x desplegar", name)
+		}
 	}
 }
 
@@ -147,6 +162,9 @@ func parityFixtures() []struct {
 		{"quick deploy none", set(StateQuickDeploy, func(m *Model) { m.runs = nil })},
 		{"aborted no branch", set(StateAborted, func(m *Model) { m.plan.PromotionBranch = "" })},
 		{"succeeded no branch", set(StateSucceeded, func(m *Model) { m.plan.PromotionBranch = "" })},
+		{"succeeded offer available", set(StateSucceeded, resultOfferReady(nil))},
+		{"succeeded offer unavailable", set(StateSucceeded, resultOfferReady(func(r *runs.Record) { r.TestLevel = "" }))},
+		{"succeeded offer production", set(StateSucceeded, resultOfferReady(func(r *runs.Record) { r.Target = "main" }))},
 		{"delta failed", set(StateDeltaGeneration, func(m *Model) { m.deltaErr = errStub })},
 		{"validation start failed", set(StateValidationStart, func(m *Model) { m.validateErr = errStub })},
 		{"package review empty", set(StatePackageReview, func(m *Model) { m.summary.Empty = true })},
@@ -180,6 +198,22 @@ func parityFixtures() []struct {
 func quickReady(m *Model) {
 	m.deps.Config.QuickDeploy.AllowExecution = true
 	m.runs[0] = runs.Record{RunID: "q", Status: "Succeeded", Target: "UAT", TestLevel: "RunLocalTests", JobID: "J", CreatedAt: time.Now()}
+}
+
+// resultOfferReady loads the current run (RunID "q") into m.runs so the
+// succeeded screen computes its deploy offer from the record.
+func resultOfferReady(f func(*runs.Record)) func(*Model) {
+	return func(m *Model) {
+		if len(m.runs) == 0 {
+			m.runs = []runs.Record{{}}
+		}
+		quickReady(m)
+		m.runID = "q"
+		m.runs[0].Alias = "UAT_SBX"
+		if f != nil {
+			f(&m.runs[0])
+		}
+	}
 }
 
 // realistic returns the minimal valid setup so the primary Enter key of the
