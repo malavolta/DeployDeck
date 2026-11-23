@@ -439,3 +439,21 @@ Notas:
 | q salir                                                                       |
 +------------------------------------------------------------------------------+
 ```
+
+### Oferta Desde El Resultado (Entorno Sin Gate)
+
+```text
+  Estado: Succeeded
+
+  [i] Entorno sin gate: x despliega esta validación (quick deploy, requiere DESPLEGAR)
+
++------------------------------------------------------------------------------+
+| p preparar push   d borrar rama   x desplegar   Enter/q/Esc salir             |
++------------------------------------------------------------------------------+
+```
+
+Variante no disponible (sin footer `x`, `x` no hace nada):
+
+```text
+  [i] Despliegue no disponible: la ejecución está deshabilitada (quickDeploy.allowExecution)
+```

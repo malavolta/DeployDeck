@@ -132,6 +132,20 @@ func (m Model) keySucceeded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// remote ref.
 		m.notice = ""
 		return m, m.unpushedCountCmd(m.plan.PromotionBranch)
+	case key.Matches(msg, keys.Quick):
+		// ungated-env-deploy: only an AVAILABLE offer acts; every other case is a
+		// strict no-op (the reason is already on screen). Opens the existing
+		// typed-DESPLEGAR screen on the finished run's row; nothing executes here.
+		if offer, _ := m.resultOffer(); offer != offerAvailable {
+			return m, nil
+		}
+		m.runsCursor = m.resultRunIndex()
+		m.quickFromResult = true
+		m.quickConfirm = ""
+		m.quickErr = nil
+		m.notice = ""
+		m.state = StateQuickDeploy
+		return m, nil
 	case key.Matches(msg, keys.Exit):
 		return m, m.quitCmd()
 	}
@@ -1431,6 +1445,7 @@ func (m Model) keyRunHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.state = StateQuickDeploy
+		m.quickFromResult = false
 		m.quickConfirm = ""
 		m.quickErr = nil
 		return m, nil
@@ -1618,17 +1633,9 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.quickConfirm += "q"
 			return m, nil
 		}
-		m.quickConfirm = ""
-		m.quickErr = nil
-		m.notice = ""
-		m.state = StateRunHistory
-		return m, nil
+		return m.quickDeployBack(), nil
 	case key.Matches(msg, keys.Esc):
-		m.quickConfirm = ""
-		m.quickErr = nil
-		m.notice = ""
-		m.state = StateRunHistory
-		return m, nil
+		return m.quickDeployBack(), nil
 	case key.Matches(msg, keys.Backspace):
 		if n := len(m.quickConfirm); n > 0 {
 			m.quickConfirm = m.quickConfirm[:n-1]
@@ -1640,6 +1647,20 @@ func (m Model) keyQuickDeploy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// quickDeployBack leaves StateQuickDeploy for the screen that opened it: the
+// result screen (ungated-env-deploy) or run history.
+func (m Model) quickDeployBack() Model {
+	m.quickConfirm = ""
+	m.quickErr = nil
+	m.notice = ""
+	m.state = StateRunHistory
+	if m.quickFromResult {
+		m.state = StateSucceeded
+	}
+	m.quickFromResult = false
+	return m
 }
 
 // keyDeployGateBlocked handles deploy-gate's gate-block screen (deploy-gate

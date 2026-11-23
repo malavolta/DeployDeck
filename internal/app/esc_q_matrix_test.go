@@ -101,6 +101,9 @@ func TestEscQ_TypedStatesNeverQuitOnQ(t *testing.T) {
 		{"package path", func(m *Model) { m.state = StatePackageSelect }, func(m Model) string { return m.packagePath }, StateMainMenu},
 		{"CANCELAR", func(m *Model) { m.state = StateCancelConfirm }, func(m Model) string { return m.cancelInput }, StateValidationPolling},
 		{"DESPLEGAR", func(m *Model) { m.state = StateQuickDeploy; m.runs = []runs.Record{{RunID: "r"}} }, func(m Model) string { return m.quickConfirm }, StateRunHistory},
+		{"DESPLEGAR from result", func(m *Model) {
+			m.state, m.quickFromResult, m.runs = StateQuickDeploy, true, []runs.Record{{RunID: "r"}}
+		}, func(m Model) string { return m.quickConfirm }, StateSucceeded},
 		{"BORRAR", func(m *Model) {
 			m.state, m.cleanupPhase = StateBranchCleanup, cleanupStrongConfirm
 		}, func(m Model) string { return m.deleteConfirm }, StateBranchCleanup},

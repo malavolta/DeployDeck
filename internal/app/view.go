@@ -929,9 +929,22 @@ func (m Model) viewValidationResult() string {
 		b.WriteString(v)
 		return b.String()
 	}
+	b.WriteString(m.deployOfferLine())
 	b.WriteString(m.noticeLine())
 	b.WriteString(m.footerLine())
 	return b.String()
+}
+
+// deployOfferLine is the result screen's quick-deploy offer (available) or its
+// unavailable reason; empty for gated/production targets (no IO: View-safe).
+func (m Model) deployOfferLine() string {
+	switch offer, reason := m.resultOffer(); offer {
+	case offerAvailable:
+		return "\n  " + mark("i") + " Entorno sin gate: x despliega esta validación (quick deploy, requiere DESPLEGAR)\n"
+	case offerUnavailable:
+		return "\n  " + mark("i") + " Despliegue no disponible: " + reason + "\n"
+	}
+	return ""
 }
 
 // viewPushPreparation renders HU-014's push + PR-preparation screen (mockup

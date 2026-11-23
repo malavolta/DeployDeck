@@ -168,6 +168,24 @@ deploy screen, then type `DESPLEGAR`. On a gated target, DeployDeck checks
 approvals, resolved threads, the validation comment and the signature first, and
 blocks with the list of what's missing before touching the org.
 
+### Deploying to a test environment
+
+Governance is opt-in per environment: a target with no `gates` entry (or
+`enabled: false`) deploys with no PR, approvals or signature, and `gh` is not
+needed. After a successful validation on such a target, the result screen offers
+`x desplegar`; it opens the same `DESPLEGAR` confirmation as the run history, and
+Esc/q return to the result.
+
+- A branch not listed under `branches` is treated as production (fail-closed):
+  no offer, and production rules apply. List the branch under any `branches` key
+  except `production`; a branch named `main` is always production.
+- The sandbox `testLevel` must be `RunLocalTests` or `RunAllTestsInOrg`: runs
+  validated with `NoTestRun` or `RunSpecifiedTests` are not eligible.
+- The deploy only runs with `quickDeploy.allowExecution: true`; otherwise the
+  offer shows as unavailable with the reason and `x` does nothing.
+- Gated and production targets never get the result-screen offer; they deploy
+  from the run history, with the gate checked first.
+
 ```sh
 deploydeck                    # launch the TUI
 deploydeck doctor             # check prerequisites

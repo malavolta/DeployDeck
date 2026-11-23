@@ -1012,6 +1012,7 @@ Soportar escenarios controlados de release sin convertir DeployDeck en herramien
 - Dado que la validacion tiene mas de 10 dias o no corrio los tests requeridos, entonces no se muestra como elegible.
 - Dado que el entorno es produccion, entonces quick deploy no se ejecuta sin configuracion explicita.
 - Dado que el usuario no confirma, entonces no se ejecuta ningun deploy.
+- Dado un entorno sin gate y no productivo, cuando la validacion termina bien, entonces el resultado ofrece `x` para abrir esta misma confirmacion (ver HU-020).
 
 ### Informacion Tecnica
 
@@ -1194,6 +1195,38 @@ Infraestructura necesaria (una vez): dos repos auxiliares, `homebrew-tap` y `sco
 - Variantes: endpoint de releases caido o lento -> el arranque no se bloquea (chequeo con timeout y error ignorado).
 - En CI: si (es CI en si mismo; la release real solo se dispara al taggear).
 
+## HU-020 - Deploy A Entorno Sin Gate Desde El Resultado
+
+Prioridad: Media  
+Tipo: Operativa  
+Fase: Productizacion
+
+### Historia
+
+Como desarrollador, quiero desplegar a un entorno de test (p. ej. DEV) justo despues de una validacion exitosa, sin pasar por el gate de PR ni buscar el run en el historial.
+
+### Tareas
+
+- Un entorno sin `gates` (o con `enabled: false`) se despliega sin PR, aprobaciones ni firma; la gobernanza es opt-in por entorno.
+- En la pantalla de resultado, ofrecer `x desplegar` solo si el target no tiene gate, no es produccion y el run es elegible (HU-015). Una rama fuera de `branches` se trata como produccion y no recibe la oferta.
+- Reutilizar la confirmacion `DESPLEGAR` y el mismo despacho de HU-015; Esc/q vuelven al resultado.
+- Con `quickDeploy.allowExecution: false` o un run no elegible, mostrar la oferta como no disponible con su razon; `x` no hace nada.
+- Documentar en el README el default sin gate y el riesgo del mapeo `branches`.
+
+### Criterios De Aceptacion
+
+- Dado un target sin gate y un run elegible, cuando la validacion termina bien, entonces el resultado muestra `x desplegar`; `x` abre `DESPLEGAR`, y tras confirmarlo se ejecuta `sf project deploy quick`.
+- Dado un target con gate habilitado o de produccion, entonces no hay oferta ni tecla `x` en el resultado.
+- Dado `allowExecution: false` o un run no elegible, entonces se muestra la razon y nunca se ejecuta.
+
+### Test E2E
+
+- Harness: `runs.Writer` temporal + `sf` falso.
+- Seed: run `Queued` en un target sin gate.
+- Asserta: validacion exitosa -> `x` -> `DESPLEGAR` -> `QuickDeploy` con el JobID/alias del run y `QuickDeployedAt` registrado; Esc vuelve al resultado.
+- Variantes: gate habilitado, produccion, rama no mapeada, run inelegible, `allowExecution: false`.
+- En CI: si.
+
 ## Orden De Implementacion Recomendado
 
 1. HU-001 - Validar prerequisitos locales.
@@ -1213,6 +1246,7 @@ Infraestructura necesaria (una vez): dos repos auxiliares, `homebrew-tap` y `sco
 15. HU-014 - Preparar push y PR.
 16. HU-017 - Limpieza de ramas y runs.
 17. HU-019 - Pipeline de release de DeployDeck.
+17b. HU-020 - Deploy a entorno sin gate desde el resultado.
 18. HU-018 - Modos standalone (futuro).
 19. HU-015 - Quick deploy opcional (futuro).
 
@@ -1239,6 +1273,7 @@ Tallas: S = 1-2 dias, M = 3-5 dias, L = 1-2 semanas (una persona, sin pulir UI m
 | HU-014 | Push y PR | Productizacion | S |
 | HU-017 | Limpieza de ramas y runs | Productizacion | S |
 | HU-019 | Pipeline de release | Productizacion | M |
+| HU-020 | Deploy sin gate desde el resultado | Productizacion | S |
 | HU-018 | Modos standalone | Futuro | M |
 | HU-015 | Quick deploy | Futuro | S |
 
@@ -1289,3 +1324,4 @@ Regla del proyecto: cada HU nace con su test (ver la subseccion `Test E2E` de ca
 | HU-017 | temp + fs | restaurar rama, limpiar huerfanas, retencion | si |
 | HU-018 | temp + sgd / sf-fake / alias | modos delta y validacion standalone (futuro) | parcial |
 | HU-019 | CI + goreleaser | build/test en PR y snapshot de release | si |
+| HU-020 | fs + sf-fake | deploy desde el resultado en entorno sin gate | si |

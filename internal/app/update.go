@@ -1236,6 +1236,11 @@ func (m Model) onReportDone(msg reportDoneMsg) (tea.Model, tea.Cmd) {
 		// the terminal screen so a stray key can't funnel into keyDeleteConfirm.
 		m = m.resetCleanupState()
 		m.state = terminalState(msg.report.Status)
+		if m.state == StateSucceeded {
+			// ungated-env-deploy: load the finished run so the result screen can
+			// offer quick deploy (sync disk read, like AppendReport above).
+			m = m.upsertResultRun(msg.report.Status)
+		}
 
 		// deploy-gate / validation-progress: a terminal SUCCESS on a gate-
 		// enabled target with requireValidationComment on triggers the

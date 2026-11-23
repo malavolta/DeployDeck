@@ -188,8 +188,14 @@ func (m Model) screenBindings() []key.Binding {
 			return bs
 		}
 		ok := m.hasBranch()
-		return []key.Binding{hint(keys.Push, "p", "preparar push", ok && m.state == StateSucceeded),
-			hint(keys.Delete, "d", "borrar rama", ok && (m.state == StateSucceeded || m.state == StateAborted)), exit}
+		bs := []key.Binding{hint(keys.Push, "p", "preparar push", ok && m.state == StateSucceeded),
+			hint(keys.Delete, "d", "borrar rama", ok && (m.state == StateSucceeded || m.state == StateAborted))}
+		// ungated-env-deploy: the hint exists only when the offer is not hidden,
+		// and it is executable (enabled) only when the offer is available.
+		if offer, _ := m.resultOffer(); offer != offerHidden {
+			bs = append(bs, hint(keys.Quick, "x", "desplegar", offer == offerAvailable))
+		}
+		return append(bs, exit)
 	case StatePickVerification:
 		return []key.Binding{bEnter("continuar igualmente"), on(keys.Edit, "e", "editar selección"), bQuit()}
 	case StateDeltaGeneration:

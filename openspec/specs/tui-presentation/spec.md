@@ -173,9 +173,14 @@ Every state MUST follow the esc/q rule of its category:
 | In-flight screens (commit discovery, branch creation, cherry-picking) | none | none |
 | Terminal results (Succeeded, Aborted, Failed, Canceled, Error) | quit | quit (Enter also quits) |
 | Typed confirmations and text input (ticket, package path, CANCELAR, DESPLEGAR, BORRAR) | cancel and go back (ticket goes to the main menu) | typed into the buffer when it has text; when empty, same as esc. Never quits. |
+| Typed confirmation `DESPLEGAR` opened from the result screen | cancel and go back to `StateSucceeded` | typed into the buffer when it has text; when empty, same as esc (back to `StateSucceeded`). Never quits. |
 | y/n confirmations | cancel and go back | cancel and go back (same as esc; never quits from inside a pending decision) |
 
 "Back to the parent" means: branch cleanup goes to the main menu, push prep goes to Succeeded, history and the other pickers go to the state that opened them. Quit via `q` MUST use `quitCmd()`, so restore is skipped while a cherry-pick is in progress and a Salesforce job is left active.
+
+The typed-confirmation row for `DESPLEGAR` SHALL go back to its origin: `StateSucceeded` when opened from the result screen, `StateRunHistory` when opened from run history. "Back to the parent" for `StateQuickDeploy` therefore means the state that opened it.
+
+(Previously: `DESPLEGAR` always went back to run history.)
 
 #### Scenario: Main menu esc and q both quit
 - GIVEN `StateMainMenu`
@@ -221,6 +226,11 @@ Every state MUST follow the esc/q rule of its category:
 - THEN `q` is appended to the buffer and no quit command is returned
 - AND WHEN the buffer is empty and the user presses `q`
 - THEN the screen behaves as on `esc` (cancel and go back) and no quit command is returned
+
+#### Scenario: DESPLEGAR cancel follows its origin
+- GIVEN `StateQuickDeploy` opened from `StateSucceeded`
+- WHEN the user presses `esc`, and separately `q` on an empty buffer
+- THEN each yields `StateSucceeded` with no quit command
 
 #### Scenario: y/n confirmation
 - GIVEN a y/n confirmation state
@@ -550,3 +560,22 @@ The system SHALL show an animated spinner frame while any of these run: the push
 - GIVEN a running spinner whose phase has just completed
 - WHEN the pending tick is delivered
 - THEN no command is returned and no further tick is scheduled
+
+### Requirement: Succeeded Screen Shows The Deploy Offer And Hint Consistently
+
+When the quick-deploy offer is available on `StateSucceeded`, the footer SHALL list `x desplegar` and the keymap SHALL bind `x` in that state; when it is not available, neither the hint nor the binding SHALL appear. The result screen SHALL show one offer line: the offer when available, or the unavailable reason (existing Spanish reason text, or the execution-disabled reason) when the target is eligible-by-target but not deployable. No line SHALL be shown for gated or production targets. Footers and handlers SHALL stay in parity, and the footer grammar of other keys stays byte-identical.
+
+#### Scenario: Footer and keymap agree when available
+- GIVEN `StateSucceeded` with an available offer
+- WHEN the footer renders and `x` is dispatched
+- THEN the footer lists `x desplegar` and the handler acts on `x`
+
+#### Scenario: No hint when absent
+- GIVEN `StateSucceeded` for a gated or production target
+- WHEN the footer renders
+- THEN no `x desplegar` hint is listed and `x` is not bound
+
+#### Scenario: Unavailable offer shows a reason but no hint
+- GIVEN an ineligible run or `AllowExecution` false on an ungated non-production target
+- WHEN the result screen renders
+- THEN the offer line shows the unavailable reason and the footer lists no executable `x desplegar` hint
